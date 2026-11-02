@@ -198,7 +198,7 @@ private slots:
         QVERIFY(collapsedHeight <= 76);
         settings->click();
         QTRY_VERIFY(advanced->isVisible());
-        QTRY_VERIFY(connectionBar->height() > collapsedHeight);
+        QCOMPARE(connectionBar->height(), collapsedHeight);
         auto controls = advanced->findChildren<QComboBox *>();
         QCOMPARE(controls.size(), 4);
         auto *summary = window.findChild<QLabel *>("serialSummary");
@@ -463,25 +463,60 @@ private slots:
             QVERIFY(!settings->property("keyboardFocus").toBool());
             QTest::qWait(20);
             QVERIFY(window.grab().save("qa/serial-settings-" + mode + ".png"));
+            auto *serialMenu = window.findChild<QMenu *>("serialMenu");
+            QVERIFY(serialMenu);
+            QVERIFY(serialMenu->grab().save("qa/uart-popup-" + mode + ".png"));
+            serialMenu->hide();
             window.resize(1000, 720);
+            QTest::qWait(20);
+            settings->click();
             QTest::qWait(20);
             auto *advanced = window.findChild<QWidget *>("serialAdvanced");
             QVERIFY(advanced);
+            auto *bar = window.findChild<QWidget *>("connectionBar");
+            auto *title = window.findChild<QLabel *>("heading");
+            QVERIFY(bar && title);
+            QVERIFY(!bar->isAncestorOf(title));
+            const QRect titleBounds(title->mapTo(window.centralWidget(), QPoint(0, 0)), title->size());
+            const QRect barBounds(bar->mapTo(window.centralWidget(), QPoint(0, 0)), bar->size());
+            QVERIFY(titleBounds.right() < barBounds.left());
+            QVERIFY(bar->width() <= 700);
+            auto *dashboards = window.findChild<QWidget *>("dashboards");
+            QVERIFY(dashboards);
+            const QRect dashboardBounds(dashboards->mapTo(window.centralWidget(), QPoint(0, 0)), dashboards->size());
+            QCOMPARE(barBounds.right(), dashboardBounds.right());
+            int previousRight = -1;
+            for (const auto &name : {"port", "refreshPorts", "baudRate", "serialSettings", "connectionCard"})
+            {
+                auto *control = window.findChild<QWidget *>(name);
+                QVERIFY(control);
+                const QRect bounds(control->mapTo(bar, QPoint(0, 0)), control->size());
+                QVERIFY2(bar->rect().contains(bounds), name);
+                QVERIFY2(bounds.left() > previousRight, name);
+                const QRect centralBounds(control->mapTo(window.centralWidget(), QPoint(0, 0)), control->size());
+                QVERIFY2(centralBounds.top() <= titleBounds.center().y() &&
+                         centralBounds.bottom() >= titleBounds.center().y(), name);
+                previousRight = bounds.right();
+            }
             for (auto *control : advanced->findChildren<QComboBox *>())
             {
                 const QRect bounds(control->mapTo(advanced, QPoint(0, 0)), control->size());
                 QVERIFY(advanced->rect().contains(bounds));
             }
+            QVERIFY(serialMenu->grab().save("qa/uart-popup-small-" + mode + ".png"));
             QVERIFY(window.grab().save("qa/serial-settings-small-" + mode + ".png"));
             window.resize(1440, 900);
             QTest::qWait(20);
-            QTest::mouseClick(settings, Qt::LeftButton);
+            serialMenu->hide();
+            window.activateWindow();
+            QTest::qWait(20);
+            settings->setFocus(Qt::TabFocusReason);
             QTest::keyClick(settings, Qt::Key_Space);
-            QVERIFY(settings->property("keyboardFocus").toBool());
             QVERIFY(window.findChild<QWidget *>("serialAdvanced")->isVisible());
             QVERIFY(window.grab().save("qa/keyboard-settings-" + mode + ".png"));
-            QTest::keyClick(settings, Qt::Key_Space);
-            QVERIFY(!window.findChild<QWidget *>("serialAdvanced")->isVisible());
+            QTest::keyClick(serialMenu, Qt::Key_Escape);
+            QTRY_VERIFY(!window.findChild<QWidget *>("serialAdvanced")->isVisible());
+            QVERIFY(!settings->isChecked());
         }
         window.resize(1000, 720);
         QTest::qWait(30);

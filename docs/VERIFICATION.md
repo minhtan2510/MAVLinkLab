@@ -154,3 +154,57 @@ Reduced the horizontal TX/RX splitter width from 16 to 12 px. Removed general to
 **Current checks:** core-only configure/build and CTest **1/1 passed**. Full configure and clean build with the temporary Qt prefix passed; CTest **2/2 passed in 8.55 s**. Configure reported missing XKB/Vulkan-header discovery, but generation/build completed; this does not establish native-platform feature availability. `bash -n run.sh` and `./run.sh --help` passed. The in-memory HEARTBEAT example from `API.md` was extracted, compiled against `mavcore` with C++17 and warning flags, and exited successfully. Local Markdown links, required document presence, code fences and trailing whitespace were checked.
 
 An earlier full run during the checkout transition failed `desktopFlow` at the Connect/Disconnect assertion and subsequently aborted in `modernDashboard`. The clean rebuild after the merge passed; the failure's precise cause was not isolated, so it is not claimed as a repaired application bug. Previous verification sections are historical runs, not new hardware evidence. Physical UART/DMA and native desktop integration were not retested in this documentation task.
+
+## Shared identity and UART header
+
+Moved the app title and UART controls into one compact header card. Removed the decorative monogram, allowed the port input to shrink to 140 px, and moved the framing/flow badge into Advanced. The header returns to its compact height when Advanced closes, leaving more room for the dashboards.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.86 s**. Added minimum-size checks for header control containment, horizontal ordering and title/control row alignment in Light/Dark. Reviewed offscreen collapsed Dark and expanded Light at 1000×720, alongside the existing interaction checks for hover, press, keyboard focus, popup rows, disabled configuration and theme changes. CodeGraph is up to date. Native desktop and physical UART/DMA were not retested.
+
+## Separate title and UART card
+
+The title now sits directly on the main background at the left content edge. Only the UART configuration has a card on the right, on the same row. Advanced expands within that card while the title stays aligned with its first control row.
+
+**Verification:** full build and CTest **2/2 passed in 8.81 s**. Widget checks verify the title is outside the UART card, precedes it horizontally and aligns with its controls in Light/Dark at 1000×720. Reviewed regenerated offscreen collapsed Dark and expanded Light renders; existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART/DMA were not retested.
+
+## Compact right-aligned UART group
+
+Removed the outer UART background/border and the connection-status group background/border. UART controls now form a compact group (maximum 700 px wide) at the right content edge, with a fixed 160 px port input and no internal expanding spacer before connection status. The title stays on the left; Advanced retains its inset settings panel.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.74 s**. Minimum-size Light/Dark widget checks verify the UART width cap and right-edge alignment with the dashboards. Reviewed regenerated offscreen collapsed Dark and expanded Light renders; existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART/DMA were not retested.
+
+## Grouped UART actions and settings popup
+
+Grouped Port/Refresh with a 4 px gap and separated Baud by 12 px. Replaced the Advanced text button with a theme-aware Settings vector icon. Connect/Disconnect is now 32 px high; the fixed-width 11 px connection status and LED sit beneath it. Removed the status divider. UART settings use a two-column QWidgetAction/QMenu popup, with focus entering Data bits and Escape dismissal, without expanding the header or moving the dashboards.
+
+**Verification:** full build passed; CTest **2/2 passed in 9.00 s**. Updated widget checks for unchanged header height on popup opening, retained values, disabled configuration while connected, keyboard activation and Escape dismissal. Reviewed regenerated offscreen Light/Dark empty/populated dashboards and settings popups, including minimum-window layout and disabled controls. Existing hover/press, focus, dropdown popup and theme-change checks passed. Earlier runs failed an obsolete assertion expecting focus to stay on Settings while its popup was open; the check now verifies keyboard activation and popup dismissal. CodeGraph is up to date; `git diff --check` passed. Native desktop popup integration and physical UART/DMA were not retested.
+
+## Remove UART status line
+
+Removed the Connected/Disconnected label and connection LED beneath Connect, including their unused helper/state/style definitions. The UART header returns to a single 32 px control row with its existing margins. The Connect/Disconnect action retains its connection-specific styling.
+
+**Verification:** full build and CTest **2/2 passed in 8.87 s**. Reviewed regenerated offscreen Dark empty and Light connected/populated layouts. Existing popup, interaction, minimum-size and PTY checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART/DMA were not retested.
+
+## Raise dashboards with tighter header spacing
+
+Reduced the top content inset from 16 to 10 px, the title/UART header height from 52 to 40 px (UART vertical margins from 10 to 4 px), and the header-to-dashboard gap from 12 to 8 px. The dashboards start 22 px higher at the tested font/scale, gaining the same amount of vertical content space.
+
+**Verification:** full build and CTest **2/2 passed in 8.83 s**. Reviewed regenerated offscreen Dark and minimum-size Light layouts; existing interaction, popup, resize and PTY checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART/DMA were not retested.
+
+## UART Settings sliders icon
+
+Replaced the UART Settings gear with a local vector icon showing three vertical sliders. Existing theme colors, button size, accessible name, tooltip and popup behavior remain in use.
+
+**Verification:** full build and CTest **2/2 passed in 9.00 s**. Reviewed regenerated offscreen Light/Dark layouts for icon visibility; existing interaction and popup checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## Continuous UART popup background
+
+Moved the UART popup background and single border onto QMenu#serialMenu, removed its outer padding, and made the embedded serialAdvanced frame transparent/borderless. This removes the different-colored menu gutter around the settings panel.
+
+**Verification:** full build and CTest **2/2 passed in 8.88 s**. Reviewed regenerated offscreen UART popup captures in Light/Dark; the background now fills the popup with one outer border. Existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## Rounded UART popup window corners
+
+Enabled a translucent background for the UART QMenu and applied a matching 7 px rounded window mask on Show/Resize. This clips the actual popup window beyond the rounded stylesheet border instead of leaving rectangular corner pixels.
+
+**Verification:** full build and CTest **2/2 passed in 8.82 s**. Reviewed offscreen Light/Dark popup captures and checked that all four outer corner pixels have alpha 0 in both themes. Existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native compositor behavior was not retested.

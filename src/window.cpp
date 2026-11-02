@@ -1,5 +1,6 @@
 #include "window.h"
 #include <QApplication>
+#include <QWidgetAction>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -19,6 +20,7 @@
 #include <QStyleOptionSpinBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegion>
 #include <QStyledItemDelegate>
 #include <QScrollBar>
 #include <QVBoxLayout>
@@ -89,48 +91,6 @@ static QIcon activityLed(double age, bool dark)
     p.setPen(Qt::NoPen);
     p.drawEllipse(1, 1, 8, 8);
     return QIcon(pixmap);
-}
-
-/**
- * @brief Generate a vector LED dot with an ambient glow ring for connection state.
- * @param state Connection state ("Connected", "Disconnected", "Connecting", "Error").
- * @param dark True if rendering under a dark palette.
- * @return Theme-aware pixmap representing connection state.
- */
-static QPixmap statusLedPixmap(const QString &state, bool dark)
-{
-    QPixmap pixmap(14, 14);
-    pixmap.fill(Qt::transparent);
-    QPainter p(&pixmap);
-    p.setRenderHint(QPainter::Antialiasing);
-    QColor color;
-    QColor glow;
-    if (state == "Connected")
-    {
-        color = dark ? QColor("#3fb950") : QColor("#1a7f37");
-        glow = dark ? QColor(63, 185, 80, 80) : QColor(26, 127, 55, 60);
-    }
-    else if (state == "Connecting")
-    {
-        color = dark ? QColor("#d29922") : QColor("#9a6700");
-        glow = dark ? QColor(210, 153, 34, 80) : QColor(154, 103, 0, 60);
-    }
-    else if (state == "Error")
-    {
-        color = dark ? QColor("#f85149") : QColor("#cf222e");
-        glow = dark ? QColor(248, 81, 73, 80) : QColor(207, 34, 46, 60);
-    }
-    else
-    {
-        color = dark ? QColor("#6e7681") : QColor("#8c959f");
-        glow = dark ? QColor(110, 118, 129, 35) : QColor(140, 149, 159, 35);
-    }
-    p.setPen(Qt::NoPen);
-    p.setBrush(glow);
-    p.drawEllipse(0, 0, 14, 14);
-    p.setBrush(color);
-    p.drawEllipse(3, 3, 8, 8);
-    return pixmap;
 }
 
 /**
@@ -431,6 +391,18 @@ static QIcon actionIcon(const QString &name, const QColor &color)
     {
         painter.drawRoundedRect(QRectF(4, 4, 8, 8), 1, 1);
     }
+    else if (name == "serialSettings")
+    {
+        painter.drawLine(QPointF(3, 2), QPointF(3, 4));
+        painter.drawLine(QPointF(3, 8), QPointF(3, 14));
+        painter.drawRoundedRect(QRectF(1.5, 4, 3, 4), 1, 1);
+        painter.drawLine(QPointF(8, 2), QPointF(8, 8));
+        painter.drawLine(QPointF(8, 12), QPointF(8, 14));
+        painter.drawRoundedRect(QRectF(6.5, 8, 3, 4), 1, 1);
+        painter.drawLine(QPointF(13, 2), QPointF(13, 4));
+        painter.drawLine(QPointF(13, 8), QPointF(13, 14));
+        painter.drawRoundedRect(QRectF(11.5, 4, 3, 4), 1, 1);
+    }
     else if (name == "refreshPorts")
     {
         painter.drawArc(QRectF(3, 3, 10, 10), 40 * 16, 280 * 16);
@@ -471,23 +443,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *central = new QWidget;
     setCentralWidget(central);
     auto *root = new QVBoxLayout(central);
-    root->setContentsMargins(20, 16, 20, 8);
+    root->setContentsMargins(20, 10, 20, 8);
     root->setSpacing(16);
     auto *heading = new QHBoxLayout;
-    auto *mark = new QLabel("M");
-    mark->setObjectName("appMark");
-    mark->setFixedSize(42, 42);
-    mark->setAlignment(Qt::AlignCenter);
-    heading->addWidget(mark);
-    heading->addSpacing(6);
-    auto *identity = new QVBoxLayout;
-    identity->setSpacing(2);
     auto *title = new QLabel("MAVLink Simulator");
     title->setObjectName("heading");
-    identity->addWidget(title);
-    heading->addLayout(identity);
-    heading->addStretch();
-    root->addLayout(heading);
+    title->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    title->setFixedHeight(40);
+    heading->addWidget(title, 0, Qt::AlignTop);
+    heading->setSpacing(12);
 
     settingsDialog = new QDialog(this);
     settingsDialog->setObjectName("settingsDialog");
@@ -567,10 +531,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *uart = new QFrame;
     uart->setObjectName("connectionBar");
     auto *uartLayout = new QVBoxLayout(uart);
-    uartLayout->setContentsMargins(12, 10, 12, 10);
+    uartLayout->setContentsMargins(0, 4, 0, 4);
     uartLayout->setSpacing(10);
     auto *uartRow = new QHBoxLayout;
-    uartRow->setSpacing(10);
+    uartRow->setSpacing(4);
     /** @brief Group each serial control with a persistent label and keyboard buddy. */
     const auto addCombo = [](QHBoxLayout *row, const QString &label,
                              QComboBox *&combo, const QStringList &values)
@@ -593,7 +557,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     };
     portBox = new WorkbenchComboBox;
     portBox->setFixedHeight(32);
-    portBox->setFixedWidth(200);
+    portBox->setFixedWidth(160);
     portBox->setEditable(true);
     portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
     portBox->setObjectName("port");
@@ -605,8 +569,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     refreshPortsButton->setAccessibleName("Refresh serial ports");
     refreshPortsButton->setToolTip("Refresh available serial ports");
 
-    uartRow->addSpacing(16);
-
+    uartRow->addSpacing(8);
     baudBox = new WorkbenchComboBox;
     baudBox->setFixedHeight(32);
     baudBox->setFixedWidth(116);
@@ -617,56 +580,42 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     baudBox->setAccessibleName("Baud rate");
     uartRow->addWidget(baudBox);
 
-    uartRow->addSpacing(14);
-
     serialSummary = new QLabel;
     serialSummary->setObjectName("serialSummary");
     serialSummary->setFixedHeight(32);
     serialSummary->setAlignment(Qt::AlignCenter);
     serialSummary->setAccessibleName("Serial framing and flow control");
-    uartRow->addWidget(serialSummary);
-
-    uartRow->addSpacing(8);
-
-    auto *settings = button("Advanced", "serialSettings", uartRow);
-    settings->setFixedSize(100, 32);
+    auto *settings = button("", "serialSettings", uartRow);
+    settings->setFixedSize(32, 32);
     settings->setCheckable(true);
     settings->setAccessibleName("Advanced UART settings");
-    settings->setToolTip("Show data bits, parity, stop bits and flow control");
-
-    uartRow->addStretch();
+    settings->setToolTip("UART settings");
 
     auto *connectionCard = new QFrame;
     connectionCard->setObjectName("connectionCard");
-    auto *cardLayout = new QHBoxLayout(connectionCard);
-    cardLayout->setContentsMargins(10, 0, 3, 0);
-    cardLayout->setSpacing(8);
-
-    statusDot = new QLabel;
-    statusDot->setObjectName("connectionDot");
-    statusDot->setFixedSize(14, 14);
-    cardLayout->addWidget(statusDot, 0, Qt::AlignCenter);
-
-    connectionLabel = new QLabel("Disconnected");
-    connectionLabel->setObjectName("connectionState");
-    connectionLabel->setProperty("state", "Disconnected");
-    connectionLabel->setAccessibleName("Serial connection state");
-    cardLayout->addWidget(connectionLabel, 0, Qt::AlignCenter);
-
-    auto *cardDivider = new QFrame;
-    cardDivider->setObjectName("connectionCardDivider");
-    cardDivider->setFixedSize(1, 18);
-    cardLayout->addWidget(cardDivider, 0, Qt::AlignCenter);
-
-    connectButton = button("Connect", "connect", cardLayout);
+    auto *cardLayout = new QVBoxLayout(connectionCard);
+    cardLayout->setContentsMargins(8, 0, 0, 0);
+    cardLayout->setSpacing(4);
+    auto *connectRow = new QHBoxLayout;
+    connectRow->setContentsMargins(0, 0, 0, 0);
+    connectButton = button("Connect", "connect", connectRow);
     connectButton->setProperty("role", "primary");
-    connectButton->setFixedSize(106, 26);
+    connectButton->setFixedSize(116, 32);
+    cardLayout->addLayout(connectRow);
+    uartRow->addWidget(connectionCard, 0, Qt::AlignTop);
+    for (int index = 0; index < uartRow->count() - 1; ++index)
+    {
+        if (auto *control = uartRow->itemAt(index)->widget())
+        {
+            uartRow->setAlignment(control, Qt::AlignTop);
+        }
+    }
 
-    connectionCard->setFixedHeight(32);
-    uartRow->addWidget(connectionCard);
-
-    updateStatusDot("Disconnected");
     uartLayout->addLayout(uartRow);
+    auto *serialMenu = new QMenu(this);
+    serialMenu->setObjectName("serialMenu");
+    serialMenu->setAttribute(Qt::WA_TranslucentBackground);
+    serialMenu->installEventFilter(this);
     auto *advanced = new QFrame;
     advanced->setObjectName("serialAdvanced");
     auto *advancedLayout = new QVBoxLayout(advanced);
@@ -676,39 +625,59 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *advancedTitle = new QLabel("Serial parameters");
     advancedTitle->setObjectName("serialFieldLabel");
     advancedHeader->addWidget(advancedTitle);
+    advancedHeader->addWidget(serialSummary);
     advancedHeader->addStretch();
-    auto *advancedHint = new QLabel("Editable while disconnected");
-    advancedHint->setObjectName("secondaryText");
-    advancedHeader->addWidget(advancedHint);
     advancedLayout->addLayout(advancedHeader);
-    auto *advancedRow = new QHBoxLayout;
-    advancedRow->setSpacing(16);
-    addCombo(advancedRow, "Data bits", dataBox, {"8", "7", "6", "5"});
-    addCombo(advancedRow, "Parity", parityBox, {"None", "Even", "Odd", "Mark", "Space"});
-    addCombo(advancedRow, "Stop bits", stopBox, {"1", "2"});
-    addCombo(advancedRow, "Flow control", flowBox, {"None", "Hardware RTS/CTS", "Software XON/XOFF"});
-    for (int i = 0; i < advancedRow->count(); ++i)
+    auto *firstRow = new QHBoxLayout;
+    auto *secondRow = new QHBoxLayout;
+    firstRow->setSpacing(16);
+    secondRow->setSpacing(16);
+    addCombo(firstRow, "Data bits", dataBox, {"8", "7", "6", "5"});
+    addCombo(firstRow, "Parity", parityBox, {"None", "Even", "Odd", "Mark", "Space"});
+    addCombo(secondRow, "Stop bits", stopBox, {"1", "2"});
+    addCombo(secondRow, "Flow control", flowBox, {"None", "Hardware RTS/CTS", "Software XON/XOFF"});
+    for (auto *row : {firstRow, secondRow})
     {
-        advancedRow->setStretch(i, 1);
+        row->setStretch(0, 1);
+        row->setStretch(1, 1);
+        advancedLayout->addLayout(row);
     }
-    advancedLayout->addLayout(advancedRow);
-    uartLayout->addWidget(advanced);
-    advanced->hide();
-    connect(settings, &QPushButton::toggled, this, [settings, advanced](bool expanded)
+    advanced->setMinimumWidth(460);
+    auto *serialAction = new QWidgetAction(serialMenu);
+    serialAction->setDefaultWidget(advanced);
+    serialMenu->addAction(serialAction);
+    connect(serialMenu, &QMenu::aboutToHide, settings, [settings]()
     {
-        advanced->setVisible(expanded);
-        settings->setText(expanded ? "Hide details" : "Advanced");
-        settings->setToolTip(expanded ? "Hide advanced UART settings" : "Show data bits, parity, stop bits and flow control");
+        settings->setChecked(false);
+    });
+    connect(settings, &QPushButton::clicked, this, [this, settings, serialMenu](bool checked)
+    {
+        if (!checked)
+        {
+            serialMenu->hide();
+            return;
+        }
+        serialMenu->ensurePolished();
+        const int width = serialMenu->sizeHint().width();
+        const QPoint edge = settings->mapToGlobal(QPoint(settings->width(), settings->height()));
+        const int left = mapToGlobal(QPoint(0, 0)).x();
+        const int right = mapToGlobal(QPoint(this->width(), 0)).x();
+        serialMenu->popup(QPoint(qBound(left, edge.x() - width, right - width), edge.y() + 8));
+        dataBox->setFocus(Qt::PopupFocusReason);
     });
     for (auto *combo : {dataBox, parityBox, stopBox, flowBox})
     {
         connect(combo, &QComboBox::currentIndexChanged, this, &MainWindow::updateSerialSummary);
     }
     updateSerialSummary();
-    uart->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    uart->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    uart->setMaximumWidth(700);
+    uart->setFixedHeight(uartLayout->sizeHint().height());
     auto *workspace = new QVBoxLayout;
-    workspace->setSpacing(12);
-    workspace->addWidget(uart);
+    workspace->setSpacing(8);
+    heading->addStretch();
+    heading->addWidget(uart, 0, Qt::AlignRight | Qt::AlignTop);
+    workspace->addLayout(heading);
     root->addLayout(workspace, 1);
 
     auto *dashboards = new QSplitter(Qt::Horizontal);
@@ -879,11 +848,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         connected = open;
         connecting = state == "Connecting";
-        connectionLabel->setText(state);
-        connectionLabel->setProperty("state", state);
-        connectionLabel->style()->unpolish(connectionLabel);
-        connectionLabel->style()->polish(connectionLabel);
-        updateStatusDot(state);
         connectButton->setText(open ? "Disconnect" : "Connect");
         connectButton->setProperty("connected", open);
         connectButton->style()->unpolish(connectButton);
@@ -1056,16 +1020,6 @@ void MainWindow::updateSerialSummary()
     {
         serialSummary->setText(dataBox->currentText() + parity + stopBox->currentText() + " · " +
                               (flowBox->currentIndex() == 1 ? "RTS/CTS" : "XON/XOFF"));
-    }
-}
-
-void MainWindow::updateStatusDot(const QString &state)
-{
-    if (statusDot)
-    {
-        const bool dark = themeBox->currentIndex() == 2 ||
-                          (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
-        statusDot->setPixmap(statusLedPixmap(state, dark));
     }
 }
 
@@ -1520,6 +1474,17 @@ void MainWindow::showError(const QString &message)
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched->objectName() == "serialMenu" &&
+        (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+    {
+        auto *popup = qobject_cast<QMenu *>(watched);
+        if (popup)
+        {
+            QPainterPath outline;
+            outline.addRoundedRect(QRectF(popup->rect()), 7, 7);
+            popup->setMask(QRegion(outline.toFillPolygon().toPolygon()));
+        }
+    }
     if (watched == qApp && event->type() == QEvent::ApplicationPaletteChange &&
         themeBox && themeBox->currentIndex() == 0)
     {
@@ -1647,14 +1612,14 @@ void MainWindow::applyTheme()
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
-        "QFrame#connectionBar { background:%2; border:1px solid %4; border-radius:10px; }"
-        "QFrame#connectionCard { background:%6; border:1px solid %4; border-radius:8px; }"
+        "QFrame#connectionBar { background:transparent; border:0; }"
+        "QFrame#connectionCard { background:transparent; border:0; }"
         "QFrame#connectionCardDivider { background:%4; border:0; }"
-        "QLabel#connectionState { font-weight:600; font-size:13px; padding:0 4px; background:transparent; }"
         "QLabel#serialSummary { color:%5; background:%6; border:1px solid %4; border-radius:7px; padding:0 10px; font-size:12px; font-weight:500; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
         "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
-        "QFrame#serialAdvanced { background:%6; border:1px solid %4; border-radius:7px; }"
+        "QMenu#serialMenu { background:%6; border:1px solid %4; border-radius:7px; padding:0; }"
+        "QFrame#serialAdvanced { background:transparent; border:0; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
         "QFrame#settingsCard { background:%2; border:1px solid %4; border-radius:8px; }"
         "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
@@ -1703,19 +1668,11 @@ void MainWindow::applyTheme()
         "QLabel#validationError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
           dark ? "#fca5a5" : "#b91c1c", controlBorder);
-    const QString statusStyle = QString(
-        "QLabel#connectionState[state=Connected] { color:%1; }"
-        "QLabel#connectionState[state=Error] { color:%2; }"
-        "QLabel#connectionState[state=Connecting] { color:%3; }"
-        "QLabel#connectionState[state=Disconnected] { color:%4; }"
-        "QPushButton#connect[connected=true] { background:%5; color:%6; border:1px solid %7; font-weight:600; }"
-        "QPushButton#connect[connected=true]:hover { background:%8; border-color:#ef4444; color:%9; }"
-        "QPushButton#connect[connected=true]:pressed { background:%10; }"
-    ).arg(dark ? "#4ade80" : "#15803d",
-          dark ? "#f87171" : "#b91c1c",
-          dark ? "#fbbf24" : "#b45309",
-          dark ? "#94a3b8" : "#64748b",
-          dark ? "#3b1e26" : "#fef2f2",
+    const QString connectionStyle = QString(
+        "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:600; }"
+        "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
+        "QPushButton#connect[connected=true]:pressed { background:%6; }"
+    ).arg(dark ? "#3b1e26" : "#fef2f2",
           dark ? "#fca5a5" : "#b91c1c",
           dark ? "#7f2d3f" : "#fca5a5",
           dark ? "#4e2531" : "#fee2e2",
@@ -1737,9 +1694,8 @@ void MainWindow::applyTheme()
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#4b5f7b" : "#bdcbdf",
           dark ? "#25334b" : "#e8eef8", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#202e44" : "#f2f5fa");
-    setStyleSheet(baseStyle + statusStyle + selectionStyle + dataStyle);
-    updateStatusDot(connectionLabel ? connectionLabel->property("state").toString() : "Disconnected");
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts"})
+    setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts", "serialSettings"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)

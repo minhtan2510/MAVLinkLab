@@ -24,7 +24,7 @@ public:
     /** @brief Close the serial port in its owning thread and join the worker. */
     ~MainWindow() override;
 protected:
-    /** @brief Track system palette and button input modality for keyboard-only focus indicators. */
+    /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
 private:
     /** @brief Re-enumerate ports while retaining an explicitly typed PTY/device path. */
@@ -49,11 +49,6 @@ private:
     void updateActions();
     /** @brief Refresh the compact serial framing summary without changing I/O. */
     void updateSerialSummary();
-    /**
-     * @brief Update the hardware connection status LED indicator.
-     * @param state Current connection state string.
-     */
-    void updateStatusDot(const QString &state);
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -72,8 +67,6 @@ private:
     QComboBox *themeBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
-    QLabel *connectionLabel = nullptr;
-    QLabel *statusDot = nullptr;
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;
     QTableWidget *txTable = nullptr;
