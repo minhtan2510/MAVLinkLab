@@ -1,0 +1,105 @@
+#pragma once
+#include "core.h"
+#include <QObject>
+#include <QElapsedTimer>
+#include <QSerialPort>
+#include <QTimer>
+#include <memory>
+
+struct PortConfig
+{
+    QString port;
+    int baud = 115200;
+    QSerialPort::DataBits data = QSerialPort::Data8;
+    QSerialPort::Parity parity = QSerialPort::NoParity;
+    QSerialPort::StopBits stop = QSerialPort::OneStop;
+    QSerialPort::FlowControl flow = QSerialPort::NoFlowControl;
+};
+Q_DECLARE_METATYPE(PortConfig)
+Q_DECLARE_METATYPE(Mav::TxEntry)
+
+struct RxView
+{
+    mavlink_message_t message{};
+    uint64_t count = 0;
+    double hz = 0;
+    double age = 0;
+};
+struct TxView
+{
+    Mav::TxEntry entry;
+    double measuredHz = 0;
+};
+struct Snapshot
+{
+    std::vector<RxView> rx;
+    std::vector<TxView> tx;
+    bool connected = false;
+    uint64_t crcErrors = 0;
+    uint64_t overflow = 0;
+    double rxBytesPerSecond = 0;
+    double txBytesPerSecond = 0;
+    size_t pending = 0;
+};
+using SnapshotPtr = std::shared_ptr<const Snapshot>;
+Q_DECLARE_METATYPE(SnapshotPtr)
+
+class SerialWorker : public QObject
+{
+    Q_OBJECT
+public:
+    /** @brief Construct a worker without creating thread-affine I/O resources. */
+    explicit SerialWorker(QObject *parent = nullptr);
+public slots:
+    /** @brief Create timers and QSerialPort in the worker's owning thread. */
+    void initialize();
+    /** @brief Configure and open a port; no application TX occurs on connect. */
+    void openPort(PortConfig config);
+    /** @brief Stop TX and discard pending bytes before closing the port. */
+    void closePort();
+    /** @brief Add or replace a validated, stopped TX entry. */
+    void saveEntry(Mav::TxEntry entry);
+    /** @brief Remove an entry and cancel pending output. */
+    void removeEntry(quint64 key);
+    /** @brief Start or stop one periodic message. */
+    void setActive(quint64 key, bool active);
+    /** @brief Serialize and queue one explicitly requested message. */
+    void sendOnce(quint64 key);
+    /** @brief Stop all periodic transmission and cancel pending output. */
+    void stopAll();
+    /** @brief Clear RX statistics and parser state. */
+    void clearStatistics();
+    /** @brief Emit one bounded snapshot in response to a GUI request. */
+    void requestSnapshot();
+signals:
+    void stateChanged(QString state, bool connected);
+    void failure(QString message);
+    void snapshotReady(SnapshotPtr snapshot);
+private:
+    /** @brief Drain a bounded input chunk through the official parser. */
+    void readAvailable();
+    /** @brief Advance scheduled transmissions and flush accepted bytes. */
+    void tick();
+    /** @brief Queue a frame after serialization and capacity checks. */
+    void enqueue(Mav::TxEntry &entry);
+    /** @brief Handle partial writes with a bounded Qt output buffer. */
+    void pump();
+    /** @brief Cancel application and Qt pending output. */
+    void discardOutput();
+    /** @brief Report an error without losing its reason. */
+    void fail(const QString &message);
+    QSerialPort *port = nullptr;
+    QTimer *timer = nullptr;
+    QElapsedTimer clock;
+    PortConfig config;
+    Mav::Parser parser;
+    Mav::Receiver receiver;
+    Mav::WriteQueue queue;
+    std::deque<uint64_t> owners;
+    std::vector<Mav::TxEntry> entries;
+    std::map<std::pair<uint8_t, uint8_t>, mavlink_status_t> txStatuses;
+    uint64_t rxBytes = 0;
+    uint64_t txBytes = 0;
+    int64_t lastReport = 0;
+    bool closing = false;
+};
