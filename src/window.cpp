@@ -1,5 +1,6 @@
 #include "window.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QWidgetAction>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -240,9 +241,6 @@ public:
         QFont font = option.font;
         font.setPixelSize(12);
         painter->setFont(font);
-        painter->setPen(muted);
-        painter->drawText(card.adjusted(16, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QString("ID %1  ·  %2 %3").arg(value(0), value(5), value(5) == "1" ? "frame" : "frames"));
         const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
         const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
                                running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#263042" : "#edf0f6");
@@ -280,31 +278,36 @@ public:
         font.setBold(true);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(16, 39, -14, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 30));
+        painter->drawText(card.adjusted(16, 9, -104, 0), Qt::AlignTop | Qt::AlignLeft,
+                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 120));
         font.setPixelSize(12);
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(16, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, "SYS / COMP");
-        font.setBold(false);
+        painter->drawText(card.adjusted(16, 36, -14, 0), Qt::AlignTop | Qt::AlignLeft,
+                          QString("ID %1 · SYS / COMP %2").arg(value(0), value(2)));
+        painter->setPen(QPen(QColor(dark ? "#35445f" : "#dde4ef"), 1));
+        painter->drawLine(card.left() + 16, card.top() + 59, card.right() - 14, card.top() + 59);
+        font.setPixelSize(11);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(102, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, value(2));
-        painter->setPen(QPen(dark ? QColor("#35445f") : QColor("#dde4ef"), 1));
-        painter->drawLine(card.left() + 16, card.top() + 85, card.right() - 14, card.top() + 85);
-        font.setPixelSize(13);
-        painter->setFont(font);
-        painter->setPen(foreground);
-        const QRect rates = card.adjusted(16, 94, -14, 0);
-        painter->drawText(rates, Qt::AlignTop | Qt::AlignLeft, value(3) + " Hz target");
+        const QRect rates = card.adjusted(16, 69, -14, 0);
+        const int third = rates.width() / 3;
+        painter->drawText(QRect(rates.left(), rates.top(), third, 18), Qt::AlignLeft,
+                          "Target " + value(3) + " Hz");
         if (running)
         {
             font.setBold(true);
             painter->setFont(font);
             painter->setPen(QColor(dark ? "#75cdb0" : "#2e947e"));
         }
-        painter->drawText(rates, Qt::AlignTop | Qt::AlignRight, value(4) + " Hz actual");
+        painter->drawText(QRect(rates.left() + third, rates.top(), third, 18), Qt::AlignCenter,
+                          "Actual " + value(4) + " Hz");
+        font.setBold(false);
+        painter->setFont(font);
+        painter->setPen(muted);
+        painter->drawText(QRect(rates.left() + third * 2, rates.top(), rates.width() - third * 2, 18),
+                          Qt::AlignRight, "Frames " + value(5));
         painter->restore();
     }
 };
@@ -390,6 +393,22 @@ static QIcon actionIcon(const QString &name, const QColor &color)
     else if (name == "stopTx" || name == "stopAll")
     {
         painter.drawRoundedRect(QRectF(4, 4, 8, 8), 1, 1);
+    }
+    else if (name == "editMessage")
+    {
+        QPolygonF pencil;
+        pencil << QPointF(3, 10) << QPointF(10, 3) << QPointF(13, 6)
+               << QPointF(6, 13) << QPointF(3, 13);
+        painter.drawPolygon(pencil);
+        painter.drawLine(9, 4, 12, 7);
+    }
+    else if (name == "removeMessage")
+    {
+        painter.drawLine(3, 4, 13, 4);
+        painter.drawLine(6, 2, 10, 2);
+        painter.drawRoundedRect(QRectF(4, 4, 8, 10), 1, 1);
+        painter.drawLine(7, 7, 7, 11);
+        painter.drawLine(10, 7, 10, 11);
     }
     else if (name == "serialSettings")
     {
@@ -700,14 +719,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addLayout(txHeader);
     txSummary = new QLabel("0 messages  ·  0 running");
     txSummary->setObjectName("secondaryText");
-    txLayout->addWidget(txSummary);
-    auto *txActions = new QHBoxLayout;
-    editButton = button("Edit", "editMessage", txActions);
-    removeButton = button("Remove", "removeMessage", txActions);
-    txActions->addStretch();
-    stopAllButton = button("Stop all", "stopAll", txActions);
+    auto *txOverview = new QHBoxLayout;
+    txOverview->addWidget(txSummary);
+    txOverview->addStretch();
+    stopAllButton = button("Stop all", "stopAll", txOverview);
     stopAllButton->setProperty("role", "danger");
-    txLayout->addLayout(txActions);
+    txLayout->addLayout(txOverview);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
     txDivider->setFixedHeight(1);
@@ -722,18 +739,34 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         txTable->hideColumn(column);
     }
-    txTable->verticalHeader()->setDefaultSectionSize(132);
+    txTable->verticalHeader()->setDefaultSectionSize(108);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
     txTable->viewport()->setMouseTracking(true);
     txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
+    txSelection = new QLabel;
+    txSelection->setObjectName("secondaryText");
+    txLayout->addWidget(txSelection);
     auto *sendActions = new QHBoxLayout;
+    sendActions->setSpacing(6);
     onceButton = button("Send once", "sendOnce", sendActions);
     startButton = button("Start", "startTx", sendActions);
     startButton->setProperty("role", "success");
     stopButton = button("Stop", "stopTx", sendActions);
+    stopButton->setProperty("role", "danger");
+    sendActions->addStretch();
+    editButton = button("", "editMessage", sendActions);
+    removeButton = button("", "removeMessage", sendActions);
+    for (auto *control : {editButton, removeButton})
+    {
+        control->setFixedSize(32, 32);
+    }
+    editButton->setAccessibleName("Edit selected message");
+    editButton->setToolTip("Edit selected message");
+    removeButton->setAccessibleName("Remove selected message");
+    removeButton->setToolTip("Remove selected message");
     txLayout->addLayout(sendActions);
     dashboards->addWidget(txGroup);
 
@@ -798,6 +831,29 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setColumnWidth(4, 115);
     inspector = table({"Field", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
+    inspector->setContextMenuPolicy(Qt::CustomContextMenu);
+    auto *valueMenu = new QMenu(inspector);
+    valueMenu->setObjectName("inspectorMenu");
+    auto *copyValue = valueMenu->addAction("Copy value");
+    copyValue->setObjectName("copyInspectorValue");
+    connect(copyValue, &QAction::triggered, this, [copyValue]()
+    {
+        QApplication::clipboard()->setText(copyValue->data().toString());
+    });
+    connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue](const QPoint &position)
+    {
+        const bool keyboard = position.x() < 0 || position.y() < 0;
+        const int row = keyboard ? inspector->currentRow() : inspector->indexAt(position).row();
+        auto *value = inspector->item(row, 2);
+        if (!value)
+        {
+            return;
+        }
+        inspector->setCurrentCell(row, 2);
+        copyValue->setData(value->text());
+        const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
+        valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
+    });
     inspector->setColumnWidth(0, 150);
     inspector->setColumnWidth(1, 90);
     inspector->setColumnWidth(2, 220);
@@ -1007,6 +1063,14 @@ void MainWindow::updateActions()
     startButton->setEnabled(selected && connected);
     stopButton->setEnabled(selected && connected);
     stopAllButton->setEnabled(connected);
+    const int row = txTable->currentRow();
+    const bool running = selected && txTable->item(row, 6) && txTable->item(row, 6)->text() == "Running";
+    startButton->setVisible(!running);
+    stopButton->setVisible(running);
+    const QString name = selected && txTable->item(row, 1) ? txTable->item(row, 1)->text() : QString();
+    txSelection->setText(QFontMetrics(txSelection->font()).elidedText(
+        name.isEmpty() ? QString() : "Selected: " + name, Qt::ElideRight, txTable->width()));
+    txSelection->setToolTip(name);
 }
 
 void MainWindow::updateSerialSummary()
@@ -1336,6 +1400,9 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 component->setData(0, Qt::UserRole, message.compid);
                 component->setExpanded(true);
             }
+            const QColor groupColor(dark ? "#aab4cd" : "#626c84");
+            system->setForeground(0, groupColor);
+            component->setForeground(0, groupColor);
             QTreeWidgetItem *item = nullptr;
             for (int i = 0; i < component->childCount(); ++i)
             {
@@ -1404,7 +1471,8 @@ void MainWindow::updateInspector()
             return;
         }
         inspector->setRowCount(int(info->num_fields));
-        inspectorTitle->setText("DECODED FIELDS  /  " + messageName(id));
+        inspectorTitle->setText(QString("%1 · ID %2 · SYS %3 / COMP %4")
+                                .arg(messageName(id)).arg(id).arg(system).arg(component));
         const bool dark = themeBox->currentIndex() == 2 ||
                           (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
         for (unsigned i = 0; i < info->num_fields; ++i)
@@ -1657,7 +1725,7 @@ void MainWindow::applyTheme()
         "QAbstractItemView { background:%2; color:%3; alternate-background-color:%6; border:0; border-radius:0; gridline-color:%4; }"
         "QTableView::item { padding:0 6px; border:0; }"
         "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; }"
-        "QTreeView::item { padding:8px 4px; border:0; }"
+        "QTreeView::item { padding:5px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"
@@ -1691,11 +1759,20 @@ void MainWindow::applyTheme()
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
         "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
-    ).arg(dark ? "#162134" : "#ffffff", dark ? "#4b5f7b" : "#bdcbdf",
-          dark ? "#25334b" : "#e8eef8", dark ? "#d6dfee" : "#40536e",
+    ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
+          dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#202e44" : "#f2f5fa");
     setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts", "serialSettings"})
+    for (int row = 0; row < rxTree->topLevelItemCount(); ++row)
+    {
+        auto *system = rxTree->topLevelItem(row);
+        system->setForeground(0, QColor(muted));
+        for (int child = 0; child < system->childCount(); ++child)
+        {
+            system->child(child)->setForeground(0, QColor(muted));
+        }
+    }
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts", "serialSettings", "editMessage", "removeMessage"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)

@@ -208,3 +208,11 @@ Moved the UART popup background and single border onto QMenu#serialMenu, removed
 Enabled a translucent background for the UART QMenu and applied a matching 7 px rounded window mask on Show/Resize. This clips the actual popup window beyond the rounded stylesheet border instead of leaving rectangular corner pixels.
 
 **Verification:** full build and CTest **2/2 passed in 8.82 s**. Reviewed offscreen Light/Dark popup captures and checked that all four outer corner pixels have alpha 0 in both themes. Existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native compositor behavior was not retested.
+
+## Compact TX and clearer RX/Inspector
+
+Reduced TX rows from 132 to 108 px, moved message names to the first line, combined ID/Sys/Comp, and grouped Target/Actual/Frames below a subtle divider. Kept Add in the title row and Stop all beside the summary. The selected-message toolbar now groups Send once, mutually exclusive Start/Stop and accessible Edit/Remove icon buttons, with a selected-message caption. Inline card toggles remain available.
+
+Reduced RX row padding from 8 to 5 px and muted System/Component text, including immediate theme-change updates. Softened RX/Inspector borders and title-bar backgrounds. Inspector headings now identify message name/ID/System/Component. A field-row context menu offers Copy value; its displayed value is captured when the menu opens so later refreshes do not change the copied text. Empty message views remain blank.
+
+**Verification:** full build and CTest **2/2 passed in 9.33 s**. Added checks for clipboard content, inspector identity when switching components, Start/Stop visibility and selected-message toolbar containment/order at 1000×720. Existing PTY, editor, inline toggle, mouse/keyboard, hover/press, disabled control, popup and system/theme-change checks passed. Reviewed regenerated Light/Dark populated renders at 1440×900 and 1000×720, plus the empty minimum-size view. Artifacts include `build/qa/modern-small-{light,dark}.png`. CodeGraph is up to date; `git diff --check` passed. Native desktop clipboard/compositor integration and physical UART/DMA were not tested in this change.

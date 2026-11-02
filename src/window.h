@@ -81,6 +81,7 @@ private:
     QPushButton *stopAllButton = nullptr;
     QLabel *serialSummary = nullptr;
     QLabel *txSummary = nullptr;
+    QLabel *txSelection = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
     std::map<QString, QString> lastFieldValues;

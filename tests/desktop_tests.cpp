@@ -1,5 +1,6 @@
 #include "window.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QMenuBar>
@@ -396,9 +397,27 @@ private slots:
         rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
+        auto *fieldTitle = inspector->parentWidget()->findChild<QLabel *>("dataPaneTitle");
+        QVERIFY(fieldTitle);
+        QTRY_VERIFY(fieldTitle->text().contains("SYS 1 / COMP 1"));
+        const QPoint valuePosition = inspector->visualItemRect(inspector->item(0, 2)).center();
+        const QString expectedValue = inspector->item(0, 2)->text();
+        QVERIFY(QMetaObject::invokeMethod(inspector, "customContextMenuRequested", Qt::DirectConnection,
+                                        Q_ARG(QPoint, valuePosition)));
+        auto *valueMenu = window.findChild<QMenu *>("inspectorMenu");
+        auto *copyValue = window.findChild<QAction *>("copyInspectorValue");
+        QVERIFY(valueMenu && copyValue && valueMenu->isVisible());
+        copyValue->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), expectedValue);
+        valueMenu->hide();
+        rx->setCurrentItem(rx->topLevelItem(0)->child(1)->child(0));
+        QTRY_VERIFY(fieldTitle->text().contains("ID 33 · SYS 1 / COMP 42"));
+        rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         tx->setCurrentCell(0, 1);
         window.findChild<QPushButton *>("startTx")->click();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+        QVERIFY(window.findChild<QPushButton *>("stopTx")->isVisible());
+        QVERIFY(!window.findChild<QPushButton *>("startTx")->isVisible());
         QDir().mkpath("qa");
         for (int mode : {1, 2})
         {
@@ -406,6 +425,21 @@ private slots:
             QTest::mouseMove(tx->viewport(), tx->visualItemRect(tx->item(1, 1)).center());
             QTest::qWait(30);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
+            window.resize(1000, 720);
+            QTest::qWait(30);
+            int previousRight = -1;
+            for (const auto &name : {"sendOnce", "stopTx", "editMessage", "removeMessage"})
+            {
+                auto *control = window.findChild<QPushButton *>(name);
+                QVERIFY(control && control->isVisible());
+                const QRect bounds(control->mapTo(window.centralWidget(), QPoint(0, 0)), control->size());
+                QVERIFY(window.centralWidget()->rect().contains(bounds));
+                QVERIFY(bounds.left() > previousRight);
+                previousRight = bounds.right();
+            }
+            QVERIFY(window.grab().save(mode == 1 ? "qa/modern-small-light.png" : "qa/modern-small-dark.png"));
+            window.resize(1440, 900);
+            QTest::qWait(30);
         }
         // Test inline toggle directly on the card badge.
         const QRect card0 = tx->visualItemRect(tx->item(0, 1)).adjusted(4, 6, -8, -6);
