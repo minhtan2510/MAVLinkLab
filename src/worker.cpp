@@ -162,6 +162,40 @@ void SerialWorker::stopAll()
     discardOutput();
 }
 
+void SerialWorker::runAll()
+{
+    if (entries.empty())
+    {
+        return;
+    }
+    auto requested = entries;
+    for (auto &entry : requested)
+    {
+        entry.active = true;
+    }
+    const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
+                        (config.stop == QSerialPort::TwoStop ? 2.0 :
+                         config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+    for (const auto &entry : requested)
+    {
+        if (!port->isOpen() || !Mav::fitsLink(requested, entry, config.baud, bits))
+        {
+            fail("Cannot run all: port closed or total offered load exceeds link capacity");
+            return;
+        }
+    }
+    for (auto &entry : entries)
+    {
+        setActive(entry.key, true);
+    }
+}
+
+void SerialWorker::deleteAll()
+{
+    stopAll();
+    entries.clear();
+}
+
 void SerialWorker::discardOutput()
 {
     queue.clear();

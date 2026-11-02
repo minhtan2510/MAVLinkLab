@@ -43,7 +43,7 @@ public:
     {
         setObjectName("dialogTitleBar");
         auto *row = new QHBoxLayout(this);
-        row->setContentsMargins(0, 0, 0, 8);
+        row->setContentsMargins(20, 16, 16, 8);
         row->setSpacing(12);
         auto *title = new QLabel(dialog->windowTitle(), this);
         title->setObjectName("dialogWindowTitle");
@@ -97,12 +97,34 @@ private:
     bool dragging = false;
 };
 
-/** @brief Replace native dialog decorations with an application-themed, draggable header. */
-static void addDialogTitleBar(QDialog *dialog, QVBoxLayout *layout)
+/**
+ * @brief Create a full-width themed header above an inset dialog body.
+ * @param dialog Dialog whose native decorations are replaced.
+ * @param layout Empty outer layout containing the header and body.
+ * @return Body layout retaining the original content margins and spacing.
+ */
+static QVBoxLayout *addDialogTitleBar(QDialog *dialog, QVBoxLayout *layout)
 {
     dialog->setWindowFlag(Qt::FramelessWindowHint);
     dialog->setSizeGripEnabled(true);
-    layout->insertWidget(0, new DialogTitleBar(dialog));
+    const QMargins margins = layout->contentsMargins();
+    const int spacing = layout->spacing();
+    layout->setContentsMargins(1, 1, 1, 1);
+    layout->setSpacing(0);
+    layout->addWidget(new DialogTitleBar(dialog));
+    auto *dividerRow = new QHBoxLayout;
+    dividerRow->setContentsMargins(margins.left(), 0, margins.right(), 0);
+    auto *divider = new QFrame(dialog);
+    divider->setObjectName("dialogTitleDivider");
+    divider->setFixedHeight(1);
+    dividerRow->addWidget(divider);
+    layout->addLayout(dividerRow);
+    auto *body = new QWidget(dialog);
+    auto *content = new QVBoxLayout(body);
+    content->setContentsMargins(margins.left(), 8, margins.right(), margins.bottom());
+    content->setSpacing(spacing);
+    layout->addWidget(body, 1);
+    return content;
 }
 
 /**
@@ -554,11 +576,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
     settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
     settingsDialogLayout->setSpacing(16);
-    addDialogTitleBar(settingsDialog, settingsDialogLayout);
-
-    auto *dialogTitle = new QLabel("Application Settings", settingsDialog);
-    dialogTitle->setObjectName("panelTitle");
-    settingsDialogLayout->addWidget(dialogTitle);
+    settingsDialogLayout = addDialogTitleBar(settingsDialog, settingsDialogLayout);
 
     auto *appearanceCard = new QFrame(settingsDialog);
     appearanceCard->setObjectName("settingsCard");
@@ -622,11 +640,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         auto *layout = new QVBoxLayout(&dialog);
         layout->setContentsMargins(20, 16, 20, 16);
         layout->setSpacing(12);
-        addDialogTitleBar(&dialog, layout);
+        layout = addDialogTitleBar(&dialog, layout);
         dialog.setMinimumWidth(480);
-        auto *name = new QLabel("MAVLink Simulator", &dialog);
-        name->setObjectName("heading");
-        layout->addWidget(name);
         auto *version = new QLabel(QString("Version %1").arg(MAVLINK_SIMULATOR_VERSION), &dialog);
         version->setObjectName("secondaryText");
         layout->addWidget(version);
@@ -824,15 +839,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txHeader->addStretch();
     auto *addButton = button("Add message", "addMessage", txHeader);
     addButton->setProperty("role", "primary");
-    txLayout->addLayout(txHeader);
+    auto *txHeading = new QVBoxLayout;
+    txHeading->setSpacing(6);
+    txHeading->addLayout(txHeader);
     txSummary = new QLabel("0 messages  ·  0 running");
     txSummary->setObjectName("secondaryText");
     auto *txOverview = new QHBoxLayout;
     txOverview->addWidget(txSummary);
     txOverview->addStretch();
-    stopAllButton = button("Stop all", "stopAll", txOverview);
-    stopAllButton->setProperty("role", "danger");
-    txLayout->addLayout(txOverview);
+    txHeading->addLayout(txOverview);
+    txLayout->addLayout(txHeading);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
     txDivider->setFixedHeight(1);
@@ -854,25 +870,52 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
-    auto *sendActions = new QHBoxLayout;
-    sendActions->setSpacing(6);
-    onceButton = button("Send once", "sendOnce", sendActions);
-    startButton = button("Start", "startTx", sendActions);
-    startButton->setProperty("role", "success");
-    stopButton = button("Stop", "stopTx", sendActions);
-    stopButton->setProperty("role", "danger");
-    sendActions->addStretch();
-    editButton = button("", "editMessage", sendActions);
-    removeButton = button("", "removeMessage", sendActions);
-    for (auto *control : {editButton, removeButton})
+    auto *txMenu = new QMenu(txTable);
+    txMenu->setObjectName("txMessageMenu");
+    const auto addTxAction = [txMenu](const QString &text, const char *name)
     {
-        control->setFixedSize(32, 32);
+        auto *action = txMenu->addAction(text);
+        action->setObjectName(name);
+        return action;
+    };
+    onceAction = addTxAction("Send once", "sendOnce");
+    startAction = addTxAction("Start", "startTx");
+    stopAction = addTxAction("Stop", "stopTx");
+    txMenu->addSeparator();
+    editAction = addTxAction("Edit message…", "editMessage");
+    removeAction = addTxAction("Remove message", "removeMessage");
+    txTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(txTable, &QWidget::customContextMenuRequested, this, [this, txMenu](const QPoint &position)
+    {
+        const bool keyboard = position.x() < 0 || position.y() < 0;
+        const int row = keyboard ? txTable->currentRow() : txTable->indexAt(position).row();
+        if (row < 0 || !txTable->item(row, 1))
+        {
+            return;
+        }
+        txTable->setCurrentCell(row, 1);
+        updateActions();
+        const QPoint anchor = keyboard ? txTable->visualItemRect(txTable->item(row, 1)).center() : position;
+        txMenu->popup(txTable->viewport()->mapToGlobal(anchor));
+    });
+    auto *batchDivider = new QFrame;
+    batchDivider->setObjectName("txBatchDivider");
+    batchDivider->setFixedHeight(1);
+    txLayout->addWidget(batchDivider);
+    auto *batchActions = new QHBoxLayout;
+    batchActions->setSpacing(4);
+    runAllButton = button("Run all", "runAll", batchActions);
+    runAllButton->setProperty("role", "success");
+    stopAllButton = button("Stop all", "stopAll", batchActions);
+    stopAllButton->setProperty("role", "danger");
+    batchActions->addStretch();
+    deleteAllButton = button("Delete all", "deleteAll", batchActions);
+    deleteAllButton->setProperty("role", "danger");
+    for (auto *control : {runAllButton, stopAllButton, deleteAllButton})
+    {
+        control->setFixedHeight(28);
     }
-    editButton->setAccessibleName("Edit selected message");
-    editButton->setToolTip("Edit selected message");
-    removeButton->setAccessibleName("Remove selected message");
-    removeButton->setToolTip("Remove selected message");
-    txLayout->addLayout(sendActions);
+    txLayout->addLayout(batchActions);
     dashboards->addWidget(txGroup);
 
     auto *rxGroup = new QFrame;
@@ -1035,29 +1078,31 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         editMessage(false);
     });
-    connect(editButton, &QPushButton::clicked, this, [this]()
+    connect(editAction, &QAction::triggered, this, [this]()
     {
         editMessage(true);
     });
-    connect(removeButton, &QPushButton::clicked, this, [this]()
+    connect(removeAction, &QAction::triggered, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, selectedTx()));
     });
-    connect(onceButton, &QPushButton::clicked, this, [this]()
+    connect(onceAction, &QAction::triggered, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "sendOnce", Qt::QueuedConnection, Q_ARG(quint64, selectedTx()));
     });
-    connect(startButton, &QPushButton::clicked, this, [this]()
+    connect(startAction, &QAction::triggered, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
                                   Q_ARG(quint64, selectedTx()), Q_ARG(bool, true));
     });
-    connect(stopButton, &QPushButton::clicked, this, [this]()
+    connect(stopAction, &QAction::triggered, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
                                   Q_ARG(quint64, selectedTx()), Q_ARG(bool, false));
     });
+    connect(runAllButton, &QPushButton::clicked, worker, &SerialWorker::runAll);
     connect(stopAllButton, &QPushButton::clicked, worker, &SerialWorker::stopAll);
+    connect(deleteAllButton, &QPushButton::clicked, worker, &SerialWorker::deleteAll);
     connect(clear, &QPushButton::clicked, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "clearStatistics", Qt::QueuedConnection);
@@ -1162,16 +1207,19 @@ uint64_t MainWindow::selectedTx() const
 void MainWindow::updateActions()
 {
     const bool selected = selectedTx() != 0;
-    editButton->setEnabled(selected);
-    removeButton->setEnabled(selected);
-    onceButton->setEnabled(selected && connected);
-    startButton->setEnabled(selected && connected);
-    stopButton->setEnabled(selected && connected);
-    stopAllButton->setEnabled(connected);
+    editAction->setEnabled(selected);
+    removeAction->setEnabled(selected);
+    onceAction->setEnabled(selected && connected);
+    startAction->setEnabled(selected && connected);
+    stopAction->setEnabled(selected && connected);
+    const bool hasEntries = txTable->rowCount() > 0;
+    runAllButton->setEnabled(connected && hasEntries);
+    stopAllButton->setEnabled(connected && hasEntries);
+    deleteAllButton->setEnabled(hasEntries);
     const int row = txTable->currentRow();
     const bool running = selected && txTable->item(row, 6) && txTable->item(row, 6)->text() == "Running";
-    startButton->setVisible(!running);
-    stopButton->setVisible(running);
+    startAction->setVisible(!running);
+    stopAction->setVisible(running);
 
 }
 
@@ -1215,16 +1263,13 @@ void MainWindow::editMessage(bool edit)
     }
     QDialog dialog(this);
     dialog.setObjectName("messageDialog");
-    dialog.setWindowTitle(edit ? "Edit message · Saving stops this entry" : "Add MAVLink message");
+    dialog.setWindowTitle(edit ? "Edit message" : "Add MAVLink message");
     dialog.setMinimumSize(880, 600);
     dialog.resize(1000, 680);
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(12);
-    addDialogTitleBar(&dialog, layout);
-    auto *title = new QLabel(edit ? "Edit message" : "Add message");
-    title->setObjectName("heading");
-    layout->addWidget(title);
+    layout = addDialogTitleBar(&dialog, layout);
     auto *description = new QLabel(edit ? "Saving stops this TX entry. Review its payload before restarting." :
                                   "Choose a message, sender and rate. Saving starts periodic TX when connected.");
     description->setObjectName("secondaryText");
@@ -1772,9 +1817,13 @@ void MainWindow::applyTheme()
     const QString baseStyle = QString(
         "QMainWindow,QDialog { background:%1; color:%3; }"
         "QDialog { border:1px solid %4; }"
-        "QFrame#dialogTitleBar { background:%1; border:0; border-bottom:1px solid %4; }"
-        "QLabel#dialogWindowTitle { background:transparent; color:%3; font-size:13px; font-weight:500; }"
-        "QPushButton#closeDialog { padding:0; font-size:20px; font-weight:400; }"
+        "QFrame#dialogTitleBar { background:%1; border:0; }"
+        "QFrame#dialogTitleDivider { background:%4; border:0; }"
+        "QLabel#dialogWindowTitle { background:transparent; color:%3; font-size:18px; font-weight:600; }"
+        "QPushButton#closeDialog { background:transparent; border:1px solid transparent; padding:0; font-size:20px; font-weight:400; }"
+        "QPushButton#closeDialog:hover { background:%6; }"
+        "QPushButton#closeDialog:pressed { background:%4; }"
+        "QPushButton#closeDialog[keyboardFocus=true] { border-color:#818cf8; }"
         "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; }"
         "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; }"
         "QMenuBar::item:selected { background:%6; color:%3; }"
@@ -1795,7 +1844,7 @@ void MainWindow::applyTheme()
         "QFrame#connectionCardDivider { background:%4; border:0; }"
         "QLabel#serialSummary { color:%5; background:%6; border:1px solid %4; border-radius:7px; padding:0 10px; font-size:12px; font-weight:500; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
-        "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
+        "QFrame#serialDivider,QFrame#txDivider,QFrame#txBatchDivider { background:%4; border:0; }"
         "QMenu#serialMenu { background:%6; border:1px solid %4; border-radius:7px; padding:0; }"
         "QFrame#serialAdvanced { background:transparent; border:0; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
@@ -1803,6 +1852,7 @@ void MainWindow::applyTheme()
         "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
+        "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll { font-size:12px; padding:4px 8px; border-radius:5px; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
         "QPushButton[role=primary] { background:#4f46e5; color:white; border-color:#4f46e5; }"
@@ -1840,8 +1890,9 @@ void MainWindow::applyTheme()
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"
         "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"
-        "QScrollBar:vertical { background:%6; width:10px; } QScrollBar:horizontal { background:%6; height:10px; }"
-        "QScrollBar::handle { background:%8; border-radius:4px; min-width:24px; min-height:24px; }"
+        "QScrollBar:vertical { background:%6; width:6px; } QScrollBar:horizontal { background:%6; height:6px; }"
+        "QScrollBar::handle { background:%8; border-radius:3px; }"
+        "QScrollBar::handle:vertical { min-height:24px; } QScrollBar::handle:horizontal { min-width:24px; }"
         "QScrollBar::handle:hover { background:#818cf8; } QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; }"
         "QLabel#validationError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
@@ -1883,7 +1934,7 @@ void MainWindow::applyTheme()
             system->child(child)->setForeground(0, QColor(muted));
         }
     }
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts", "serialSettings", "editMessage", "removeMessage"})
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)

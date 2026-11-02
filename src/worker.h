@@ -67,6 +67,10 @@ public slots:
     void sendOnce(quint64 key);
     /** @brief Stop all periodic transmission and cancel pending output. */
     void stopAll();
+    /** @brief Start every entry only if the complete periodic load fits the open link. */
+    void runAll();
+    /** @brief Stop transmission, discard pending output and remove all TX entries. */
+    void deleteAll();
     /** @brief Clear RX statistics and parser state. */
     void clearStatistics();
     /** @brief Emit one bounded snapshot in response to a GUI request. */

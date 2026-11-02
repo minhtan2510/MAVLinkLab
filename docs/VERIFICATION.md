@@ -288,3 +288,33 @@ Replaced native decorations for Settings, About and the message editor with a sh
 Expanded About with the CMake project version, serial workbench purpose, TX/RX features, MAVLink 1/2 and ardupilotmega/common support, official library and Ubuntu/Linux C++17/Qt stack. Version comes from PROJECT_VERSION through a private desktop compile definition. Rich-text content has sufficient minimum height to avoid clipping its last line.
 
 **Verification:** full build and CTest **2/2 passed in 9.72 s**. Reviewed offscreen Light/Dark About renders and corrected last-line clipping; existing dialog close/Escape and theme checks passed. Native desktop rendering was not tested.
+
+## TX card context actions
+
+Removed the TX bottom toolbar and replaced its widgets with QAction entries in a per-card context menu: Send once, Start/Stop, Edit message and Remove message. Right-click selects its target row before opening the menu; invalid rows do not open it, and keyboard context requests use the current row. Start/Stop visibility and connection-based enablement remain synchronized with snapshots. Double-click editing and inline state controls remain available.
+
+**Verification:** full build and CTest **2/2 passed in 10.12 s**. Updated desktop flow to use actions and verified that opening the menu on the second card selects it and starting/stopping it leaves the first card running. Reviewed Light/Dark context menus and the minimum-size populated TX layout with the bottom toolbar removed. Existing editor, disconnected enablement, inline toggle, theme, popup and PTY checks passed. Native desktop context-menu integration was not tested.
+
+## TX batch controls
+
+Added Run all, Stop all and Delete all below the TX list and removed the upper Stop all button. Per-card context actions remain. Worker runAll validates aggregate load before activating entries; rejection leaves prior active states unchanged. deleteAll stops scheduling, cancels pending output and clears TX entries. Run/Stop are disabled when disconnected or empty; Delete remains available offline when entries exist.
+
+**Verification:** full build and CTest **2/2 passed in 11.17 s**. Added PTY coverage for aggregate overload rejection, successful batch transmission, deletion and post-delete silence/pending count. GUI checks exercise bottom button placement, Stop all, Run all, Delete all and empty-state disablement. Reviewed minimum-size Light/Dark renders. Existing per-card menu, inline toggle, editor, theme, popup and PTY checks passed. Physical UART/native compositor integration was not tested.
+
+## Header surfaces and compact controls
+
+Dialog title bars now use 15 px semibold text on a separate Light/Dark surface with internal padding and a bottom divider. Updated live-theme pixel checks to the new header colors. TX batch labels use sentence case, Stop all has no icon, and a thin divider separates the batch row from the list. Scrollbars use 6 px thickness with orientation-specific minimum handle lengths. TX title-to-summary spacing is 6 px.
+
+**Verification:** full build and CTest **2/2 passed in 11.06 s**. Reviewed offscreen Settings in Light/Dark and About in Dark for title/body separation. Live theme switching, dialog closing, popup, resize, focus/hover/pressed and PTY/batch checks passed. Native desktop integration was not retested.
+
+## Integrated dialog header
+
+Replaced the inset colored title block with a full-width top header and a separate inset content layout. Softened the header surfaces and made the close button transparent at rest, preserving hover/pressed and keyboard focus feedback. Shared layout applies to Settings, About and the message editor.
+
+**Verification:** full build and CTest **2/2 passed in 11.11 s**, including live header-color checks and dialog closing. Reviewed minimum-size Light/Dark Settings and Dark About renders. Existing interaction, popup, resize and PTY checks passed. Native desktop integration was not retested.
+
+## Continuous dialog surface
+
+Unified header and body backgrounds and removed the header divider. A single 18 px semibold title replaces duplicate content headings in Settings, About and the message editor. Header/body text share the same left inset. A 1 px outer layout inset prevents header painting from covering the window border, preserving its continuous outline.
+
+**Verification:** full build and CTest **2/2 passed in 11.16 s**. Reviewed offscreen Settings/About/editor layouts in the preceding Light/Dark pass and final Light Settings/Dark About border renders. Live theme, close/Escape and existing interaction/PTY checks passed. Native desktop integration was not retested.

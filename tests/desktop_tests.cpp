@@ -134,6 +134,61 @@ private slots:
         worker.closePort();
     }
 
+    /** @brief Verify batch start capacity checks and deletion cancel every queued stream. */
+    void batchTransmission()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+        SerialWorker worker;
+        worker.initialize();
+        QSignalSpy snapshots(&worker, &SerialWorker::snapshotReady);
+        QSignalSpy errors(&worker, &SerialWorker::failure);
+        PortConfig config;
+        config.port = pty.name;
+        config.baud = 9600;
+        worker.openPort(config);
+        Mav::TxEntry entry;
+        entry.id = 0;
+        entry.hz = 30;
+        entry.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+        for (quint64 key : {1, 2})
+        {
+            entry.key = key;
+            worker.saveEntry(entry);
+        }
+        worker.runAll();
+        worker.requestSnapshot();
+        auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(!errors.empty());
+        for (const auto &view : snapshot->tx)
+        {
+            QVERIFY(!view.entry.active);
+        }
+        entry.hz = 10;
+        for (quint64 key : {1, 2})
+        {
+            entry.key = key;
+            worker.saveEntry(entry);
+        }
+        worker.runAll();
+        QTest::qWait(150);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        for (const auto &view : snapshot->tx)
+        {
+            QVERIFY(view.entry.active && view.entry.count > 0);
+        }
+        worker.deleteAll();
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx.empty());
+        QCOMPARE(snapshot->pending, size_t(0));
+        pty.read();
+        QTest::qWait(150);
+        QVERIFY(pty.read().isEmpty());
+        worker.closePort();
+    }
+
     /** @brief Verify a stalled serial peer cannot grow queues without a bound. */
     void serialBackpressure()
     {
@@ -262,16 +317,16 @@ private slots:
         add->click();
         QTRY_COMPARE(tx->rowCount(), 1);
         tx->setCurrentCell(0, 0);
-        auto *once = window.findChild<QPushButton *>("sendOnce");
-        auto *start = window.findChild<QPushButton *>("startTx");
-        auto *stop = window.findChild<QPushButton *>("stopTx");
+        auto *once = window.findChild<QAction *>("sendOnce");
+        auto *start = window.findChild<QAction *>("startTx");
+        auto *stop = window.findChild<QAction *>("stopTx");
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
         QTRY_VERIFY(tx->item(0, 5)->text().toULongLong() > 0);
         QVERIFY(!pty.read().isEmpty());
-        stop->click();
+        stop->trigger();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
         QVERIFY(once->isEnabled());
-        once->click();
+        once->trigger();
         QTest::qWait(100);
         QVERIFY(!pty.read().isEmpty());
         Mav::Bytes payload(mavlink_get_msg_entry(0)->max_msg_len);
@@ -308,9 +363,9 @@ private slots:
         QCOMPARE(message->text(2), frozenCount);
         pause->click();
         QTRY_VERIFY(message->text(2) != frozenCount);
-        start->click();
+        start->trigger();
         QTest::qWait(100);
-        stop->click();
+        stop->trigger();
         QTest::qWait(50);
         pty.read();
         QTest::qWait(1100);
@@ -336,7 +391,7 @@ private slots:
             QVERIFY(dialog->grab().save("qa/message-dark.png"));
             dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
         });
-        window.findChild<QPushButton *>("editMessage")->click();
+        window.findChild<QAction *>("editMessage")->trigger();
     }
 
     /** @brief Exercise card selection, scheduling and a populated modern dashboard through real widgets. */
@@ -420,10 +475,10 @@ private slots:
         QTRY_VERIFY(fieldTitle->text().contains("ID 33 · SYS 1 / COMP 42"));
         rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         tx->setCurrentCell(0, 1);
-        window.findChild<QPushButton *>("startTx")->click();
+        window.findChild<QAction *>("startTx")->trigger();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
-        QVERIFY(window.findChild<QPushButton *>("stopTx")->isVisible());
-        QVERIFY(!window.findChild<QPushButton *>("startTx")->isVisible());
+        QVERIFY(window.findChild<QAction *>("stopTx")->isVisible());
+        QVERIFY(!window.findChild<QAction *>("startTx")->isVisible());
         QDir().mkpath("qa");
         for (int mode : {1, 2})
         {
@@ -433,20 +488,31 @@ private slots:
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
             window.resize(1000, 720);
             QTest::qWait(30);
-            int previousRight = -1;
-            for (const auto &name : {"sendOnce", "stopTx", "editMessage", "removeMessage"})
-            {
-                auto *control = window.findChild<QPushButton *>(name);
-                QVERIFY(control && control->isVisible());
-                const QRect bounds(control->mapTo(window.centralWidget(), QPoint(0, 0)), control->size());
-                QVERIFY(window.centralWidget()->rect().contains(bounds));
-                QVERIFY(bounds.left() > previousRight);
-                previousRight = bounds.right();
-            }
+            QVERIFY(!window.findChild<QPushButton *>("sendOnce"));
+            const QPoint target = tx->visualItemRect(tx->item(1, 1)).center();
+            QVERIFY(QMetaObject::invokeMethod(tx, "customContextMenuRequested", Q_ARG(QPoint, target)));
+            auto *menu = window.findChild<QMenu *>("txMessageMenu");
+            QVERIFY(menu && menu->isVisible());
+            QCOMPARE(tx->currentRow(), 1);
+            QVERIFY(window.findChild<QAction *>("startTx")->isVisible());
+            QVERIFY(!window.findChild<QAction *>("stopTx")->isVisible());
+            QVERIFY(menu->grab().save(mode == 1 ? "qa/tx-menu-light.png" : "qa/tx-menu-dark.png"));
+            menu->hide();
+            tx->setCurrentCell(0, 1);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-small-light.png" : "qa/modern-small-dark.png"));
             window.resize(1440, 900);
             QTest::qWait(30);
         }
+        const QPoint secondCard = tx->visualItemRect(tx->item(1, 1)).center();
+        QVERIFY(QMetaObject::invokeMethod(tx, "customContextMenuRequested", Q_ARG(QPoint, secondCard)));
+        window.findChild<QAction *>("startTx")->trigger();
+        window.findChild<QMenu *>("txMessageMenu")->hide();
+        QTRY_COMPARE(tx->item(1, 6)->text(), QString("Running"));
+        QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
+        window.findChild<QAction *>("stopTx")->trigger();
+        QTRY_COMPARE(tx->item(1, 6)->text(), QString("Stopped"));
+        QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
+        tx->setCurrentCell(0, 1);
         // Test inline toggle directly on the card badge.
         const QRect card0 = tx->visualItemRect(tx->item(0, 1)).adjusted(4, 6, -8, -6);
         const QPoint badgePos(card0.right() - 50, card0.top() + 18);
@@ -454,6 +520,24 @@ private slots:
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+        auto *runAll = window.findChild<QPushButton *>("runAll");
+        auto *stopAll = window.findChild<QPushButton *>("stopAll");
+        auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
+        QVERIFY(runAll && stopAll && deleteAll);
+        QVERIFY(stopAll->geometry().top() > tx->geometry().bottom());
+        stopAll->click();
+        for (int row = 0; row < tx->rowCount(); ++row)
+        {
+            QTRY_COMPARE(tx->item(row, 6)->text(), QString("Stopped"));
+        }
+        runAll->click();
+        for (int row = 0; row < tx->rowCount(); ++row)
+        {
+            QTRY_COMPARE(tx->item(row, 6)->text(), QString("Running"));
+        }
+        deleteAll->click();
+        QTRY_COMPARE(tx->rowCount(), 0);
+        QVERIFY(!runAll->isEnabled() && !stopAll->isEnabled() && !deleteAll->isEnabled());
     }
 
     /** @brief Render keyboard focus, press, hover, popup and system theme changes. */
