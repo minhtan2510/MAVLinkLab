@@ -534,17 +534,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         row->addWidget(field);
         return field;
     };
-    auto *portField = new QWidget;
-    auto *portFieldLayout = new QVBoxLayout(portField);
-    portFieldLayout->setContentsMargins(0, 0, 0, 0);
-    portFieldLayout->setSpacing(6);
-    auto *portCaption = new QLabel("Serial port");
-    portCaption->setObjectName("serialFieldLabel");
-    portFieldLayout->addWidget(portCaption);
-
-    auto *portInputRow = new QHBoxLayout;
-    portInputRow->setContentsMargins(0, 0, 0, 0);
-    portInputRow->setSpacing(6);
     portBox = new WorkbenchComboBox;
     portBox->setFixedHeight(32);
     portBox->setFixedWidth(200);
@@ -552,68 +541,43 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
     portBox->setObjectName("port");
     portBox->setAccessibleName("Serial port");
-    portCaption->setBuddy(portBox);
-    portInputRow->addWidget(portBox);
+    uartRow->addWidget(portBox);
 
-    auto *refreshPortsButton = button("", "refreshPorts", portInputRow);
+    auto *refreshPortsButton = button("", "refreshPorts", uartRow);
     refreshPortsButton->setFixedSize(32, 32);
     refreshPortsButton->setAccessibleName("Refresh serial ports");
     refreshPortsButton->setToolTip("Refresh available serial ports");
-    portFieldLayout->addLayout(portInputRow);
-    uartRow->addWidget(portField);
-
-    uartRow->addSpacing(20);
-
-    addCombo(uartRow, "Baud rate", baudBox, {"9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"});
-    baudBox->setObjectName("baudRate");
-    baudBox->setEditable(true);
-    baudBox->setCurrentText("115200");
-    baudBox->setFixedWidth(116);
 
     uartRow->addSpacing(16);
 
-    auto *summaryField = new QWidget;
-    auto *summaryLayout = new QVBoxLayout(summaryField);
-    summaryLayout->setContentsMargins(0, 0, 0, 0);
-    summaryLayout->setSpacing(6);
-    auto *summaryCaption = new QLabel("Framing & flow");
-    summaryCaption->setObjectName("serialFieldLabel");
-    summaryLayout->addWidget(summaryCaption);
+    baudBox = new WorkbenchComboBox;
+    baudBox->setFixedHeight(32);
+    baudBox->setFixedWidth(116);
+    baudBox->addItems({"9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"});
+    baudBox->setObjectName("baudRate");
+    baudBox->setEditable(true);
+    baudBox->setCurrentText("115200");
+    baudBox->setAccessibleName("Baud rate");
+    uartRow->addWidget(baudBox);
+
+    uartRow->addSpacing(14);
 
     serialSummary = new QLabel;
     serialSummary->setObjectName("serialSummary");
     serialSummary->setFixedHeight(32);
     serialSummary->setAlignment(Qt::AlignCenter);
     serialSummary->setAccessibleName("Serial framing and flow control");
-    summaryLayout->addWidget(serialSummary);
-    uartRow->addWidget(summaryField);
+    uartRow->addWidget(serialSummary);
 
-    uartRow->addSpacing(10);
+    uartRow->addSpacing(8);
 
-    auto *settingsField = new QWidget;
-    auto *settingsLayout = new QVBoxLayout(settingsField);
-    settingsLayout->setContentsMargins(0, 0, 0, 0);
-    settingsLayout->setSpacing(6);
-    auto *settingsCaption = new QLabel("Parameters");
-    settingsCaption->setObjectName("serialFieldLabel");
-    settingsLayout->addWidget(settingsCaption);
-
-    auto *settings = button("Advanced", "serialSettings", settingsLayout);
+    auto *settings = button("Advanced", "serialSettings", uartRow);
     settings->setFixedSize(100, 32);
     settings->setCheckable(true);
     settings->setAccessibleName("Advanced UART settings");
     settings->setToolTip("Show data bits, parity, stop bits and flow control");
-    uartRow->addWidget(settingsField);
 
     uartRow->addStretch();
-
-    auto *connectionWrapper = new QWidget;
-    auto *wrapperLayout = new QVBoxLayout(connectionWrapper);
-    wrapperLayout->setContentsMargins(0, 0, 0, 0);
-    wrapperLayout->setSpacing(6);
-    auto *connectionCaption = new QLabel("Connection");
-    connectionCaption->setObjectName("serialFieldLabel");
-    wrapperLayout->addWidget(connectionCaption);
 
     auto *connectionCard = new QFrame;
     connectionCard->setObjectName("connectionCard");
@@ -642,8 +606,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connectButton->setFixedSize(106, 26);
 
     connectionCard->setFixedHeight(32);
-    wrapperLayout->addWidget(connectionCard);
-    uartRow->addWidget(connectionWrapper);
+    uartRow->addWidget(connectionCard);
 
     updateStatusDot("Disconnected");
     uartLayout->addLayout(uartRow);
