@@ -2,6 +2,8 @@
 #include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QMenuBar>
+#include <QAction>
 #include <QDir>
 #include <QSignalSpy>
 #include <QSpinBox>
@@ -183,7 +185,10 @@ private slots:
         auto *tx = window.findChild<QTableWidget *>("txTable");
         auto *theme = window.findChild<QComboBox *>("theme");
         auto *rx = window.findChild<QTreeWidget *>("rxTree");
-        QVERIFY(port && connectButton && add && tx && theme && rx);
+        auto *menuBar = window.findChild<QMenuBar *>("appMenuBar");
+        auto *actionSettings = window.findChild<QAction *>("actionSettings");
+        auto *actionExit = window.findChild<QAction *>("actionExit");
+        QVERIFY(port && connectButton && add && tx && theme && rx && menuBar && actionSettings && actionExit);
         auto *settings = window.findChild<QPushButton *>("serialSettings");
         auto *advanced = window.findChild<QWidget *>("serialAdvanced");
         auto *connectionBar = window.findChild<QWidget *>("connectionBar");
@@ -402,6 +407,13 @@ private slots:
             QTest::qWait(30);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
         }
+        // Test inline toggle directly on the card badge.
+        const QRect card0 = tx->visualItemRect(tx->item(0, 1)).adjusted(4, 6, -8, -6);
+        const QPoint badgePos(card0.right() - 50, card0.top() + 18);
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
     }
 
     /** @brief Render keyboard focus, press, hover, popup and system theme changes. */
@@ -438,10 +450,15 @@ private slots:
             QVERIFY(window.grab().save("qa/pressed-" + mode + ".png"));
             // Release outside the button so this state check does not open a dialog.
             QTest::mouseRelease(add, Qt::LeftButton, Qt::NoModifier, QPoint(-10, -10));
+            auto *settingsDialog = window.findChild<QDialog *>("settingsDialog");
+            QVERIFY(settingsDialog);
+            settingsDialog->show();
             theme->showPopup();
             QTest::qWait(20);
             QVERIFY(theme->view()->window()->grab().save("qa/popup-" + mode + ".png"));
             theme->hidePopup();
+            QVERIFY(settingsDialog->grab().save("qa/settings-dialog-" + mode + ".png"));
+            settingsDialog->hide();
             QTest::mouseClick(settings, Qt::LeftButton);
             QVERIFY(!settings->property("keyboardFocus").toBool());
             QTest::qWait(20);

@@ -1,6 +1,11 @@
 #pragma once
 #include "worker.h"
 #include <QMainWindow>
+#include <QDialog>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QMessageBox>
 #include <QThread>
 #include <QComboBox>
 #include <QLineEdit>
@@ -8,6 +13,7 @@
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QLabel>
+#include <map>
 
 class MainWindow : public QMainWindow
 {
@@ -43,6 +49,11 @@ private:
     void updateActions();
     /** @brief Refresh the compact serial framing summary without changing I/O. */
     void updateSerialSummary();
+    /**
+     * @brief Update the hardware connection status LED indicator.
+     * @param state Current connection state string.
+     */
+    void updateStatusDot(const QString &state);
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -59,8 +70,10 @@ private:
     QComboBox *stopBox = nullptr;
     QComboBox *flowBox = nullptr;
     QComboBox *themeBox = nullptr;
+    QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *connectionLabel = nullptr;
+    QLabel *statusDot = nullptr;
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;
     QTableWidget *txTable = nullptr;
@@ -77,4 +90,5 @@ private:
     QLabel *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
+    std::map<QString, QString> lastFieldValues;
 };

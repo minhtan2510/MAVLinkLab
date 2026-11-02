@@ -8,6 +8,7 @@
 #include <QGroupBox>
 #include <QFrame>
 #include <QHeaderView>
+#include <QBoxLayout>
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QSerialPortInfo>
@@ -22,9 +23,173 @@
 #include <QScrollBar>
 #include <QVBoxLayout>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <algorithm>
+
+/**
+ * @brief Check whether a serial port represents an actively connected hardware device.
+ * @param info Serial port metadata.
+ * @return True if the device is a plugged USB converter, active onboard UART, or genuine hardware port.
+ */
+static bool isPluggedPort(const QSerialPortInfo &info)
+{
+    const QString name = info.portName();
+    // Exclude legacy/virtual PC serial ports
+    if (name.startsWith("ttyS"))
+    {
+        return false;
+    }
+    // Hotplugged USB serial devices (FTDI, CP210x, CH340, CDC-ACM, etc.)
+    if (name.startsWith("ttyUSB") || name.startsWith("ttyACM") || name.startsWith("rfcomm"))
+    {
+        return true;
+    }
+    if (info.hasVendorIdentifier() || info.hasProductIdentifier())
+    {
+        return true;
+    }
+    // Embedded onboard hardware UARTs (Raspberry Pi, NVIDIA Jetson, etc.)
+    if (name.startsWith("ttyAMA") || name.startsWith("ttyTHS"))
+    {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Generate a small vector dot indicator for stream freshness.
+ * @param age Elapsed seconds since the last frame.
+ * @param dark True if rendering under a dark palette.
+ * @return Theme-aware icon representing stream activity.
+ */
+static QIcon activityLed(double age, bool dark)
+{
+    QPixmap pixmap(10, 10);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing);
+    QColor color;
+    if (age <= 0.5)
+    {
+        color = dark ? QColor("#3fb950") : QColor("#1a7f37");
+    }
+    else if (age <= 2.0)
+    {
+        color = dark ? QColor("#d29922") : QColor("#9a6700");
+    }
+    else
+    {
+        color = dark ? QColor("#6e7681") : QColor("#8c959f");
+    }
+    p.setBrush(color);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(1, 1, 8, 8);
+    return QIcon(pixmap);
+}
+
+/**
+ * @brief Generate a vector LED dot with an ambient glow ring for connection state.
+ * @param state Connection state ("Connected", "Disconnected", "Connecting", "Error").
+ * @param dark True if rendering under a dark palette.
+ * @return Theme-aware pixmap representing connection state.
+ */
+static QPixmap statusLedPixmap(const QString &state, bool dark)
+{
+    QPixmap pixmap(14, 14);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing);
+    QColor color;
+    QColor glow;
+    if (state == "Connected")
+    {
+        color = dark ? QColor("#3fb950") : QColor("#1a7f37");
+        glow = dark ? QColor(63, 185, 80, 80) : QColor(26, 127, 55, 60);
+    }
+    else if (state == "Connecting")
+    {
+        color = dark ? QColor("#d29922") : QColor("#9a6700");
+        glow = dark ? QColor(210, 153, 34, 80) : QColor(154, 103, 0, 60);
+    }
+    else if (state == "Error")
+    {
+        color = dark ? QColor("#f85149") : QColor("#cf222e");
+        glow = dark ? QColor(248, 81, 73, 80) : QColor(207, 34, 46, 60);
+    }
+    else
+    {
+        color = dark ? QColor("#6e7681") : QColor("#8c959f");
+        glow = dark ? QColor(110, 118, 129, 35) : QColor(140, 149, 159, 35);
+    }
+    p.setPen(Qt::NoPen);
+    p.setBrush(glow);
+    p.drawEllipse(0, 0, 14, 14);
+    p.setBrush(color);
+    p.drawEllipse(3, 3, 8, 8);
+    return pixmap;
+}
+
+/**
+ * @brief Provide human-readable enum descriptions for common MAVLink fields.
+ * @param msgid MAVLink message identity.
+ * @param field Field name string.
+ * @param val Decimal string value.
+ * @return Concise description or empty string.
+ */
+static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QString &val)
+{
+    bool ok = false;
+    const uint64_t v = val.toULongLong(&ok);
+    if (!ok)
+    {
+        return {};
+    }
+    if (msgid == 0)
+    {
+        if (field == "autopilot")
+        {
+            switch (v)
+            {
+                case 0: return "GENERIC";
+                case 3: return "ARDUPILOTMEGA";
+                case 12: return "PX4";
+                default: break;
+            }
+        }
+        else if (field == "type")
+        {
+            switch (v)
+            {
+                case 1: return "FIXED_WING";
+                case 2: return "QUADROTOR";
+                case 3: return "COAXIAL";
+                case 4: return "HELICOPTER";
+                case 10: return "GROUND_ROVER";
+                case 12: return "SUBMARINE";
+                default: break;
+            }
+        }
+        else if (field == "system_status")
+        {
+            switch (v)
+            {
+                case 0: return "UNINIT";
+                case 1: return "BOOT";
+                case 2: return "CALIBRATING";
+                case 3: return "STANDBY";
+                case 4: return "ACTIVE";
+                case 5: return "CRITICAL";
+                case 6: return "EMERGENCY";
+                default: break;
+            }
+        }
+    }
+    return {};
+}
 
 /** @brief Keep native combo interaction with a theme-aware vector chevron. */
 class WorkbenchComboBox : public QComboBox
@@ -94,7 +259,7 @@ public:
         {
             return index.sibling(index.row(), column).data().toString();
         };
-        const bool dark = option.palette.color(QPalette::Window).lightness() < 128;
+        const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         const QString text = value(6);
@@ -104,51 +269,81 @@ public:
         const QColor muted(dark ? "#aab4cd" : "#626c84");
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
-        painter->fillRect(option.rect, QColor(dark ? "#172031" : "#f2f5fa"));
-        const QRect card = option.rect.adjusted(2, 6, -2, -6);
+        const QRect card = option.rect.adjusted(4, 6, -8, -6);
         painter->setPen(QPen(selected ? QColor("#939bf0") : QColor(dark ? "#465770" : "#c6d1e1"), selected ? 2 : 1));
         painter->setBrush(selected ? QColor(dark ? "#282b4b" : "#f1f2ff") :
                           hovered ? QColor(dark ? "#242c40" : "#f8f9ff") : QColor(dark ? "#1c2435" : "#ffffff"));
         painter->drawRoundedRect(card, 10, 10);
         painter->setPen(QPen(running ? QColor(dark ? "#75cdb0" : "#2e947e") :
-                            selected ? QColor("#939bf0") : QColor(dark ? "#647593" : "#a9b8cc"), 2, Qt::SolidLine, Qt::RoundCap));
-        painter->drawLine(card.left() + 2, card.top() + 16, card.left() + 2, card.bottom() - 16);
+                            selected ? QColor("#939bf0") : QColor(dark ? "#647593" : "#a9b8cc"), 3, Qt::SolidLine, Qt::RoundCap));
+        painter->drawLine(card.left() + 6, card.top() + 16, card.left() + 6, card.bottom() - 16);
         QFont font = option.font;
         font.setPixelSize(12);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(14, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
+        painter->drawText(card.adjusted(16, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
                           QString("ID %1  ·  %2 %3").arg(value(0), value(5), value(5) == "1" ? "frame" : "frames"));
-        const QRect badge(card.right() - 90, card.top() + 9, 76, 22);
-        painter->setPen(Qt::NoPen);
-        painter->setBrush(error ? QColor(dark ? "#482e3f" : "#fff0f1") :
-                          running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#30394d" : "#edf0f6"));
-        painter->drawRoundedRect(badge, 5, 5);
-        painter->setPen(error ? QColor(dark ? "#ffb3bd" : "#b42340") :
-                        running ? QColor(dark ? "#94e5bd" : "#17613e") : muted);
-        painter->drawText(badge, Qt::AlignCenter, error ? "Error" : text);
+        const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+        const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                               running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#263042" : "#edf0f6");
+        const QColor badgeBorder = error ? QColor(dark ? "#7a3749" : "#f8b4bc") :
+                                   running ? QColor(dark ? "#2e685a" : "#bfe6d3") : QColor(dark ? "#3d4c66" : "#d2dae6");
+        const QColor badgeFg = error ? QColor(dark ? "#ffb3bd" : "#b42340") :
+                               running ? QColor(dark ? "#94e5bd" : "#17613e") : muted;
+        painter->setPen(QPen(badgeBorder, 1));
+        painter->setBrush(badgeBg);
+        painter->drawRoundedRect(badge, 6, 6);
+        if (error)
+        {
+            painter->setPen(badgeFg);
+            painter->drawText(badge, Qt::AlignCenter, "Error");
+        }
+        else if (running)
+        {
+            painter->fillRect(QRect(badge.left() + 9, badge.center().y() - 3, 7, 7), badgeFg);
+            painter->setPen(badgeFg);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Running");
+        }
+        else
+        {
+            QPolygonF play;
+            play << QPointF(badge.left() + 9, badge.center().y() - 4)
+                 << QPointF(badge.left() + 16, badge.center().y())
+                 << QPointF(badge.left() + 9, badge.center().y() + 4);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(badgeFg);
+            painter->drawPolygon(play);
+            painter->setPen(badgeFg);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
+        }
         font.setPixelSize(15);
         font.setBold(true);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(14, 39, -14, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 28));
+        painter->drawText(card.adjusted(16, 39, -14, 0), Qt::AlignTop | Qt::AlignLeft,
+                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 30));
         font.setPixelSize(12);
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(14, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, "SYS / COMP");
+        painter->drawText(card.adjusted(16, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, "SYS / COMP");
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(100, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, value(2));
+        painter->drawText(card.adjusted(102, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, value(2));
         painter->setPen(QPen(dark ? QColor("#35445f") : QColor("#dde4ef"), 1));
-        painter->drawLine(card.left() + 14, card.top() + 85, card.right() - 14, card.top() + 85);
+        painter->drawLine(card.left() + 16, card.top() + 85, card.right() - 14, card.top() + 85);
         font.setPixelSize(13);
         painter->setFont(font);
         painter->setPen(foreground);
-        const QRect rates = card.adjusted(14, 94, -14, 0);
+        const QRect rates = card.adjusted(16, 94, -14, 0);
         painter->drawText(rates, Qt::AlignTop | Qt::AlignLeft, value(3) + " Hz target");
+        if (running)
+        {
+            font.setBold(true);
+            painter->setFont(font);
+            painter->setPen(QColor(dark ? "#75cdb0" : "#2e947e"));
+        }
         painter->drawText(rates, Qt::AlignTop | Qt::AlignRight, value(4) + " Hz actual");
         painter->restore();
     }
@@ -164,15 +359,22 @@ protected:
     void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
     {
         QStyledItemDelegate::initStyleOption(option, index);
-        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        const bool dark = option->widget ? option->widget->property("darkTheme").toBool() : false;
+        option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         option->font.setBold(false);
         option->palette.setColor(QPalette::Text, QColor(dark ? "#b2c8e2" : "#3f628b"));
         option->backgroundBrush = QColor(dark ? "#1b2b3e" : "#f4f7fc");
     }
 };
 
-/** @brief Create a labeled button with a stable automation identity. */
-static QPushButton *button(const QString &text, const char *name, QHBoxLayout *layout)
+/**
+ * @brief Create a labeled button with a stable automation identity.
+ * @param text Button label text.
+ * @param name Automation object name.
+ * @param layout Target layout to add the button to.
+ * @return Created QPushButton pointer.
+ */
+static QPushButton *button(const QString &text, const char *name, QBoxLayout *layout)
 {
     auto *control = new QPushButton(text);
     control->setObjectName(name);
@@ -285,12 +487,83 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     identity->addWidget(title);
     heading->addLayout(identity);
     heading->addStretch();
-    themeBox = new WorkbenchComboBox;
+    root->addLayout(heading);
+
+    settingsDialog = new QDialog(this);
+    settingsDialog->setObjectName("settingsDialog");
+    settingsDialog->setWindowTitle("Settings");
+    settingsDialog->setModal(true);
+    settingsDialog->setMinimumWidth(380);
+    auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
+    settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
+    settingsDialogLayout->setSpacing(16);
+
+    auto *dialogTitle = new QLabel("Application Settings", settingsDialog);
+    dialogTitle->setObjectName("panelTitle");
+    settingsDialogLayout->addWidget(dialogTitle);
+
+    auto *appearanceCard = new QFrame(settingsDialog);
+    appearanceCard->setObjectName("settingsCard");
+    auto *appearanceLayout = new QVBoxLayout(appearanceCard);
+    appearanceLayout->setContentsMargins(14, 12, 14, 12);
+    appearanceLayout->setSpacing(8);
+
+    auto *groupHeader = new QLabel("Appearance", appearanceCard);
+    groupHeader->setObjectName("settingsGroupTitle");
+    appearanceLayout->addWidget(groupHeader);
+
+    auto *themeRow = new QHBoxLayout;
+    themeRow->setContentsMargins(0, 4, 0, 0);
+    auto *themeLabel = new QLabel("Theme:", appearanceCard);
+    themeLabel->setObjectName("secondaryText");
+    themeRow->addWidget(themeLabel);
+    themeRow->addStretch();
+
+    themeBox = new WorkbenchComboBox(appearanceCard);
     themeBox->setObjectName("theme");
     themeBox->addItems({"System", "Light", "Dark"});
     themeBox->setAccessibleName("Application theme");
-    heading->addWidget(themeBox);
-    root->addLayout(heading);
+    themeBox->setFixedWidth(130);
+    themeRow->addWidget(themeBox);
+    appearanceLayout->addLayout(themeRow);
+
+    settingsDialogLayout->addWidget(appearanceCard);
+    settingsDialogLayout->addStretch();
+
+    auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
+    settingsButtonBox->setObjectName("settingsButtonBox");
+    auto *closeButton = settingsButtonBox->addButton("Close", QDialogButtonBox::RejectRole);
+    closeButton->setObjectName("closeSettings");
+    closeButton->setIcon(QIcon());
+    connect(settingsButtonBox, &QDialogButtonBox::rejected, settingsDialog, &QDialog::accept);
+    settingsDialogLayout->addWidget(settingsButtonBox);
+
+    auto *appMenuBar = menuBar();
+    appMenuBar->setObjectName("appMenuBar");
+
+    auto *fileMenu = appMenuBar->addMenu("File");
+    fileMenu->setObjectName("fileMenu");
+    auto *exitAction = fileMenu->addAction("Exit", this, &QWidget::close, QKeySequence::Quit);
+    exitAction->setObjectName("actionExit");
+
+    auto *viewMenu = appMenuBar->addMenu("View");
+    viewMenu->setObjectName("viewMenu");
+
+    auto *toolMenu = appMenuBar->addMenu("Tool");
+    toolMenu->setObjectName("toolMenu");
+    auto *settingsAction = toolMenu->addAction("Settings...", settingsDialog, &QDialog::exec, QKeySequence::Preferences);
+    settingsAction->setObjectName("actionSettings");
+
+    auto *helpMenu = appMenuBar->addMenu("Help");
+    helpMenu->setObjectName("helpMenu");
+    auto *aboutAction = helpMenu->addAction("About MAVLink Simulator", this, [this]()
+    {
+        QMessageBox::about(this, "About MAVLink Simulator",
+                           "<h3>MAVLink Simulator</h3>"
+                           "<p>Desktop serial workbench for Ubuntu/Linux.</p>"
+                           "<p>Dialect: ArduPilotMega / Common</p>");
+    });
+    aboutAction->setObjectName("actionAbout");
     auto *uart = new QFrame;
     uart->setObjectName("connectionBar");
     auto *uartLayout = new QVBoxLayout(uart);
@@ -318,47 +591,81 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         row->addWidget(field);
         return field;
     };
-    auto *portField = addCombo(uartRow, "Serial port", portBox, {});
+    portBox = new WorkbenchComboBox;
+    portBox->setFixedHeight(32);
+    portBox->setFixedWidth(200);
     portBox->setEditable(true);
-    portBox->setMinimumWidth(180);
-    portBox->lineEdit()->setPlaceholderText("Select a port or enter /dev/…");
-    uartRow->setStretchFactor(portField, 1);
+    portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
     portBox->setObjectName("port");
+    portBox->setAccessibleName("Serial port");
+    uartRow->addWidget(portBox);
+
     auto *refreshPortsButton = button("", "refreshPorts", uartRow);
     refreshPortsButton->setFixedSize(32, 32);
     refreshPortsButton->setAccessibleName("Refresh serial ports");
     refreshPortsButton->setToolTip("Refresh available serial ports");
-    uartRow->setAlignment(refreshPortsButton, Qt::AlignBottom);
-    addCombo(uartRow, "Baud rate", baudBox, {"9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"});
+
+    uartRow->addSpacing(16);
+
+    baudBox = new WorkbenchComboBox;
+    baudBox->setFixedHeight(32);
+    baudBox->setFixedWidth(116);
+    baudBox->addItems({"9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"});
     baudBox->setObjectName("baudRate");
     baudBox->setEditable(true);
     baudBox->setCurrentText("115200");
-    baudBox->setFixedWidth(116);
+    baudBox->setAccessibleName("Baud rate");
+    uartRow->addWidget(baudBox);
+
+    uartRow->addSpacing(14);
+
     serialSummary = new QLabel;
     serialSummary->setObjectName("serialSummary");
-    serialSummary->setMinimumWidth(116);
     serialSummary->setFixedHeight(32);
+    serialSummary->setAlignment(Qt::AlignCenter);
     serialSummary->setAccessibleName("Serial framing and flow control");
-    uartRow->addWidget(serialSummary, 0, Qt::AlignBottom);
+    uartRow->addWidget(serialSummary);
+
+    uartRow->addSpacing(8);
+
     auto *settings = button("Advanced", "serialSettings", uartRow);
-    settings->setFixedSize(112, 32);
+    settings->setFixedSize(100, 32);
     settings->setCheckable(true);
     settings->setAccessibleName("Advanced UART settings");
     settings->setToolTip("Show data bits, parity, stop bits and flow control");
-    uartRow->setAlignment(settings, Qt::AlignBottom);
-    auto *connectionDivider = new QFrame;
-    connectionDivider->setObjectName("serialDivider");
-    connectionDivider->setFixedSize(1, 32);
-    uartRow->addWidget(connectionDivider, 0, Qt::AlignBottom);
+
+    uartRow->addStretch();
+
+    auto *connectionCard = new QFrame;
+    connectionCard->setObjectName("connectionCard");
+    auto *cardLayout = new QHBoxLayout(connectionCard);
+    cardLayout->setContentsMargins(10, 0, 3, 0);
+    cardLayout->setSpacing(8);
+
+    statusDot = new QLabel;
+    statusDot->setObjectName("connectionDot");
+    statusDot->setFixedSize(14, 14);
+    cardLayout->addWidget(statusDot, 0, Qt::AlignCenter);
+
     connectionLabel = new QLabel("Disconnected");
     connectionLabel->setObjectName("connectionState");
     connectionLabel->setProperty("state", "Disconnected");
-    connectionLabel->setFixedHeight(32);
-    uartRow->addWidget(connectionLabel, 0, Qt::AlignBottom);
-    connectButton = button("Connect", "connect", uartRow);
+    connectionLabel->setAccessibleName("Serial connection state");
+    cardLayout->addWidget(connectionLabel, 0, Qt::AlignCenter);
+
+    auto *cardDivider = new QFrame;
+    cardDivider->setObjectName("connectionCardDivider");
+    cardDivider->setFixedSize(1, 18);
+    cardLayout->addWidget(cardDivider, 0, Qt::AlignCenter);
+
+    connectButton = button("Connect", "connect", cardLayout);
     connectButton->setProperty("role", "primary");
-    connectButton->setFixedSize(112, 32);
-    uartRow->setAlignment(connectButton, Qt::AlignBottom);
+    connectButton->setFixedSize(106, 26);
+
+    connectionCard->setFixedHeight(32);
+    uartRow->addWidget(connectionCard);
+
+    updateStatusDot("Disconnected");
     uartLayout->addLayout(uartRow);
     auto *advanced = new QFrame;
     advanced->setObjectName("serialAdvanced");
@@ -432,6 +739,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     stopAllButton = button("Stop all", "stopAll", txActions);
     stopAllButton->setProperty("role", "danger");
     txLayout->addLayout(txActions);
+    auto *txDivider = new QFrame;
+    txDivider->setObjectName("txDivider");
+    txDivider->setFixedHeight(1);
+    txLayout->addWidget(txDivider);
     txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"});
     txTable->setObjectName("txTable");
     txTable->setItemDelegateForColumn(1, new TxCardDelegate(txTable));
@@ -445,6 +756,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->verticalHeader()->setDefaultSectionSize(132);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
+    txTable->viewport()->setMouseTracking(true);
+    txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
     auto *sendActions = new QHBoxLayout;
@@ -483,6 +796,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *clear = button("Clear", "clearStatistics", rxActions);
     clear->setToolTip("Clear received messages and statistics");
     rxLayout->addLayout(rxActions);
+
+    auto *pauseAction = viewMenu->addAction("Pause Display", this, [pause]()
+    {
+        pause->toggle();
+    });
+    pauseAction->setObjectName("actionPauseDisplay");
+    pauseAction->setCheckable(true);
+    connect(pause, &QPushButton::toggled, pauseAction, &QAction::setChecked);
+
+    auto *clearAction = viewMenu->addAction("Clear Received Messages", clear, &QPushButton::click);
+    clearAction->setObjectName("actionClearDisplay");
     auto *rxSplit = new QSplitter(Qt::Vertical);
     rxSplit->setObjectName("rxSplit");
     rxSplit->setChildrenCollapsible(false);
@@ -491,14 +815,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setObjectName("rxTree");
     rxTree->setHeaderLabels({"Message / Source", "ID", "Count", "Hz", "Activity"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
     rxTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    rxTree->setColumnWidth(1, 44);
-    rxTree->setColumnWidth(2, 65);
-    rxTree->setColumnWidth(3, 50);
-    rxTree->setColumnWidth(4, 110);
+    rxTree->setColumnWidth(1, 52);
+    rxTree->setColumnWidth(2, 75);
+    rxTree->setColumnWidth(3, 58);
+    rxTree->setColumnWidth(4, 115);
     inspector = table({"Field", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setColumnWidth(0, 150);
@@ -532,6 +860,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
     metrics = new QLabel("RX 0 B/s    TX 0 B/s    CRC errors 0    Pending 0 B");
+    metrics->setTextFormat(Qt::RichText);
     metrics->setContentsMargins(18, 0, 0, 0);
     statusBar()->addWidget(metrics);
     lastError = new QLabel("Ready");
@@ -554,7 +883,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         connectionLabel->setProperty("state", state);
         connectionLabel->style()->unpolish(connectionLabel);
         connectionLabel->style()->polish(connectionLabel);
+        updateStatusDot(state);
         connectButton->setText(open ? "Disconnect" : "Connect");
+        connectButton->setProperty("connected", open);
+        connectButton->style()->unpolish(connectButton);
+        connectButton->style()->polish(connectButton);
         connectButton->setEnabled(!connecting);
         refreshPortsButton->setEnabled(!open && !connecting);
         for (auto *combo : {portBox, baudBox, dataBox, parityBox, stopBox, flowBox})
@@ -655,9 +988,12 @@ void MainWindow::refreshPorts()
     portBox->clear();
     for (const auto &info : QSerialPortInfo::availablePorts())
     {
-        portBox->addItem(info.systemLocation());
-        portBox->setItemData(portBox->count() - 1,
-                             info.description() + " · " + info.manufacturer(), Qt::ToolTipRole);
+        if (isPluggedPort(info))
+        {
+            portBox->addItem(info.systemLocation());
+            portBox->setItemData(portBox->count() - 1,
+                                 info.description() + " · " + info.manufacturer(), Qt::ToolTipRole);
+        }
     }
     if (!previous.isEmpty())
     {
@@ -720,6 +1056,16 @@ void MainWindow::updateSerialSummary()
     {
         serialSummary->setText(dataBox->currentText() + parity + stopBox->currentText() + " · " +
                               (flowBox->currentIndex() == 1 ? "RTS/CTS" : "XON/XOFF"));
+    }
+}
+
+void MainWindow::updateStatusDot(const QString &state)
+{
+    if (statusDot)
+    {
+        const bool dark = themeBox->currentIndex() == 2 ||
+                          (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+        statusDot->setPixmap(statusLedPixmap(state, dark));
     }
 }
 
@@ -816,12 +1162,12 @@ void MainWindow::editMessage(bool edit)
     fieldControl("Protocol", version);
     fieldControl("Rate (Hz)", rate);
     editor->addLayout(form);
-    auto *payloadTitle = new QLabel("PAYLOAD · Double-click a value to edit");
+    auto *payloadTitle = new QLabel("PAYLOAD · Click a value to edit");
     payloadTitle->setObjectName("secondaryText");
     editor->addWidget(payloadTitle);
     auto *fields = table({"Field", "Type", "Value"});
     fields->setObjectName("payloadFields");
-    fields->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    fields->setEditTriggers(QAbstractItemView::AllEditTriggers);
     fields->setColumnWidth(0, 190);
     fields->setColumnWidth(1, 105);
     editor->addWidget(fields, 1);
@@ -983,9 +1329,23 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             txTable->verticalScrollBar()->setValue(scroll);
         }
     }
-    metrics->setText(QString("RX %1 B/s    TX %2 B/s    CRC errors %3    Pending %4 B    RX overflow %5")
-                    .arg(latest->rxBytesPerSecond, 0, 'f', 0).arg(latest->txBytesPerSecond, 0, 'f', 0)
-                    .arg(qulonglong(latest->crcErrors)).arg(qulonglong(latest->pending)).arg(qulonglong(latest->overflow)));
+    const bool dark = themeBox->currentIndex() == 2 ||
+                      (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+    const QString alertColor = dark ? "#f87171" : "#dc2626";
+    const QString warnColor = dark ? "#fbbf24" : "#d97706";
+    const QString textCrc = latest->crcErrors > 0 ?
+        QString("<span style='color:%1; font-weight:bold;'>CRC errors %2</span>").arg(alertColor).arg(qulonglong(latest->crcErrors)) :
+        QString("CRC errors %1").arg(qulonglong(latest->crcErrors));
+    const QString textPending = latest->pending > 4096 ?
+        QString("<span style='color:%1; font-weight:bold;'>Pending %2 B</span>").arg(warnColor).arg(qulonglong(latest->pending)) :
+        QString("Pending %1 B").arg(qulonglong(latest->pending));
+    const QString textOverflow = latest->overflow > 0 ?
+        QString("<span style='color:%1; font-weight:bold;'>RX overflow %2</span>").arg(alertColor).arg(qulonglong(latest->overflow)) :
+        QString("RX overflow %1").arg(qulonglong(latest->overflow));
+    metrics->setText(QString("RX %1 B/s    TX %2 B/s    %3    %4    %5")
+                    .arg(latest->rxBytesPerSecond, 0, 'f', 0)
+                    .arg(latest->txBytesPerSecond, 0, 'f', 0)
+                    .arg(textCrc, textPending, textOverflow));
     if (!paused)
     {
         for (const auto &entry : latest->rx)
@@ -1035,8 +1395,17 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             {
                 item = new QTreeWidgetItem(component);
                 item->setData(0, Qt::UserRole, message.msgid);
-                item->setFont(0, QFontDatabase::systemFont(QFontDatabase::FixedFont));
+                const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+                for (int col = 0; col < 5; ++col)
+                {
+                    item->setFont(col, fixedFont);
+                }
+                item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
             }
+            item->setIcon(4, activityLed(entry.age, dark));
             item->setText(0, messageName(message.msgid));
             item->setText(1, QString::number(message.msgid));
             item->setText(2, QString::number(qulonglong(entry.count)));
@@ -1082,6 +1451,8 @@ void MainWindow::updateInspector()
         }
         inspector->setRowCount(int(info->num_fields));
         inspectorTitle->setText("DECODED FIELDS  /  " + messageName(id));
+        const bool dark = themeBox->currentIndex() == 2 ||
+                          (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
         for (unsigned i = 0; i < info->num_fields; ++i)
         {
             const auto &field = info->fields[i];
@@ -1092,8 +1463,23 @@ void MainWindow::updateInspector()
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(inspector, int(i), 1, type);
-            cell(inspector, int(i), 2, QString::fromStdString(Mav::readField(message, field)));
-            inspector->item(int(i), 2)->setToolTip(inspector->item(int(i), 2)->text());
+            const QString valStr = QString::fromStdString(Mav::readField(message, field));
+            const QString fieldKey = QString("%1.%2.%3.%4").arg(system).arg(component).arg(id).arg(field.name);
+            const auto prevIt = lastFieldValues.find(fieldKey);
+            const bool changed = (prevIt != lastFieldValues.end()) && (prevIt->second != valStr);
+            lastFieldValues[fieldKey] = valStr;
+            cell(inspector, int(i), 2, valStr);
+            auto *valItem = inspector->item(int(i), 2);
+            if (changed)
+            {
+                valItem->setForeground(QColor(dark ? "#58a6ff" : "#0969da"));
+            }
+            else
+            {
+                valItem->setForeground(QColor(dark ? "#b2c8e2" : "#3f628b"));
+            }
+            const QString hint = mavlinkEnumHint(id, QString::fromLatin1(field.name), valStr);
+            valItem->setToolTip(hint.isEmpty() ? valStr : valStr + " · " + hint);
             cell(inspector, int(i), 3, "Unavailable");
         }
         return;
@@ -1139,6 +1525,48 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     {
         applyTheme();
     }
+    if (txTable && watched == txTable->viewport())
+    {
+        if (event->type() == QEvent::MouseButtonRelease)
+        {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton && connected)
+            {
+                const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+                if (index.isValid() && index.column() == 1)
+                {
+                    const QRect rect = txTable->visualRect(index);
+                    const QRect card = rect.adjusted(4, 6, -8, -6);
+                    const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                    if (badge.contains(mouseEvent->pos()))
+                    {
+                        const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
+                        const bool running = txTable->item(index.row(), 6)->text() == "Running";
+                        QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
+                                                  Q_ARG(quint64, key), Q_ARG(bool, !running));
+                        return true;
+                    }
+                }
+            }
+        }
+        else if (event->type() == QEvent::MouseMove)
+        {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+            if (index.isValid() && index.column() == 1)
+            {
+                const QRect rect = txTable->visualRect(index);
+                const QRect card = rect.adjusted(4, 6, -8, -6);
+                const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
+                                               Qt::PointingHandCursor : Qt::ArrowCursor);
+            }
+            else
+            {
+                txTable->viewport()->setCursor(Qt::ArrowCursor);
+            }
+        }
+    }
     auto *control = qobject_cast<QPushButton *>(watched);
     if (control && isAncestorOf(control))
     {
@@ -1173,6 +1601,14 @@ void MainWindow::applyTheme()
 {
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+    if (txTable)
+    {
+        txTable->setProperty("darkTheme", dark);
+    }
+    if (inspector)
+    {
+        inspector->setProperty("darkTheme", dark);
+    }
     const QString background = dark ? "#0d1422" : "#edf1f8";
     const QString surface = dark ? "#1b2333" : "#ffffff";
     const QString foreground = dark ? "#edf0fa" : "#20263b";
@@ -1193,8 +1629,17 @@ void MainWindow::applyTheme()
     colors.setColor(QPalette::Disabled, QPalette::Text, QColor(muted));
     colors.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(muted));
     setPalette(colors);
+    qApp->setPalette(colors);
     const QString baseStyle = QString(
         "QMainWindow,QDialog { background:%1; color:%3; }"
+        "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; }"
+        "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; }"
+        "QMenuBar::item:selected { background:%6; color:%3; }"
+        "QMenuBar::item:pressed { background:%6; }"
+        "QMenu { background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:4px; font-size:13px; }"
+        "QMenu::item { padding:6px 24px 6px 12px; border-radius:4px; }"
+        "QMenu::item:selected { background:#4f46e5; color:white; }"
+        "QMenu::separator { height:1px; background:%4; margin:4px 6px; }"
         "QWidget { font-size:14px; } QLabel { color:%3; }"
         "QLabel#appMark { font-size:24px; font-weight:700; color:white; background:#4f46e5; border-radius:12px; }"
         "QLabel#heading { font-size:22px; font-weight:700; }"
@@ -1202,13 +1647,18 @@ void MainWindow::applyTheme()
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
-        "QLabel#connectionState { color:%5; background:%6; border-radius:10px; padding:5px 9px; font-size:12px; }"
         "QFrame#connectionBar { background:%2; border:1px solid %4; border-radius:10px; }"
-        "QLabel#serialSummary { color:%5; font-size:11px; }"
+        "QFrame#connectionCard { background:%6; border:1px solid %4; border-radius:8px; }"
+        "QFrame#connectionCardDivider { background:%4; border:0; }"
+        "QLabel#connectionState { font-weight:600; font-size:13px; padding:0 4px; background:transparent; }"
+        "QLabel#serialSummary { color:%5; background:%6; border:1px solid %4; border-radius:7px; padding:0 10px; font-size:12px; font-weight:500; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
-        "QFrame#serialDivider { background:%4; border:0; }"
+        "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
         "QFrame#serialAdvanced { background:%6; border:1px solid %4; border-radius:7px; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
+        "QFrame#settingsCard { background:%2; border:1px solid %4; border-radius:8px; }"
+        "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
+        "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
@@ -1241,8 +1691,8 @@ void MainWindow::applyTheme()
         "QListWidget::item:hover:!selected { background:%6; }"
         "QAbstractItemView { background:%2; color:%3; alternate-background-color:%6; border:0; border-radius:0; gridline-color:%4; }"
         "QTableView::item { padding:0 6px; border:0; }"
-        "QTableWidget#txTable::item { padding:0; }"
-        "QTreeView::item { padding:8px 0; border:0; }"
+        "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; }"
+        "QTreeView::item { padding:8px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"
@@ -1254,12 +1704,23 @@ void MainWindow::applyTheme()
     ).arg(background, surface, foreground, border, muted, alternate,
           dark ? "#fca5a5" : "#b91c1c", controlBorder);
     const QString statusStyle = QString(
-        "QLabel#connectionState[state=Connected] { background:%1; color:%2; }"
-        "QLabel#connectionState[state=Error] { background:%3; color:%4; }"
-        "QLabel#connectionState[state=Connecting] { background:%5; color:%6; }"
-    ).arg(dark ? "#153c30" : "#e5f5ec", dark ? "#97e6bb" : "#16633b",
-          dark ? "#452331" : "#fef0f0", dark ? "#fca5a5" : "#b91c1c",
-          dark ? "#3c331b" : "#fff5d6", dark ? "#f4d58a" : "#795512");
+        "QLabel#connectionState[state=Connected] { color:%1; }"
+        "QLabel#connectionState[state=Error] { color:%2; }"
+        "QLabel#connectionState[state=Connecting] { color:%3; }"
+        "QLabel#connectionState[state=Disconnected] { color:%4; }"
+        "QPushButton#connect[connected=true] { background:%5; color:%6; border:1px solid %7; font-weight:600; }"
+        "QPushButton#connect[connected=true]:hover { background:%8; border-color:#ef4444; color:%9; }"
+        "QPushButton#connect[connected=true]:pressed { background:%10; }"
+    ).arg(dark ? "#4ade80" : "#15803d",
+          dark ? "#f87171" : "#b91c1c",
+          dark ? "#fbbf24" : "#b45309",
+          dark ? "#94a3b8" : "#64748b",
+          dark ? "#3b1e26" : "#fef2f2",
+          dark ? "#fca5a5" : "#b91c1c",
+          dark ? "#7f2d3f" : "#fca5a5",
+          dark ? "#4e2531" : "#fee2e2",
+          dark ? "#ffffff" : "#991b1b",
+          dark ? "#2d151c" : "#fecaca");
     const QString selectionStyle = QString(
         "QTableView::item:selected,QTreeView::item:selected { background:%1; color:%2; }"
         "QTreeView::branch:selected { background:%1; }"
@@ -1269,18 +1730,22 @@ void MainWindow::applyTheme()
         "QFrame#dataPane { background:%1; border:1px solid %2; border-radius:5px; }"
         "QLabel#dataPaneTitle { background:%3; color:%4; border-bottom:1px solid %2; padding:9px 10px; font-size:12px; font-weight:600; }"
         "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
-        "QTableWidget#txTable { background:%6; }"
+        "QTableWidget#txTable { background:transparent; }"
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
-        "QHeaderView::section { background:%7; color:%4; border-bottom:1px solid %2; }"
+        "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#4b5f7b" : "#bdcbdf",
           dark ? "#25334b" : "#e8eef8", dark ? "#d6dfee" : "#40536e",
-          dark ? "#1d2b41" : "#f4f7fb", dark ? "#172031" : "#f2f5fa",
-          dark ? "#202e44" : "#f2f5fa");
+          dark ? "#1d2b41" : "#f4f7fb", dark ? "#202e44" : "#f2f5fa");
     setStyleSheet(baseStyle + statusStyle + selectionStyle + dataStyle);
+    updateStatusDot(connectionLabel ? connectionLabel->property("state").toString() : "Disconnected");
     for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts"})
     {
         auto *control = findChild<QPushButton *>(name);
+        if (!control)
+        {
+            continue;
+        }
         const QString role = control->property("role").toString();
         const QColor iconColor(role == "primary" || role == "success" ? "#ffffff" :
                                role == "danger" ? (dark ? "#fca5a5" : "#b91c1c") : foreground);
