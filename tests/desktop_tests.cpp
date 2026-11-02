@@ -402,6 +402,13 @@ private slots:
             QTest::qWait(30);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
         }
+        // Test inline toggle directly on the card badge.
+        const QRect card0 = tx->visualItemRect(tx->item(0, 1)).adjusted(2, 6, -2, -6);
+        const QPoint badgePos(card0.right() - 50, card0.top() + 18);
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
     }
 
     /** @brief Render keyboard focus, press, hover, popup and system theme changes. */

@@ -24,7 +24,97 @@
 #include <QEvent>
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <algorithm>
+
+/**
+ * @brief Generate a small vector dot indicator for stream freshness.
+ * @param age Elapsed seconds since the last frame.
+ * @param dark True if rendering under a dark palette.
+ * @return Theme-aware icon representing stream activity.
+ */
+static QIcon activityLed(double age, bool dark)
+{
+    QPixmap pixmap(10, 10);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing);
+    QColor color;
+    if (age <= 0.5)
+    {
+        color = dark ? QColor("#3fb950") : QColor("#1a7f37");
+    }
+    else if (age <= 2.0)
+    {
+        color = dark ? QColor("#d29922") : QColor("#9a6700");
+    }
+    else
+    {
+        color = dark ? QColor("#6e7681") : QColor("#8c959f");
+    }
+    p.setBrush(color);
+    p.setPen(Qt::NoPen);
+    p.drawEllipse(1, 1, 8, 8);
+    return QIcon(pixmap);
+}
+
+/**
+ * @brief Provide human-readable enum descriptions for common MAVLink fields.
+ * @param msgid MAVLink message identity.
+ * @param field Field name string.
+ * @param val Decimal string value.
+ * @return Concise description or empty string.
+ */
+static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QString &val)
+{
+    bool ok = false;
+    const uint64_t v = val.toULongLong(&ok);
+    if (!ok)
+    {
+        return {};
+    }
+    if (msgid == 0)
+    {
+        if (field == "autopilot")
+        {
+            switch (v)
+            {
+                case 0: return "GENERIC";
+                case 3: return "ARDUPILOTMEGA";
+                case 12: return "PX4";
+                default: break;
+            }
+        }
+        else if (field == "type")
+        {
+            switch (v)
+            {
+                case 1: return "FIXED_WING";
+                case 2: return "QUADROTOR";
+                case 3: return "COAXIAL";
+                case 4: return "HELICOPTER";
+                case 10: return "GROUND_ROVER";
+                case 12: return "SUBMARINE";
+                default: break;
+            }
+        }
+        else if (field == "system_status")
+        {
+            switch (v)
+            {
+                case 0: return "UNINIT";
+                case 1: return "BOOT";
+                case 2: return "CALIBRATING";
+                case 3: return "STANDBY";
+                case 4: return "ACTIVE";
+                case 5: return "CRITICAL";
+                case 6: return "EMERGENCY";
+                default: break;
+            }
+        }
+    }
+    return {};
+}
 
 /** @brief Keep native combo interaction with a theme-aware vector chevron. */
 class WorkbenchComboBox : public QComboBox
@@ -119,14 +209,39 @@ public:
         painter->setPen(muted);
         painter->drawText(card.adjusted(14, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
                           QString("ID %1  ·  %2 %3").arg(value(0), value(5), value(5) == "1" ? "frame" : "frames"));
-        const QRect badge(card.right() - 90, card.top() + 9, 76, 22);
-        painter->setPen(Qt::NoPen);
-        painter->setBrush(error ? QColor(dark ? "#482e3f" : "#fff0f1") :
-                          running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#30394d" : "#edf0f6"));
-        painter->drawRoundedRect(badge, 5, 5);
-        painter->setPen(error ? QColor(dark ? "#ffb3bd" : "#b42340") :
-                        running ? QColor(dark ? "#94e5bd" : "#17613e") : muted);
-        painter->drawText(badge, Qt::AlignCenter, error ? "Error" : text);
+        const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+        const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                               running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#263042" : "#edf0f6");
+        const QColor badgeBorder = error ? QColor(dark ? "#7a3749" : "#f8b4bc") :
+                                   running ? QColor(dark ? "#2e685a" : "#bfe6d3") : QColor(dark ? "#3d4c66" : "#d2dae6");
+        const QColor badgeFg = error ? QColor(dark ? "#ffb3bd" : "#b42340") :
+                               running ? QColor(dark ? "#94e5bd" : "#17613e") : muted;
+        painter->setPen(QPen(badgeBorder, 1));
+        painter->setBrush(badgeBg);
+        painter->drawRoundedRect(badge, 6, 6);
+        if (error)
+        {
+            painter->setPen(badgeFg);
+            painter->drawText(badge, Qt::AlignCenter, "Error");
+        }
+        else if (running)
+        {
+            painter->fillRect(QRect(badge.left() + 9, badge.center().y() - 3, 7, 7), badgeFg);
+            painter->setPen(badgeFg);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Running");
+        }
+        else
+        {
+            QPolygonF play;
+            play << QPointF(badge.left() + 9, badge.center().y() - 4)
+                 << QPointF(badge.left() + 16, badge.center().y())
+                 << QPointF(badge.left() + 9, badge.center().y() + 4);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(badgeFg);
+            painter->drawPolygon(play);
+            painter->setPen(badgeFg);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
+        }
         font.setPixelSize(15);
         font.setBold(true);
         painter->setFont(font);
@@ -149,6 +264,12 @@ public:
         painter->setPen(foreground);
         const QRect rates = card.adjusted(14, 94, -14, 0);
         painter->drawText(rates, Qt::AlignTop | Qt::AlignLeft, value(3) + " Hz target");
+        if (running)
+        {
+            font.setBold(true);
+            painter->setFont(font);
+            painter->setPen(QColor(dark ? "#75cdb0" : "#2e947e"));
+        }
         painter->drawText(rates, Qt::AlignTop | Qt::AlignRight, value(4) + " Hz actual");
         painter->restore();
     }
@@ -165,6 +286,7 @@ protected:
     {
         QStyledItemDelegate::initStyleOption(option, index);
         const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         option->font.setBold(false);
         option->palette.setColor(QPalette::Text, QColor(dark ? "#b2c8e2" : "#3f628b"));
         option->backgroundBrush = QColor(dark ? "#1b2b3e" : "#f4f7fc");
@@ -445,6 +567,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->verticalHeader()->setDefaultSectionSize(132);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
+    txTable->viewport()->setMouseTracking(true);
+    txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
     auto *sendActions = new QHBoxLayout;
@@ -491,14 +615,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setObjectName("rxTree");
     rxTree->setHeaderLabels({"Message / Source", "ID", "Count", "Hz", "Activity"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
     rxTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    rxTree->setColumnWidth(1, 44);
-    rxTree->setColumnWidth(2, 65);
-    rxTree->setColumnWidth(3, 50);
-    rxTree->setColumnWidth(4, 110);
+    rxTree->setColumnWidth(1, 52);
+    rxTree->setColumnWidth(2, 75);
+    rxTree->setColumnWidth(3, 58);
+    rxTree->setColumnWidth(4, 115);
     inspector = table({"Field", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setColumnWidth(0, 150);
@@ -532,6 +660,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
     metrics = new QLabel("RX 0 B/s    TX 0 B/s    CRC errors 0    Pending 0 B");
+    metrics->setTextFormat(Qt::RichText);
     metrics->setContentsMargins(18, 0, 0, 0);
     statusBar()->addWidget(metrics);
     lastError = new QLabel("Ready");
@@ -555,6 +684,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         connectionLabel->style()->unpolish(connectionLabel);
         connectionLabel->style()->polish(connectionLabel);
         connectButton->setText(open ? "Disconnect" : "Connect");
+        connectButton->setProperty("connected", open);
+        connectButton->style()->unpolish(connectButton);
+        connectButton->style()->polish(connectButton);
         connectButton->setEnabled(!connecting);
         refreshPortsButton->setEnabled(!open && !connecting);
         for (auto *combo : {portBox, baudBox, dataBox, parityBox, stopBox, flowBox})
@@ -816,12 +948,12 @@ void MainWindow::editMessage(bool edit)
     fieldControl("Protocol", version);
     fieldControl("Rate (Hz)", rate);
     editor->addLayout(form);
-    auto *payloadTitle = new QLabel("PAYLOAD · Double-click a value to edit");
+    auto *payloadTitle = new QLabel("PAYLOAD · Click a value to edit");
     payloadTitle->setObjectName("secondaryText");
     editor->addWidget(payloadTitle);
     auto *fields = table({"Field", "Type", "Value"});
     fields->setObjectName("payloadFields");
-    fields->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    fields->setEditTriggers(QAbstractItemView::AllEditTriggers);
     fields->setColumnWidth(0, 190);
     fields->setColumnWidth(1, 105);
     editor->addWidget(fields, 1);
@@ -983,9 +1115,23 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             txTable->verticalScrollBar()->setValue(scroll);
         }
     }
-    metrics->setText(QString("RX %1 B/s    TX %2 B/s    CRC errors %3    Pending %4 B    RX overflow %5")
-                    .arg(latest->rxBytesPerSecond, 0, 'f', 0).arg(latest->txBytesPerSecond, 0, 'f', 0)
-                    .arg(qulonglong(latest->crcErrors)).arg(qulonglong(latest->pending)).arg(qulonglong(latest->overflow)));
+    const bool dark = themeBox->currentIndex() == 2 ||
+                      (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+    const QString alertColor = dark ? "#f87171" : "#dc2626";
+    const QString warnColor = dark ? "#fbbf24" : "#d97706";
+    const QString textCrc = latest->crcErrors > 0 ?
+        QString("<span style='color:%1; font-weight:bold;'>CRC errors %2</span>").arg(alertColor).arg(qulonglong(latest->crcErrors)) :
+        QString("CRC errors %1").arg(qulonglong(latest->crcErrors));
+    const QString textPending = latest->pending > 4096 ?
+        QString("<span style='color:%1; font-weight:bold;'>Pending %2 B</span>").arg(warnColor).arg(qulonglong(latest->pending)) :
+        QString("Pending %1 B").arg(qulonglong(latest->pending));
+    const QString textOverflow = latest->overflow > 0 ?
+        QString("<span style='color:%1; font-weight:bold;'>RX overflow %2</span>").arg(alertColor).arg(qulonglong(latest->overflow)) :
+        QString("RX overflow %1").arg(qulonglong(latest->overflow));
+    metrics->setText(QString("RX %1 B/s    TX %2 B/s    %3    %4    %5")
+                    .arg(latest->rxBytesPerSecond, 0, 'f', 0)
+                    .arg(latest->txBytesPerSecond, 0, 'f', 0)
+                    .arg(textCrc, textPending, textOverflow));
     if (!paused)
     {
         for (const auto &entry : latest->rx)
@@ -1035,8 +1181,17 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             {
                 item = new QTreeWidgetItem(component);
                 item->setData(0, Qt::UserRole, message.msgid);
-                item->setFont(0, QFontDatabase::systemFont(QFontDatabase::FixedFont));
+                const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+                for (int col = 0; col < 5; ++col)
+                {
+                    item->setFont(col, fixedFont);
+                }
+                item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
+                item->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
             }
+            item->setIcon(4, activityLed(entry.age, dark));
             item->setText(0, messageName(message.msgid));
             item->setText(1, QString::number(message.msgid));
             item->setText(2, QString::number(qulonglong(entry.count)));
@@ -1082,6 +1237,8 @@ void MainWindow::updateInspector()
         }
         inspector->setRowCount(int(info->num_fields));
         inspectorTitle->setText("DECODED FIELDS  /  " + messageName(id));
+        const bool dark = themeBox->currentIndex() == 2 ||
+                          (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
         for (unsigned i = 0; i < info->num_fields; ++i)
         {
             const auto &field = info->fields[i];
@@ -1092,8 +1249,23 @@ void MainWindow::updateInspector()
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(inspector, int(i), 1, type);
-            cell(inspector, int(i), 2, QString::fromStdString(Mav::readField(message, field)));
-            inspector->item(int(i), 2)->setToolTip(inspector->item(int(i), 2)->text());
+            const QString valStr = QString::fromStdString(Mav::readField(message, field));
+            const QString fieldKey = QString("%1.%2.%3.%4").arg(system).arg(component).arg(id).arg(field.name);
+            const auto prevIt = lastFieldValues.find(fieldKey);
+            const bool changed = (prevIt != lastFieldValues.end()) && (prevIt->second != valStr);
+            lastFieldValues[fieldKey] = valStr;
+            cell(inspector, int(i), 2, valStr);
+            auto *valItem = inspector->item(int(i), 2);
+            if (changed)
+            {
+                valItem->setForeground(QColor(dark ? "#58a6ff" : "#0969da"));
+            }
+            else
+            {
+                valItem->setForeground(QColor(dark ? "#b2c8e2" : "#3f628b"));
+            }
+            const QString hint = mavlinkEnumHint(id, QString::fromLatin1(field.name), valStr);
+            valItem->setToolTip(hint.isEmpty() ? valStr : valStr + " · " + hint);
             cell(inspector, int(i), 3, "Unavailable");
         }
         return;
@@ -1138,6 +1310,48 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         themeBox && themeBox->currentIndex() == 0)
     {
         applyTheme();
+    }
+    if (txTable && watched == txTable->viewport())
+    {
+        if (event->type() == QEvent::MouseButtonRelease)
+        {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton && connected)
+            {
+                const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+                if (index.isValid() && index.column() == 1)
+                {
+                    const QRect rect = txTable->visualRect(index);
+                    const QRect card = rect.adjusted(2, 6, -2, -6);
+                    const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                    if (badge.contains(mouseEvent->pos()))
+                    {
+                        const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
+                        const bool running = txTable->item(index.row(), 6)->text() == "Running";
+                        QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
+                                                  Q_ARG(quint64, key), Q_ARG(bool, !running));
+                        return true;
+                    }
+                }
+            }
+        }
+        else if (event->type() == QEvent::MouseMove)
+        {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+            if (index.isValid() && index.column() == 1)
+            {
+                const QRect rect = txTable->visualRect(index);
+                const QRect card = rect.adjusted(2, 6, -2, -6);
+                const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
+                                               Qt::PointingHandCursor : Qt::ArrowCursor);
+            }
+            else
+            {
+                txTable->viewport()->setCursor(Qt::ArrowCursor);
+            }
+        }
     }
     auto *control = qobject_cast<QPushButton *>(watched);
     if (control && isAncestorOf(control))
@@ -1215,6 +1429,9 @@ void MainWindow::applyTheme()
         "QPushButton[role=primary] { background:#4f46e5; color:white; border-color:#4f46e5; }"
         "QPushButton[role=primary]:hover { background:#4338ca; border-color:#4338ca; }"
         "QPushButton[role=primary]:pressed { background:#3730a3; border-color:#3730a3; }"
+        "QPushButton#connect[connected=true] { background:transparent; color:%7; border:1px solid %7; }"
+        "QPushButton#connect[connected=true]:hover { background:%6; border-color:#ef4444; color:#ef4444; }"
+        "QPushButton#connect[connected=true]:pressed { background:%4; }"
         "QPushButton[role=success] { background:#087f6e; color:white; border-color:#087f6e; }"
         "QPushButton[role=success]:hover { background:#066758; border-color:#066758; }"
         "QPushButton[role=success]:pressed { background:#065446; border-color:#065446; }"
@@ -1242,7 +1459,7 @@ void MainWindow::applyTheme()
         "QAbstractItemView { background:%2; color:%3; alternate-background-color:%6; border:0; border-radius:0; gridline-color:%4; }"
         "QTableView::item { padding:0 6px; border:0; }"
         "QTableWidget#txTable::item { padding:0; }"
-        "QTreeView::item { padding:8px 0; border:0; }"
+        "QTreeView::item { padding:8px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"

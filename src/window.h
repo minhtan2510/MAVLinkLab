@@ -8,6 +8,7 @@
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QLabel>
+#include <map>
 
 class MainWindow : public QMainWindow
 {
@@ -77,4 +78,5 @@ private:
     QLabel *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
+    std::map<QString, QString> lastFieldValues;
 };
