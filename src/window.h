@@ -43,8 +43,6 @@ private:
     void updateActions();
     /** @brief Refresh the compact serial framing summary without changing I/O. */
     void updateSerialSummary();
-    /** @brief Keep empty-state guidance aligned with the displayed models. */
-    void updateEmptyStates();
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -75,13 +73,8 @@ private:
     QPushButton *startButton = nullptr;
     QPushButton *stopButton = nullptr;
     QPushButton *stopAllButton = nullptr;
-    QLabel *rxHint = nullptr;
-    QLabel *txHint = nullptr;
     QLabel *serialSummary = nullptr;
     QLabel *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
-    QLabel *txEmpty = nullptr;
-    QLabel *rxEmpty = nullptr;
-    QLabel *inspectorEmpty = nullptr;
     QLabel *inspectorTitle = nullptr;
 };
