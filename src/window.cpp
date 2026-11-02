@@ -22,10 +22,56 @@
 #include <QScrollBar>
 #include <QVBoxLayout>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <algorithm>
+
+/**
+ * @brief Check whether a serial port represents an actively connected hardware device.
+ * @param info Serial port metadata.
+ * @return True if the device is a plugged USB converter, active onboard UART, or genuine hardware port.
+ */
+static bool isPluggedPort(const QSerialPortInfo &info)
+{
+    const QString name = info.portName();
+    // Hotplugged USB serial devices (FTDI, CP210x, CH340, CDC-ACM, etc.)
+    if (name.startsWith("ttyUSB") || name.startsWith("ttyACM") || name.startsWith("rfcomm"))
+    {
+        return true;
+    }
+    if (info.hasVendorIdentifier() || info.hasProductIdentifier())
+    {
+        return true;
+    }
+    // Embedded onboard hardware UARTs (Raspberry Pi, NVIDIA Jetson, etc.)
+    if (name.startsWith("ttyAMA") || name.startsWith("ttyTHS"))
+    {
+        return true;
+    }
+    // Filter out dummy virtual 8250 platform serial ports (ttyS0..ttyS31)
+    if (name.startsWith("ttyS"))
+    {
+        QFile typeFile(QString("/sys/class/tty/%1/type").arg(name));
+        if (typeFile.open(QIODevice::ReadOnly))
+        {
+            const int type = typeFile.readAll().trimmed().toInt();
+            // Type 0 indicates PORT_UNKNOWN (no physical UART chip present)
+            if (type > 0)
+            {
+                QFileInfo devInfo(QString("/sys/class/tty/%1/device").arg(name));
+                if (devInfo.exists() && !devInfo.symLinkTarget().contains("serial8250"))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    return false;
+}
 
 /**
  * @brief Generate a small vector dot indicator for stream freshness.
@@ -440,11 +486,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         row->addWidget(field);
         return field;
     };
-    auto *portField = addCombo(uartRow, "Serial port", portBox, {});
+    addCombo(uartRow, "Serial port", portBox, {});
     portBox->setEditable(true);
-    portBox->setMinimumWidth(180);
-    portBox->lineEdit()->setPlaceholderText("Select a port or enter /dev/…");
-    uartRow->setStretchFactor(portField, 1);
+    portBox->setFixedWidth(200);
+    portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
     portBox->setObjectName("port");
     auto *refreshPortsButton = button("", "refreshPorts", uartRow);
     refreshPortsButton->setFixedSize(32, 32);
@@ -468,6 +513,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settings->setAccessibleName("Advanced UART settings");
     settings->setToolTip("Show data bits, parity, stop bits and flow control");
     uartRow->setAlignment(settings, Qt::AlignBottom);
+    uartRow->addStretch();
     auto *connectionDivider = new QFrame;
     connectionDivider->setObjectName("serialDivider");
     connectionDivider->setFixedSize(1, 32);
@@ -787,9 +833,12 @@ void MainWindow::refreshPorts()
     portBox->clear();
     for (const auto &info : QSerialPortInfo::availablePorts())
     {
-        portBox->addItem(info.systemLocation());
-        portBox->setItemData(portBox->count() - 1,
-                             info.description() + " · " + info.manufacturer(), Qt::ToolTipRole);
+        if (isPluggedPort(info))
+        {
+            portBox->addItem(info.systemLocation());
+            portBox->setItemData(portBox->count() - 1,
+                                 info.description() + " · " + info.manufacturer(), Qt::ToolTipRole);
+        }
     }
     if (!previous.isEmpty())
     {
