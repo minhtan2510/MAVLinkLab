@@ -38,6 +38,11 @@
 static bool isPluggedPort(const QSerialPortInfo &info)
 {
     const QString name = info.portName();
+    // Exclude legacy/virtual PC serial ports
+    if (name.startsWith("ttyS"))
+    {
+        return false;
+    }
     // Hotplugged USB serial devices (FTDI, CP210x, CH340, CDC-ACM, etc.)
     if (name.startsWith("ttyUSB") || name.startsWith("ttyACM") || name.startsWith("rfcomm"))
     {
@@ -51,25 +56,6 @@ static bool isPluggedPort(const QSerialPortInfo &info)
     if (name.startsWith("ttyAMA") || name.startsWith("ttyTHS"))
     {
         return true;
-    }
-    // Filter out dummy virtual 8250 platform serial ports (ttyS0..ttyS31)
-    if (name.startsWith("ttyS"))
-    {
-        QFile typeFile(QString("/sys/class/tty/%1/type").arg(name));
-        if (typeFile.open(QIODevice::ReadOnly))
-        {
-            const int type = typeFile.readAll().trimmed().toInt();
-            // Type 0 indicates PORT_UNKNOWN (no physical UART chip present)
-            if (type > 0)
-            {
-                QFileInfo devInfo(QString("/sys/class/tty/%1/device").arg(name));
-                if (devInfo.exists() && !devInfo.symLinkTarget().contains("serial8250"))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
     return false;
 }
@@ -501,12 +487,83 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     identity->addWidget(title);
     heading->addLayout(identity);
     heading->addStretch();
-    themeBox = new WorkbenchComboBox;
+    root->addLayout(heading);
+
+    settingsDialog = new QDialog(this);
+    settingsDialog->setObjectName("settingsDialog");
+    settingsDialog->setWindowTitle("Settings");
+    settingsDialog->setModal(true);
+    settingsDialog->setMinimumWidth(380);
+    auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
+    settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
+    settingsDialogLayout->setSpacing(16);
+
+    auto *dialogTitle = new QLabel("Application Settings", settingsDialog);
+    dialogTitle->setObjectName("panelTitle");
+    settingsDialogLayout->addWidget(dialogTitle);
+
+    auto *appearanceCard = new QFrame(settingsDialog);
+    appearanceCard->setObjectName("settingsCard");
+    auto *appearanceLayout = new QVBoxLayout(appearanceCard);
+    appearanceLayout->setContentsMargins(14, 12, 14, 12);
+    appearanceLayout->setSpacing(8);
+
+    auto *groupHeader = new QLabel("Appearance", appearanceCard);
+    groupHeader->setObjectName("settingsGroupTitle");
+    appearanceLayout->addWidget(groupHeader);
+
+    auto *themeRow = new QHBoxLayout;
+    themeRow->setContentsMargins(0, 4, 0, 0);
+    auto *themeLabel = new QLabel("Theme:", appearanceCard);
+    themeLabel->setObjectName("secondaryText");
+    themeRow->addWidget(themeLabel);
+    themeRow->addStretch();
+
+    themeBox = new WorkbenchComboBox(appearanceCard);
     themeBox->setObjectName("theme");
     themeBox->addItems({"System", "Light", "Dark"});
     themeBox->setAccessibleName("Application theme");
-    heading->addWidget(themeBox);
-    root->addLayout(heading);
+    themeBox->setFixedWidth(130);
+    themeRow->addWidget(themeBox);
+    appearanceLayout->addLayout(themeRow);
+
+    settingsDialogLayout->addWidget(appearanceCard);
+    settingsDialogLayout->addStretch();
+
+    auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
+    settingsButtonBox->setObjectName("settingsButtonBox");
+    auto *closeButton = settingsButtonBox->addButton("Close", QDialogButtonBox::RejectRole);
+    closeButton->setObjectName("closeSettings");
+    closeButton->setIcon(QIcon());
+    connect(settingsButtonBox, &QDialogButtonBox::rejected, settingsDialog, &QDialog::accept);
+    settingsDialogLayout->addWidget(settingsButtonBox);
+
+    auto *appMenuBar = menuBar();
+    appMenuBar->setObjectName("appMenuBar");
+
+    auto *fileMenu = appMenuBar->addMenu("File");
+    fileMenu->setObjectName("fileMenu");
+    auto *exitAction = fileMenu->addAction("Exit", this, &QWidget::close, QKeySequence::Quit);
+    exitAction->setObjectName("actionExit");
+
+    auto *viewMenu = appMenuBar->addMenu("View");
+    viewMenu->setObjectName("viewMenu");
+
+    auto *toolMenu = appMenuBar->addMenu("Tool");
+    toolMenu->setObjectName("toolMenu");
+    auto *settingsAction = toolMenu->addAction("Settings...", settingsDialog, &QDialog::exec, QKeySequence::Preferences);
+    settingsAction->setObjectName("actionSettings");
+
+    auto *helpMenu = appMenuBar->addMenu("Help");
+    helpMenu->setObjectName("helpMenu");
+    auto *aboutAction = helpMenu->addAction("About MAVLink Simulator", this, [this]()
+    {
+        QMessageBox::about(this, "About MAVLink Simulator",
+                           "<h3>MAVLink Simulator</h3>"
+                           "<p>Desktop serial workbench for Ubuntu/Linux.</p>"
+                           "<p>Dialect: ArduPilotMega / Common</p>");
+    });
+    aboutAction->setObjectName("actionAbout");
     auto *uart = new QFrame;
     uart->setObjectName("connectionBar");
     auto *uartLayout = new QVBoxLayout(uart);
@@ -739,6 +796,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *clear = button("Clear", "clearStatistics", rxActions);
     clear->setToolTip("Clear received messages and statistics");
     rxLayout->addLayout(rxActions);
+
+    auto *pauseAction = viewMenu->addAction("Pause Display", this, [pause]()
+    {
+        pause->toggle();
+    });
+    pauseAction->setObjectName("actionPauseDisplay");
+    pauseAction->setCheckable(true);
+    connect(pause, &QPushButton::toggled, pauseAction, &QAction::setChecked);
+
+    auto *clearAction = viewMenu->addAction("Clear Received Messages", clear, &QPushButton::click);
+    clearAction->setObjectName("actionClearDisplay");
     auto *rxSplit = new QSplitter(Qt::Vertical);
     rxSplit->setObjectName("rxSplit");
     rxSplit->setChildrenCollapsible(false);
@@ -1564,6 +1632,14 @@ void MainWindow::applyTheme()
     qApp->setPalette(colors);
     const QString baseStyle = QString(
         "QMainWindow,QDialog { background:%1; color:%3; }"
+        "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; }"
+        "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; }"
+        "QMenuBar::item:selected { background:%6; color:%3; }"
+        "QMenuBar::item:pressed { background:%6; }"
+        "QMenu { background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:4px; font-size:13px; }"
+        "QMenu::item { padding:6px 24px 6px 12px; border-radius:4px; }"
+        "QMenu::item:selected { background:#4f46e5; color:white; }"
+        "QMenu::separator { height:1px; background:%4; margin:4px 6px; }"
         "QWidget { font-size:14px; } QLabel { color:%3; }"
         "QLabel#appMark { font-size:24px; font-weight:700; color:white; background:#4f46e5; border-radius:12px; }"
         "QLabel#heading { font-size:22px; font-weight:700; }"
@@ -1580,6 +1656,9 @@ void MainWindow::applyTheme()
         "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
         "QFrame#serialAdvanced { background:%6; border:1px solid %4; border-radius:7px; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
+        "QFrame#settingsCard { background:%2; border:1px solid %4; border-radius:8px; }"
+        "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
+        "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
@@ -1663,6 +1742,10 @@ void MainWindow::applyTheme()
     for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts"})
     {
         auto *control = findChild<QPushButton *>(name);
+        if (!control)
+        {
+            continue;
+        }
         const QString role = control->property("role").toString();
         const QColor iconColor(role == "primary" || role == "success" ? "#ffffff" :
                                role == "danger" ? (dark ? "#fca5a5" : "#b91c1c") : foreground);

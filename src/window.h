@@ -1,6 +1,11 @@
 #pragma once
 #include "worker.h"
 #include <QMainWindow>
+#include <QDialog>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QMessageBox>
 #include <QThread>
 #include <QComboBox>
 #include <QLineEdit>
@@ -65,6 +70,7 @@ private:
     QComboBox *stopBox = nullptr;
     QComboBox *flowBox = nullptr;
     QComboBox *themeBox = nullptr;
+    QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *connectionLabel = nullptr;
     QLabel *statusDot = nullptr;

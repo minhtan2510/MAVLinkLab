@@ -2,6 +2,8 @@
 #include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QMenuBar>
+#include <QAction>
 #include <QDir>
 #include <QSignalSpy>
 #include <QSpinBox>
@@ -183,7 +185,10 @@ private slots:
         auto *tx = window.findChild<QTableWidget *>("txTable");
         auto *theme = window.findChild<QComboBox *>("theme");
         auto *rx = window.findChild<QTreeWidget *>("rxTree");
-        QVERIFY(port && connectButton && add && tx && theme && rx);
+        auto *menuBar = window.findChild<QMenuBar *>("appMenuBar");
+        auto *actionSettings = window.findChild<QAction *>("actionSettings");
+        auto *actionExit = window.findChild<QAction *>("actionExit");
+        QVERIFY(port && connectButton && add && tx && theme && rx && menuBar && actionSettings && actionExit);
         auto *settings = window.findChild<QPushButton *>("serialSettings");
         auto *advanced = window.findChild<QWidget *>("serialAdvanced");
         auto *connectionBar = window.findChild<QWidget *>("connectionBar");
@@ -445,10 +450,15 @@ private slots:
             QVERIFY(window.grab().save("qa/pressed-" + mode + ".png"));
             // Release outside the button so this state check does not open a dialog.
             QTest::mouseRelease(add, Qt::LeftButton, Qt::NoModifier, QPoint(-10, -10));
+            auto *settingsDialog = window.findChild<QDialog *>("settingsDialog");
+            QVERIFY(settingsDialog);
+            settingsDialog->show();
             theme->showPopup();
             QTest::qWait(20);
             QVERIFY(theme->view()->window()->grab().save("qa/popup-" + mode + ".png"));
             theme->hidePopup();
+            QVERIFY(settingsDialog->grab().save("qa/settings-dialog-" + mode + ".png"));
+            settingsDialog->hide();
             QTest::mouseClick(settings, Qt::LeftButton);
             QVERIFY(!settings->property("keyboardFocus").toBool());
             QTest::qWait(20);
