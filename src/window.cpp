@@ -416,21 +416,145 @@ public:
     }
 };
 
+/** @brief Paint payload identities with quieter type metadata and consistent row separators. */
+class PayloadIdentityDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Keep parameter names readable and type annotations visually secondary. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem styled(option);
+        initStyleOption(&styled, index);
+        const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
+        const bool selected = option.state & QStyle::State_Selected;
+        painter->save();
+        painter->fillRect(option.rect, selected ? styled.palette.color(QPalette::Highlight) :
+                          styled.palette.color(QPalette::Base));
+        painter->setPen(QColor(dark ? "#2d384b" : "#e8ecf3"));
+        painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        painter->setFont(styled.font);
+        painter->setPen(index.column() == 1 ? QColor(dark ? "#aab4cd" : "#626c84") :
+                        styled.palette.color(QPalette::Text));
+        const QRect textRect = option.rect.adjusted(10, 0, -10, 0);
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
+        if (option.state & QStyle::State_HasFocus)
+        {
+            painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRect(option.rect.adjusted(1, 1, -2, -2));
+        }
+        painter->restore();
+    }
+};
+
 /** @brief Give decoded and editable values a distinct visual column without changing data. */
 class ValueDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Keep editable payload values and invalid cells visible under the application stylesheet. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        if (!option.widget || option.widget->objectName() != "payloadFields")
+        {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem styled(option);
+        initStyleOption(&styled, index);
+        const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
+        const bool invalid = index.data(Qt::UserRole + 1).toBool();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool editable = index.flags() & Qt::ItemIsEditable;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        const QColor rowSurface = styled.palette.color(QPalette::Base);
+        const QColor border(dark ? "#40506a" : "#d0d9e7");
+        const QRect input = option.rect.adjusted(8, 6, -8, -6);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->fillRect(option.rect, rowSurface);
+        painter->setPen(QPen(QColor(dark ? "#2d384b" : "#e8ecf3"), 1));
+        painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        if (editable)
+        {
+            const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
+                                   selected || hovered ? QColor("#939bf0") : border;
+            painter->setPen(QPen(outline, selected || invalid ? 1.5 : 1));
+            painter->setBrush(invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                              selected ? QColor(dark ? "#293451" : "#f2f1ff") : QColor(dark ? "#202d42" : "#f7f9fc"));
+            painter->drawRoundedRect(input, 5, 5);
+        }
+        painter->setFont(styled.font);
+        painter->setPen(styled.palette.color(QPalette::Text));
+        const QRect textRect = input.adjusted(8, 0, -8, 0);
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
+        if (!editable && (option.state & QStyle::State_HasFocus))
+        {
+            painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(input, 5, 5);
+        }
+        painter->restore();
+    }
+
+    /** @brief Align the native payload editor with the painted input surface. */
+    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option,
+                              const QModelIndex &index) const override
+    {
+        if (option.widget && option.widget->objectName() == "payloadFields")
+        {
+            editor->setGeometry(option.rect.adjusted(8, 6, -8, -6));
+            return;
+        }
+        QStyledItemDelegate::updateEditorGeometry(editor, option, index);
+    }
+
+    /** @brief Create a standard text editor with the same typography and field identity. */
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
+    {
+        auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
+        if (editor && option.widget && option.widget->objectName() == "payloadFields")
+        {
+            editor->setObjectName("payloadValueEditor");
+            editor->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+            QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            font.setPixelSize(13);
+            editor->setFont(font);
+        }
+        return editor;
+    }
+
 protected:
     /** @brief Emphasize values while leaving native selection, focus and editing intact. */
     void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
     {
         QStyledItemDelegate::initStyleOption(option, index);
-        const bool dark = option->widget ? option->widget->property("darkTheme").toBool() : false;
+        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
         option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         option->font.setBold(false);
         option->palette.setColor(QPalette::Text, QColor(dark ? "#b2c8e2" : "#3f628b"));
         option->backgroundBrush = QColor(dark ? "#1b2b3e" : "#f4f7fc");
+        if (option->widget && option->widget->objectName() == "payloadFields")
+        {
+            option->font.setPixelSize(13);
+            if (!(index.flags() & Qt::ItemIsEditable))
+            {
+                option->text += "  · Read-only";
+                option->palette.setColor(QPalette::Text, QColor(dark ? "#aab4cd" : "#626c84"));
+                option->backgroundBrush = option->palette.color(QPalette::AlternateBase);
+            }
+            if (index.data(Qt::UserRole + 1).toBool())
+            {
+                option->text = "! " + option->text;
+                option->palette.setColor(QPalette::Text, QColor(dark ? "#ffb3bd" : "#b42340"));
+                option->palette.setColor(QPalette::HighlightedText, QColor(dark ? "#ffb3bd" : "#b42340"));
+                option->backgroundBrush = QColor(dark ? "#482e3f" : "#fff0f1");
+            }
+        }
     }
 };
 
@@ -1245,6 +1369,7 @@ void MainWindow::updateSerialSummary()
     }
 }
 
+/** @brief Configure message identity, sender and payload with contextual validation feedback. */
 void MainWindow::editMessage(bool edit)
 {
     Mav::TxEntry entry;
@@ -1278,37 +1403,64 @@ void MainWindow::editMessage(bool edit)
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(12);
     layout = addDialogTitleBar(&dialog, layout);
-    auto *description = new QLabel(edit ? "Saving stops this TX entry. Review its payload before restarting." :
-                                  "Choose a message, sender and rate. Saving starts periodic TX when connected.");
-    description->setObjectName("secondaryText");
-    layout->addWidget(description);
-    auto *body = new QHBoxLayout;
-    body->setSpacing(20);
-    auto *catalogPane = new QVBoxLayout;
+    if (edit)
+    {
+        auto *description = new QLabel("Saving stops this TX entry. Review its payload before restarting.");
+        description->setObjectName("secondaryText");
+        layout->addWidget(description);
+    }
+    auto *body = new QSplitter(Qt::Horizontal);
+    body->setObjectName("messageSplitter");
+    body->setChildrenCollapsible(false);
+    body->setHandleWidth(17);
+    auto *catalogWidget = new QWidget;
+    catalogWidget->setMinimumWidth(240);
+    auto *catalogPane = new QVBoxLayout(catalogWidget);
+    catalogPane->setContentsMargins(0, 0, 0, 0);
+    catalogPane->setSpacing(10);
+    auto *catalogHeading = new QHBoxLayout;
     auto *catalogTitle = new QLabel("MESSAGE CATALOG");
     catalogTitle->setObjectName("sectionTitle");
-    catalogPane->addWidget(catalogTitle);
+    catalogHeading->addWidget(catalogTitle);
+    auto *resultCount = new QLabel;
+    resultCount->setObjectName("catalogResultCount");
+    resultCount->setMinimumWidth(82);
+    resultCount->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    catalogHeading->addStretch();
+    catalogHeading->addWidget(resultCount);
+    catalogPane->addLayout(catalogHeading);
     auto *search = new QLineEdit;
     search->setPlaceholderText("Search message ID or name…");
     search->setAccessibleName("Search MAVLink catalog");
+    search->setObjectName("catalogSearch");
     catalogPane->addWidget(search);
     auto *catalogList = new QListWidget;
     catalogList->setObjectName("messageCatalog");
-    catalogList->setMinimumWidth(255);
-    catalogList->setMaximumWidth(290);
+    catalogList->setTextElideMode(Qt::ElideRight);
+    catalogList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     for (const auto &info : Mav::catalog())
     {
-        auto *item = new QListWidgetItem(QString("%1  ·  %2").arg(info.msgid).arg(info.name), catalogList);
+        auto *item = new QListWidgetItem(QString("[%1] %2").arg(info.msgid).arg(info.name), catalogList);
         item->setData(Qt::UserRole, info.msgid);
         item->setToolTip(item->text());
     }
     catalogPane->addWidget(catalogList, 1);
-    body->addLayout(catalogPane);
-    auto *editor = new QVBoxLayout;
+    auto *noMatches = new QLabel("No matching messages");
+    noMatches->setObjectName("catalogEmpty");
+    noMatches->setAlignment(Qt::AlignCenter);
+    noMatches->hide();
+    catalogPane->addWidget(noMatches, 1);
+    resultCount->setText(QString::number(catalogList->count()) + " results");
+    body->addWidget(catalogWidget);
+    auto *editorWidget = new QWidget;
+    editorWidget->setMinimumWidth(540);
+    auto *editor = new QVBoxLayout(editorWidget);
+    editor->setContentsMargins(0, 0, 0, 0);
     editor->setSpacing(10);
-    auto *senderTitle = new QLabel("SENDER & TIMING");
-    senderTitle->setObjectName("sectionTitle");
-    editor->addWidget(senderTitle);
+    auto *messageTitle = new QLabel;
+    messageTitle->setObjectName("selectedMessageTitle");
+    messageTitle->setWordWrap(true);
+    editor->addWidget(messageTitle);
     auto *form = new QHBoxLayout;
     auto *sysid = new WorkbenchSpinBox<QSpinBox>;
     auto *compid = new WorkbenchSpinBox<QSpinBox>;
@@ -1323,48 +1475,113 @@ void MainWindow::editMessage(bool edit)
     rate->setRange(0.1, 1000);
     rate->setDecimals(1);
     rate->setValue(entry.hz);
+    rate->setSuffix(" Hz");
     const auto fieldControl = [&](const QString &name, QWidget *control)
     {
-        auto *field = new QFormLayout;
-        field->setRowWrapPolicy(QFormLayout::WrapAllRows);
-        field->addRow(name, control);
+        auto *field = new QVBoxLayout;
+        field->setSpacing(6);
+        auto *label = new QLabel(name);
+        label->setObjectName("serialFieldLabel");
+        label->setBuddy(control);
+        field->addWidget(label);
+        control->setFixedHeight(34);
+        control->setMinimumWidth(0);
+        control->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        field->addWidget(control);
         control->setAccessibleName(name);
-        form->addLayout(field);
+        form->addLayout(field, 1);
     };
     fieldControl("System ID", sysid);
     fieldControl("Component ID", compid);
     fieldControl("Protocol", version);
-    fieldControl("Rate (Hz)", rate);
+    fieldControl("Rate", rate);
     editor->addLayout(form);
-    auto *payloadTitle = new QLabel("PAYLOAD · Click a value to edit");
-    payloadTitle->setObjectName("secondaryText");
-    editor->addWidget(payloadTitle);
-    auto *fields = table({"Field", "Type", "Value"});
+    auto *fields = table({"Parameter", "Type", "Value"});
     fields->setObjectName("payloadFields");
+    fields->setItemDelegateForColumn(0, new PayloadIdentityDelegate(fields));
+    fields->setItemDelegateForColumn(1, new PayloadIdentityDelegate(fields));
     fields->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    fields->setSelectionBehavior(QAbstractItemView::SelectItems);
+    fields->setAlternatingRowColors(false);
+    fields->setMouseTracking(true);
+    fields->verticalHeader()->setDefaultSectionSize(40);
+    fields->horizontalHeader()->setFixedHeight(36);
+    fields->horizontalHeader()->setMinimumSectionSize(90);
     fields->setColumnWidth(0, 190);
     fields->setColumnWidth(1, 105);
     editor->addWidget(fields, 1);
-    body->addLayout(editor, 1);
-    layout->addLayout(body, 1);
-    auto *hint = new QLabel("Numeric arrays: comma-separated values, exact element count. char arrays: UTF-8 text. Integers: decimal. Units are unavailable in generated metadata.");
+    auto *hint = new QLabel;
     hint->setWordWrap(true);
-    hint->setObjectName("secondaryText");
-    layout->addWidget(hint);
+    hint->setObjectName("payloadHint");
+    hint->hide();
+    editor->addWidget(hint);
     auto *error = new QLabel;
     error->setObjectName("validationError");
     error->setWordWrap(true);
-    layout->addWidget(error);
+    error->hide();
+    editor->addWidget(error);
+    body->addWidget(editorWidget);
+    body->setSizes({280, 660});
+    body->setStretchFactor(0, 0);
+    body->setStretchFactor(1, 1);
+    layout->addWidget(body, 1);
+    auto *footerDivider = new QFrame;
+    footerDivider->setObjectName("messageFooterDivider");
+    footerDivider->setFixedHeight(1);
+    layout->addWidget(footerDivider);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Save)->setProperty("role", "primary");
-    buttons->button(QDialogButtonBox::Save)->setMinimumWidth(100);
+    buttons->button(QDialogButtonBox::Save)->setMinimumWidth(120);
+    const auto updateSubmitLabel = [=](bool online)
+    {
+        buttons->button(QDialogButtonBox::Save)->setText(edit ? "Save changes" : online ? "Add && start" : "Add message");
+    };
+    updateSubmitLabel(connected);
+    connect(worker, &SerialWorker::stateChanged, &dialog, [=](const QString &, bool online)
+    {
+        updateSubmitLabel(online);
+    });
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     const mavlink_message_info_t *selectedInfo = nullptr;
+    // Field-specific guidance replaces the permanent multi-line footer instructions.
+    connect(fields, &QTableWidget::currentCellChanged, &dialog, [&](int row, int, int, int)
+    {
+        hint->clear();
+        if (selectedInfo && row >= 0 && row < int(selectedInfo->num_fields) && fields->item(row, 2))
+        {
+            const auto &field = selectedInfo->fields[row];
+            if (!(fields->item(row, 2)->flags() & Qt::ItemIsEditable))
+            {
+                hint->setText("Read-only: protocol constant supplied by the official HEARTBEAT packer.");
+            }
+            else if (field.array_length)
+            {
+                hint->setText(field.type == MAVLINK_TYPE_CHAR ?
+                    QString("UTF-8 text · maximum %1 bytes.").arg(field.array_length) :
+                    QString("Enter exactly %1 comma-separated numeric values.").arg(field.array_length));
+            }
+        }
+        hint->setVisible(!hint->text().isEmpty());
+    });
+    connect(fields, &QTableWidget::itemChanged, &dialog, [=](QTableWidgetItem *item)
+    {
+        if (item->column() == 2 && item->data(Qt::UserRole + 1).toBool() &&
+            item->text() != item->data(Qt::UserRole + 2).toString())
+        {
+            item->setData(Qt::UserRole + 1, false);
+            error->clear();
+            error->hide();
+        }
+    });
     connect(catalogList, &QListWidget::currentItemChanged, &dialog, [&](QListWidgetItem *item)
     {
         selectedInfo = item ? mavlink_get_message_info_by_id(item->data(Qt::UserRole).toUInt()) : nullptr;
         fields->setRowCount(0);
+        error->clear();
+        error->hide();
+        hint->hide();
+        messageTitle->setText(selectedInfo ? QString("[%1] %2").arg(selectedInfo->msgid).arg(selectedInfo->name) : QString());
         if (!selectedInfo)
         {
             return;
@@ -1387,6 +1604,11 @@ void MainWindow::editMessage(bool edit)
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(fields, int(i), 1, type);
+            QFont nameFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            nameFont.setPixelSize(13);
+            fields->item(int(i), 0)->setFont(nameFont);
+            nameFont.setPixelSize(11);
+            fields->item(int(i), 1)->setFont(nameFont);
             cell(fields, int(i), 2, QString::fromStdString(Mav::readField(source, field)));
             if (selectedInfo->msgid == MAVLINK_MSG_ID_HEARTBEAT && qstrcmp(field.name, "mavlink_version") == 0)
             {
@@ -1402,19 +1624,32 @@ void MainWindow::editMessage(bool edit)
     });
     connect(search, &QLineEdit::textChanged, &dialog, [=](const QString &query)
     {
+        int count = 0;
         for (int i = 0; i < catalogList->count(); ++i)
         {
             auto *item = catalogList->item(i);
-            item->setHidden(!item->text().contains(query, Qt::CaseInsensitive));
+            const bool visible = item->text().contains(query.trimmed(), Qt::CaseInsensitive);
+            item->setHidden(!visible);
+            count += visible;
         }
+        resultCount->setText(QString::number(count) + " results");
+        noMatches->setVisible(count == 0);
+        catalogList->setVisible(count != 0);
     });
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]()
     {
         // Commit an active table editor before reading its value.
         buttons->setFocus();
+        error->clear();
+        error->hide();
+        for (int row = 0; row < fields->rowCount(); ++row)
+        {
+            fields->item(row, 2)->setData(Qt::UserRole + 1, false);
+        }
         if (!selectedInfo)
         {
             error->setText("Select a message");
+            error->show();
             return;
         }
         const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
@@ -1431,7 +1666,11 @@ void MainWindow::editMessage(bool edit)
                               fields->item(int(i), 2)->text().toUtf8().toStdString(), reason))
             {
                 error->setText(QString("%1: %2").arg(selectedInfo->fields[i].name, QString::fromStdString(reason)));
+                error->show();
+                fields->item(int(i), 2)->setData(Qt::UserRole + 2, fields->item(int(i), 2)->text());
+                fields->item(int(i), 2)->setData(Qt::UserRole + 1, true);
                 fields->setCurrentCell(int(i), 2);
+                fields->scrollToItem(fields->item(int(i), 2));
                 fields->setFocus();
                 return;
             }
@@ -1439,6 +1678,8 @@ void MainWindow::editMessage(bool edit)
         if (!Mav::validTx(entry))
         {
             error->setText("MAVLink 1 supports message IDs 0–255 only");
+            error->show();
+            version->setFocus();
             return;
         }
         dialog.accept();
@@ -1844,6 +2085,10 @@ void MainWindow::applyTheme()
         "QLabel#appMark { font-size:24px; font-weight:700; color:white; background:#4f46e5; border-radius:12px; }"
         "QLabel#heading { font-size:22px; font-weight:700; }"
         "QLabel#panelTitle { font-size:18px; font-weight:700; }"
+        "QLabel#selectedMessageTitle { font-size:16px; font-weight:600; color:%3; }"
+        "QLabel#catalogResultCount,QLabel#payloadHint,QLabel#catalogEmpty { color:%5; font-size:12px; }"
+        "QFrame#messageFooterDivider { background:%4; border:0; }"
+        "QSplitter#messageSplitter::handle { background:transparent; border-left:1px solid %4; margin:0 8px; }"
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
@@ -1895,6 +2140,10 @@ void MainWindow::applyTheme()
         "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; border:0; }"
         "QTreeView::item { padding:5px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
+        "QTableWidget#payloadFields { border:1px solid %4; border-radius:6px; }"
+        "QTableWidget#payloadFields::item { padding:0 10px; border-bottom:1px solid %4; }"
+        "QTableWidget#payloadFields QHeaderView::section { background:%6; color:%3; padding:8px 10px; border-bottom:1px solid %4; }"
+        "QLineEdit#payloadValueEditor { padding:0 8px; border-radius:5px; font-size:13px; selection-background-color:#4f46e5; selection-color:white; }"
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"
         "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"

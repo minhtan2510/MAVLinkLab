@@ -12,6 +12,7 @@
 #include <QListWidget>
 #include <QDoubleSpinBox>
 #include <QTest>
+#include <QSplitter>
 #include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
@@ -288,6 +289,7 @@ private slots:
             auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
             auto *buttons = dialog->findChild<QDialogButtonBox *>();
             QVERIFY(fields && buttons);
+            QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add && start"));
             const auto senderControls = dialog->findChildren<QSpinBox *>();
             QCOMPARE(senderControls.size(), 2);
             auto *component = senderControls[1];
@@ -310,8 +312,11 @@ private slots:
             buttons->button(QDialogButtonBox::Save)->click();
             QVERIFY(dialog->isVisible());
             QVERIFY(!dialog->findChild<QLabel *>("validationError")->text().isEmpty());
+            QVERIFY(fields->item(uint8Row, 2)->data(Qt::UserRole + 1).toBool());
             QVERIFY(dialog->grab().save("qa/message-validation-light.png"));
             fields->item(uint8Row, 2)->setText("0");
+            QVERIFY(!fields->item(uint8Row, 2)->data(Qt::UserRole + 1).toBool());
+            QVERIFY(dialog->findChild<QLabel *>("validationError")->isHidden());
             buttons->button(QDialogButtonBox::Save)->click();
         });
         add->click();
@@ -388,10 +393,116 @@ private slots:
         {
             auto *dialog = window.findChild<QDialog *>("messageDialog");
             QVERIFY(dialog);
+            QCOMPARE(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->text(), QString("Save changes"));
             QVERIFY(dialog->grab().save("qa/message-dark.png"));
             dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
         });
         window.findChild<QAction *>("editMessage")->trigger();
+    }
+
+    /** @brief Verify catalog filtering, contextual payload guidance and editor geometry in both themes. */
+    void messageEditorUi()
+    {
+        MainWindow window;
+        window.show();
+        QDir().mkpath("qa");
+        for (int mode : {1, 2})
+        {
+            window.findChild<QComboBox *>("theme")->setCurrentIndex(mode);
+            QTimer::singleShot(50, &window, [&]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                QTimer::singleShot(3000, dialog, &QDialog::reject);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                auto *search = dialog->findChild<QLineEdit *>("catalogSearch");
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                auto *title = dialog->findChild<QLabel *>("selectedMessageTitle");
+                auto *hint = dialog->findChild<QLabel *>("payloadHint");
+                auto *buttons = dialog->findChild<QDialogButtonBox *>();
+                auto *splitter = dialog->findChild<QSplitter *>("messageSplitter");
+                QVERIFY(catalog && search && fields && title && hint && buttons && splitter);
+                QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
+                QCOMPARE(title->text(), QString("[0] HEARTBEAT"));
+                fields->editItem(fields->item(0, 2));
+                auto *valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                QVERIFY(valueEditor);
+                QCOMPARE(valueEditor->accessibleName(), fields->item(0, 0)->text());
+                valueEditor->selectAll();
+                QTest::keyClicks(valueEditor, "1");
+                QTest::keyClick(valueEditor, Qt::Key_Return);
+                QTRY_COMPARE(fields->item(0, 2)->text(), QString("1"));
+
+                search->setText("no_such_message");
+                QVERIFY(dialog->findChild<QLabel *>("catalogEmpty")->isVisible());
+                QCOMPARE(dialog->findChild<QLabel *>("catalogResultCount")->text(), QString("0 results"));
+                search->setText("heartbeat");
+                QVERIFY(catalog->isVisible());
+                QVERIFY(!catalog->item(0)->isHidden());
+                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
+                search->clear();
+                for (int row = 0; row < fields->rowCount(); ++row)
+                {
+                    if (fields->item(row, 0)->text() == "mavlink_version")
+                    {
+                        QVERIFY(!(fields->item(row, 2)->flags() & Qt::ItemIsEditable));
+                        QCOMPARE(fields->item(row, 2)->text(), QString("3"));
+                        fields->setCurrentCell(row, 2);
+                        QVERIFY(hint->text().contains("Read-only"));
+                    }
+                }
+                const int beforeResize = splitter->sizes().first();
+                splitter->setSizes({360, 580});
+                QTest::qWait(20);
+                QVERIFY(splitter->sizes().first() > beforeResize);
+                auto *theme = window.findChild<QComboBox *>("theme");
+                theme->setCurrentIndex(mode == 1 ? 2 : 1);
+                QTest::qWait(20);
+                QCOMPARE(fields->palette().color(QPalette::Window).lightness() < 128, mode == 1);
+                theme->setCurrentIndex(mode);
+                QTest::qWait(20);
+                QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-light.png" : "qa/editor-dark.png"));
+                // Exercise char and numeric array help using the actual catalog metadata.
+                for (bool charArray : {true, false})
+                {
+                    bool found = false;
+                    for (int i = 0; i < catalog->count() && !found; ++i)
+                    {
+                        const auto *info = mavlink_get_message_info_by_id(catalog->item(i)->data(Qt::UserRole).toUInt());
+                        for (unsigned row = 0; row < info->num_fields; ++row)
+                        {
+                            const auto &field = info->fields[row];
+                            if (field.array_length && ((field.type == MAVLINK_TYPE_CHAR) == charArray))
+                            {
+                                catalog->setCurrentRow(i);
+                                fields->setCurrentCell(int(row), 2);
+                                QVERIFY(hint->isVisible());
+                                QVERIFY(hint->text().contains(charArray ? "UTF-8" : "comma-separated"));
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    QVERIFY(found);
+                }
+                catalog->setCurrentRow(0);
+                dialog->resize(880, 600);
+                splitter->setSizes({320, 540});
+                QTest::qWait(30);
+                for (auto *control : dialog->findChildren<QSpinBox *>())
+                {
+                    const QRect bounds(control->mapTo(dialog, QPoint(0, 0)), control->size());
+                    QVERIFY(dialog->rect().contains(bounds));
+                    QCOMPARE(control->height(), 34);
+                }
+                const QRect footer(buttons->mapTo(dialog, QPoint(0, 0)), buttons->size());
+                QVERIFY(dialog->rect().contains(footer));
+                QVERIFY(footer.top() > splitter->geometry().bottom());
+                QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-small-light.png" : "qa/editor-small-dark.png"));
+                dialog->reject();
+            });
+            window.findChild<QPushButton *>("addMessage")->click();
+        }
     }
 
     /** @brief Exercise card selection, scheduling and a populated modern dashboard through real widgets. */

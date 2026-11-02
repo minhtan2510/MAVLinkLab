@@ -330,3 +330,15 @@ Running cards now retain a soft teal surface and a narrow inset accent, includin
 Removed vertical side accents from TX cards. Stopped cards now use soft gray surfaces in both themes; Running retains its teal surface and selection remains an independent indigo outline.
 
 **Verification:** full build and targeted `modernDashboard` test passed (3 Qt test entries, 0 failures). Reviewed Light/Dark minimum-size offscreen renders with mixed Running/Stopped cards. Native desktop was not tested.
+
+## Message editor layout and feedback
+
+Refined Add/Edit message with a draggable catalog/editor divider, `[ID] NAME` catalog entries, result count/empty-search feedback and a selected-message heading. Sender/protocol/rate controls share a 34 px height; rate includes Hz. Payload value cells have a dedicated theme-aware surface, visible Read-only constants and cell-level invalid markers/outline. Field-specific array/text guidance replaces the permanent footer instructions. A divider separates the fixed action row; the primary label follows Add & start/Add message/Save changes and connection changes.
+
+**Verification:** full build and CTest **2/2 passed in 11.65 s**. New editor UI coverage checks empty/filtered catalog results without discarding edits, read-only constants, char/numeric array guidance, splitter adjustment, live theme changes and minimum-size control/footer geometry. Existing PTY desktop flow verifies connected Add & start, invalid uint8 cell marking/correction, automatic transmission and Edit Save changes. Reviewed Light/Dark default and minimum-size offscreen renders plus validation feedback. Existing popup, focus/hover/pressed, batch and serial checks passed. Native desktop/compositor and physical UART were not tested.
+
+## Parameter table clarity
+
+The message parameter table now has a distinct 36 px header, 40 px rows, a soft outer border and consistent row separators. Parameter names and type annotations have separate typography levels. Editable values are painted as inset rounded inputs with hover/selection/error outlines; read-only constants remain plain labeled values. Native text editors align with those input rectangles and expose their parameter name for accessibility.
+
+**Verification:** full build and CTest **2/2 passed in 11.61 s**. Editor tests now enter and commit a value through the real QLineEdit, waiting for Qt's queued commit before checking model data. Reviewed Light/Dark minimum-size renders and the highlighted invalid-value render; existing array guidance, filtering/edit preservation, read-only, resize, live-theme, PTY and validation checks passed. Rendering used offscreen Qt; native desktop was not tested.
