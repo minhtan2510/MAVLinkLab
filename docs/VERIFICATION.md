@@ -146,3 +146,11 @@ Removed placeholder/guidance overlays from TX, RX and decoded-field viewports, i
 Reduced the horizontal TX/RX splitter width from 16 to 12 px. Removed general tooltips from the TX/RX/field views and decoded-field heading, and removed splitter hover highlighting. Message-item and action tooltips remain; splitters remain draggable.
 
 **Verification:** full build passed; CTest **2/2 passed in 8.41 s**. Reviewed regenerated offscreen Light/Dark populated dashboards for spacing. Existing widget interaction tests passed; source review confirms no view-wide tooltip or splitter hover-fill rule remains. CodeGraph is up to date and `git diff --check` passed. Native desktop and physical UART were not retested.
+
+## Developer documentation audit
+
+**Baseline:** `main` at `98b3457` after merging `ui_dev`. Added source-backed `ARCHITECTURE.md`, `API.md` and `TROUBLESHOOTING.md`. Reviewed tracked application/core/worker headers and implementations, CMake, launcher, submodule configuration, both test suites and existing documentation. Updated stale rate typography, spacing and inspector-tooltip descriptions in `DESIGN.md`. No application source or dependency revision was changed by this documentation task.
+
+**Current checks:** core-only configure/build and CTest **1/1 passed**. Full configure and clean build with the temporary Qt prefix passed; CTest **2/2 passed in 8.55 s**. Configure reported missing XKB/Vulkan-header discovery, but generation/build completed; this does not establish native-platform feature availability. `bash -n run.sh` and `./run.sh --help` passed. The in-memory HEARTBEAT example from `API.md` was extracted, compiled against `mavcore` with C++17 and warning flags, and exited successfully. Local Markdown links, required document presence, code fences and trailing whitespace were checked.
+
+An earlier full run during the checkout transition failed `desktopFlow` at the Connect/Disconnect assertion and subsequently aborted in `modernDashboard`. The clean rebuild after the merge passed; the failure's precise cause was not isolated, so it is not claimed as a repaired application bug. Previous verification sections are historical runs, not new hardware evidence. Physical UART/DMA and native desktop integration were not retested in this documentation task.
