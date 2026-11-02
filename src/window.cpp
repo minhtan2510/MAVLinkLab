@@ -230,7 +230,7 @@ public:
         {
             return index.sibling(index.row(), column).data().toString();
         };
-        const bool dark = option.palette.color(QPalette::Window).lightness() < 128;
+        const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         const QString text = value(6);
@@ -240,20 +240,19 @@ public:
         const QColor muted(dark ? "#aab4cd" : "#626c84");
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
-        painter->fillRect(option.rect, QColor(dark ? "#172031" : "#f2f5fa"));
-        const QRect card = option.rect.adjusted(2, 6, -2, -6);
+        const QRect card = option.rect.adjusted(4, 6, -8, -6);
         painter->setPen(QPen(selected ? QColor("#939bf0") : QColor(dark ? "#465770" : "#c6d1e1"), selected ? 2 : 1));
         painter->setBrush(selected ? QColor(dark ? "#282b4b" : "#f1f2ff") :
                           hovered ? QColor(dark ? "#242c40" : "#f8f9ff") : QColor(dark ? "#1c2435" : "#ffffff"));
         painter->drawRoundedRect(card, 10, 10);
         painter->setPen(QPen(running ? QColor(dark ? "#75cdb0" : "#2e947e") :
-                            selected ? QColor("#939bf0") : QColor(dark ? "#647593" : "#a9b8cc"), 2, Qt::SolidLine, Qt::RoundCap));
-        painter->drawLine(card.left() + 2, card.top() + 16, card.left() + 2, card.bottom() - 16);
+                            selected ? QColor("#939bf0") : QColor(dark ? "#647593" : "#a9b8cc"), 3, Qt::SolidLine, Qt::RoundCap));
+        painter->drawLine(card.left() + 6, card.top() + 16, card.left() + 6, card.bottom() - 16);
         QFont font = option.font;
         font.setPixelSize(12);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(14, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
+        painter->drawText(card.adjusted(16, 10, -100, 0), Qt::AlignTop | Qt::AlignLeft,
                           QString("ID %1  ·  %2 %3").arg(value(0), value(5), value(5) == "1" ? "frame" : "frames"));
         const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
         const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
@@ -292,23 +291,23 @@ public:
         font.setBold(true);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(14, 39, -14, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 28));
+        painter->drawText(card.adjusted(16, 39, -14, 0), Qt::AlignTop | Qt::AlignLeft,
+                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 30));
         font.setPixelSize(12);
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(14, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, "SYS / COMP");
+        painter->drawText(card.adjusted(16, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, "SYS / COMP");
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(100, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, value(2));
+        painter->drawText(card.adjusted(102, 64, -14, 0), Qt::AlignTop | Qt::AlignLeft, value(2));
         painter->setPen(QPen(dark ? QColor("#35445f") : QColor("#dde4ef"), 1));
-        painter->drawLine(card.left() + 14, card.top() + 85, card.right() - 14, card.top() + 85);
+        painter->drawLine(card.left() + 16, card.top() + 85, card.right() - 14, card.top() + 85);
         font.setPixelSize(13);
         painter->setFont(font);
         painter->setPen(foreground);
-        const QRect rates = card.adjusted(14, 94, -14, 0);
+        const QRect rates = card.adjusted(16, 94, -14, 0);
         painter->drawText(rates, Qt::AlignTop | Qt::AlignLeft, value(3) + " Hz target");
         if (running)
         {
@@ -331,7 +330,7 @@ protected:
     void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
     {
         QStyledItemDelegate::initStyleOption(option, index);
-        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        const bool dark = option->widget ? option->widget->property("darkTheme").toBool() : false;
         option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         option->font.setBold(false);
         option->palette.setColor(QPalette::Text, QColor(dark ? "#b2c8e2" : "#3f628b"));
@@ -600,6 +599,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     stopAllButton = button("Stop all", "stopAll", txActions);
     stopAllButton->setProperty("role", "danger");
     txLayout->addLayout(txActions);
+    auto *txDivider = new QFrame;
+    txDivider->setObjectName("txDivider");
+    txDivider->setFixedHeight(1);
+    txLayout->addWidget(txDivider);
     txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"});
     txTable->setObjectName("txTable");
     txTable->setItemDelegateForColumn(1, new TxCardDelegate(txTable));
@@ -1371,7 +1374,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (index.isValid() && index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(2, 6, -2, -6);
+                    const QRect card = rect.adjusted(4, 6, -8, -6);
                     const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
                     if (badge.contains(mouseEvent->pos()))
                     {
@@ -1391,7 +1394,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (index.isValid() && index.column() == 1)
             {
                 const QRect rect = txTable->visualRect(index);
-                const QRect card = rect.adjusted(2, 6, -2, -6);
+                const QRect card = rect.adjusted(4, 6, -8, -6);
                 const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
                 txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
                                                Qt::PointingHandCursor : Qt::ArrowCursor);
@@ -1436,6 +1439,14 @@ void MainWindow::applyTheme()
 {
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+    if (txTable)
+    {
+        txTable->setProperty("darkTheme", dark);
+    }
+    if (inspector)
+    {
+        inspector->setProperty("darkTheme", dark);
+    }
     const QString background = dark ? "#0d1422" : "#edf1f8";
     const QString surface = dark ? "#1b2333" : "#ffffff";
     const QString foreground = dark ? "#edf0fa" : "#20263b";
@@ -1456,6 +1467,7 @@ void MainWindow::applyTheme()
     colors.setColor(QPalette::Disabled, QPalette::Text, QColor(muted));
     colors.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(muted));
     setPalette(colors);
+    qApp->setPalette(colors);
     const QString baseStyle = QString(
         "QMainWindow,QDialog { background:%1; color:%3; }"
         "QWidget { font-size:14px; } QLabel { color:%3; }"
@@ -1469,7 +1481,7 @@ void MainWindow::applyTheme()
         "QFrame#connectionBar { background:%2; border:1px solid %4; border-radius:10px; }"
         "QLabel#serialSummary { color:%5; font-size:11px; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
-        "QFrame#serialDivider { background:%4; border:0; }"
+        "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
         "QFrame#serialAdvanced { background:%6; border:1px solid %4; border-radius:7px; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
@@ -1507,7 +1519,7 @@ void MainWindow::applyTheme()
         "QListWidget::item:hover:!selected { background:%6; }"
         "QAbstractItemView { background:%2; color:%3; alternate-background-color:%6; border:0; border-radius:0; gridline-color:%4; }"
         "QTableView::item { padding:0 6px; border:0; }"
-        "QTableWidget#txTable::item { padding:0; }"
+        "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; }"
         "QTreeView::item { padding:8px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QSplitter::handle { background:transparent; }"
@@ -1535,14 +1547,13 @@ void MainWindow::applyTheme()
         "QFrame#dataPane { background:%1; border:1px solid %2; border-radius:5px; }"
         "QLabel#dataPaneTitle { background:%3; color:%4; border-bottom:1px solid %2; padding:9px 10px; font-size:12px; font-weight:600; }"
         "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
-        "QTableWidget#txTable { background:%6; }"
+        "QTableWidget#txTable { background:transparent; }"
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
-        "QHeaderView::section { background:%7; color:%4; border-bottom:1px solid %2; }"
+        "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#4b5f7b" : "#bdcbdf",
           dark ? "#25334b" : "#e8eef8", dark ? "#d6dfee" : "#40536e",
-          dark ? "#1d2b41" : "#f4f7fb", dark ? "#172031" : "#f2f5fa",
-          dark ? "#202e44" : "#f2f5fa");
+          dark ? "#1d2b41" : "#f4f7fb", dark ? "#202e44" : "#f2f5fa");
     setStyleSheet(baseStyle + statusStyle + selectionStyle + dataStyle);
     for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "stopAll", "refreshPorts"})
     {
