@@ -307,7 +307,7 @@ class TxCardDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    /** @brief Paint a restrained card with identity above three aligned label/value metrics. */
+    /** @brief Paint state-specific card surfaces while keeping selection and actions distinct. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const auto value = [&index](int column)
@@ -326,9 +326,17 @@ public:
         painter->fillRect(option.rect, QColor(dark ? "#1b2333" : "#ffffff"));
         painter->setRenderHint(QPainter::Antialiasing);
         const QRect card = option.rect.adjusted(4, 6, -8, -6);
-        painter->setPen(QPen(selected ? QColor("#939bf0") : QColor(dark ? "#35445d" : "#d7dfeb"), 1));
-        painter->setBrush(selected ? QColor(dark ? "#232d46" : "#f7f8ff") :
-                          hovered ? QColor(dark ? "#242c40" : "#f8f9ff") : QColor(dark ? "#1c2435" : "#ffffff"));
+        const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
+                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#35445d" : "#d7dfeb");
+        QColor surface = error ? QColor(dark ? "#302332" : "#fff5f6") :
+                         running ? QColor(dark ? "#1b322f" : "#edf8f2") : QColor(dark ? "#252b36" : "#f2f3f5");
+        if (hovered)
+        {
+            surface = dark ? surface.lighter(110) : surface.darker(102);
+        }
+        // Preserve the state surface when selected; indigo identifies selection separately.
+        painter->setPen(QPen(selected ? QColor("#939bf0") : stateAccent, selected ? 1.5 : 1));
+        painter->setBrush(surface);
         painter->drawRoundedRect(card, 10, 10);
         QFont font = option.font;
         font.setPixelSize(11);

@@ -318,3 +318,15 @@ Replaced the inset colored title block with a full-width top header and a separa
 Unified header and body backgrounds and removed the header divider. A single 18 px semibold title replaces duplicate content headings in Settings, About and the message editor. Header/body text share the same left inset. A 1 px outer layout inset prevents header painting from covering the window border, preserving its continuous outline.
 
 **Verification:** full build and CTest **2/2 passed in 11.16 s**. Reviewed offscreen Settings/About/editor layouts in the preceding Light/Dark pass and final Light Settings/Dark About border renders. Live theme, close/Escape and existing interaction/PTY checks passed. Native desktop integration was not retested.
+
+## TX card state distinction
+
+Running cards now retain a soft teal surface and a narrow inset accent, including while selected or hovered. Stopped cards remain neutral; error cards use a soft red surface/accent. Indigo outlines identify selection independently of transmission state. Existing status text, toggle icons and accessible descriptions remain available.
+
+**Verification:** full build and CTest **2/2 passed in 10.94 s**. Reviewed minimum-size populated Light/Dark offscreen renders with Running and Stopped cards together. Existing inline start/stop, context-menu, batch, live-theme, focus/hover/pressed, resize and PTY checks passed. Native desktop and physical UART were not tested.
+
+## Softer stopped-card surface
+
+Removed vertical side accents from TX cards. Stopped cards now use soft gray surfaces in both themes; Running retains its teal surface and selection remains an independent indigo outline.
+
+**Verification:** full build and targeted `modernDashboard` test passed (3 Qt test entries, 0 failures). Reviewed Light/Dark minimum-size offscreen renders with mixed Running/Stopped cards. Native desktop was not tested.
