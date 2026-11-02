@@ -240,3 +240,51 @@ Corrected the previous alignment interpretation: removed the app title's 17 px i
 Removed the Selected caption and its unused label/update code from TX Dashboard. The action toolbar sits directly beneath the message list; selection and action enablement remain in use.
 
 **Verification:** full build and CTest **2/2 passed in 9.38 s**. Reviewed regenerated offscreen Light/Dark populated layouts. Existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## TX message card hierarchy
+
+Restyled TX entries with soft 1 px outlines and a light selection tint, removing the side accent and inner divider. Each 120 px row separates message identity from three aligned metrics: 11 px labels above 14 px values. Sender labels explicitly identify SYS and COMP. Values elide within their columns; full information remains in tooltips. Cleared rectangular selection/hover fills outside rounded cards. Inline state toggles and keyboard/toolbar actions remain available.
+
+**Verification:** full build and CTest **2/2 passed in 9.34 s**, including PTY scheduling, inline toggle, selection, keyboard, hover/press, disabled controls, popup and theme-change checks. Reviewed regenerated Light/Dark offscreen populated renders at minimum size, plus the full-size Dark render. Native desktop rendering and physical UART/DMA were not retested.
+
+## TX ID beside message name
+
+TX card headings now use `[ID] MESSAGE_NAME`, for example `[0] HEARTBEAT`. Removed ID from the secondary line; SysID/CompID start at the same left content edge as the heading. Long headings retain ellipsis and full-identity tooltips.
+
+**Verification:** full build and CTest **2/2 passed in 9.32 s**. Reviewed minimum-size Light/Dark offscreen renders for heading/sender alignment and long-name clipping. Existing interaction checks passed; native desktop rendering was not retested.
+
+## Remove TX card tooltips
+
+Removed message/status tooltips from TX entries while retaining the full accessible description. Updated the existing desktop check to verify an empty card tooltip and preserved accessible rate information.
+
+**Verification:** full build and CTest **2/2 passed in 9.39 s**. CodeGraph is up to date; `git diff --check` passed. Native desktop tooltip behavior was not separately tested.
+
+## Start newly added messages when connected
+
+After accepting a new message, the GUI queues saveEntry followed by setActive when connected. Existing worker validation still rejects excessive offered load and closed ports. Offline additions remain stopped; connect/reconnect does not activate entries. Editing retains its stop-on-save behavior. Updated the editor description and usage documentation.
+
+**Verification:** full build and CTest **2/2 passed in 9.50 s**. The desktop PTY flow now verifies Running state, frame count and received output immediately after adding, before any explicit Start/Send once action, then verifies Stop. Existing worker capacity, disconnected-connect silence and dashboard interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Physical UART was not tested.
+
+## Narrower TX message cards
+
+Reduced message heading type from 15 to 14 px and horizontal content padding to 12 px. Reduced the initial TX splitter size from 400 to 360 px and its minimum from 360 to 340 px, leaving more space for RX while preserving manual splitter resizing. Card height and inline toggle geometry remain unchanged.
+
+**Verification:** full build and CTest **2/2 passed in 9.50 s**. Reviewed minimum-size offscreen Light/Dark renders: toolbar controls remain contained, metric columns fit, and long headings elide before the state button. Existing hover, pressed, keyboard, disabled, popup, theme-change and PTY checks passed. Native desktop rendering was not retested.
+
+## Compact TX typography and vertical spacing
+
+TX headings and metric values now use 13 px type; sender/state and metric labels use 11 px. Headings align vertically with the Running/Stopped control. Sender text uses `System ID: … - Component ID: …`. Reduced row height from 120 to 108 px and tightened internal spacing while retaining the existing state-button hit area. Disconnect uses normal font weight.
+
+**Verification:** full build and CTest **2/2 passed in 9.56 s** after the final spacing change. Reviewed offscreen minimum-size Light/Dark populated renders for label/value spacing, containment and alignment. Existing interaction and PTY checks passed. Native desktop rendering was not retested.
+
+## Theme-aware dialog decorations
+
+Replaced native decorations for Settings, About and the message editor with a shared application-painted title bar. Header background, text, border and close button follow the current theme. About uses a normal themed QDialog instead of the static QMessageBox helper. Title-bar dragging requests Qt system movement and falls back to pointer movement when unsupported; QDialog size grips preserve resizing. Close actions reject dialogs, and Escape remains native QDialog behavior.
+
+**Verification:** full build and CTest **2/2 passed in 9.77 s**. Added offscreen checks of actual header pixel colors while switching an open Settings dialog between Light/Dark, and checks of About title-bar colors, close button and Escape dismissal. Reviewed Light/Dark Settings/About and Dark message-editor renders. Existing focus/hover/press, disabled controls, popup, resize, system-theme, editor and PTY checks passed. Native compositor dragging, window decorations and physical UART were not tested. CodeGraph is up to date; `git diff --check` passed.
+
+## Project information in About
+
+Expanded About with the CMake project version, serial workbench purpose, TX/RX features, MAVLink 1/2 and ardupilotmega/common support, official library and Ubuntu/Linux C++17/Qt stack. Version comes from PROJECT_VERSION through a private desktop compile definition. Rich-text content has sufficient minimum height to avoid clipping its last line.
+
+**Verification:** full build and CTest **2/2 passed in 9.72 s**. Reviewed offscreen Light/Dark About renders and corrected last-line clipping; existing dialog close/Escape and theme checks passed. Native desktop rendering was not tested.

@@ -31,7 +31,79 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QWindow>
 #include <algorithm>
+
+/** @brief Provide a themeable dialog title bar with native system dragging where available. */
+class DialogTitleBar : public QFrame
+{
+public:
+    /** @brief Add the dialog title and an accessible close action. */
+    explicit DialogTitleBar(QDialog *dialog) : QFrame(dialog)
+    {
+        setObjectName("dialogTitleBar");
+        auto *row = new QHBoxLayout(this);
+        row->setContentsMargins(0, 0, 0, 8);
+        row->setSpacing(12);
+        auto *title = new QLabel(dialog->windowTitle(), this);
+        title->setObjectName("dialogWindowTitle");
+        title->setAttribute(Qt::WA_TransparentForMouseEvents);
+        row->addWidget(title, 1);
+        connect(dialog, &QWidget::windowTitleChanged, title, &QLabel::setText);
+        auto *close = new QPushButton(QString::fromUtf8("×"), this);
+        close->setObjectName("closeDialog");
+        close->setAccessibleName("Close dialog");
+        close->setFixedSize(28, 28);
+        close->setAutoDefault(false);
+        row->addWidget(close);
+        connect(close, &QPushButton::clicked, dialog, &QDialog::reject);
+    }
+
+protected:
+    /** @brief Start compositor-managed movement, retaining a fallback for unsupported platforms. */
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            offset = event->globalPosition().toPoint() - window()->frameGeometry().topLeft();
+            dragging = !window()->windowHandle() || !window()->windowHandle()->startSystemMove();
+            event->accept();
+            return;
+        }
+        QFrame::mousePressEvent(event);
+    }
+
+    /** @brief Move the dialog when native system movement is unavailable. */
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (dragging && (event->buttons() & Qt::LeftButton))
+        {
+            window()->move(event->globalPosition().toPoint() - offset);
+            event->accept();
+            return;
+        }
+        QFrame::mouseMoveEvent(event);
+    }
+
+    /** @brief End fallback movement on pointer release. */
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        dragging = false;
+        QFrame::mouseReleaseEvent(event);
+    }
+
+private:
+    QPoint offset;
+    bool dragging = false;
+};
+
+/** @brief Replace native dialog decorations with an application-themed, draggable header. */
+static void addDialogTitleBar(QDialog *dialog, QVBoxLayout *layout)
+{
+    dialog->setWindowFlag(Qt::FramelessWindowHint);
+    dialog->setSizeGripEnabled(true);
+    layout->insertWidget(0, new DialogTitleBar(dialog));
+}
 
 /**
  * @brief Check whether a serial port represents an actively connected hardware device.
@@ -213,7 +285,7 @@ class TxCardDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    /** @brief Paint identity, sender, counters, rates and state without creating per-row widgets. */
+    /** @brief Paint a restrained card with identity above three aligned label/value metrics. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const auto value = [&index](int column)
@@ -229,17 +301,15 @@ public:
         const QColor foreground(dark ? "#edf0fa" : "#20263b");
         const QColor muted(dark ? "#aab4cd" : "#626c84");
         painter->save();
+        painter->fillRect(option.rect, QColor(dark ? "#1b2333" : "#ffffff"));
         painter->setRenderHint(QPainter::Antialiasing);
         const QRect card = option.rect.adjusted(4, 6, -8, -6);
-        painter->setPen(QPen(selected ? QColor("#939bf0") : QColor(dark ? "#465770" : "#c6d1e1"), selected ? 2 : 1));
-        painter->setBrush(selected ? QColor(dark ? "#282b4b" : "#f1f2ff") :
+        painter->setPen(QPen(selected ? QColor("#939bf0") : QColor(dark ? "#35445d" : "#d7dfeb"), 1));
+        painter->setBrush(selected ? QColor(dark ? "#232d46" : "#f7f8ff") :
                           hovered ? QColor(dark ? "#242c40" : "#f8f9ff") : QColor(dark ? "#1c2435" : "#ffffff"));
         painter->drawRoundedRect(card, 10, 10);
-        painter->setPen(QPen(running ? QColor(dark ? "#75cdb0" : "#2e947e") :
-                            selected ? QColor("#939bf0") : QColor(dark ? "#647593" : "#a9b8cc"), 3, Qt::SolidLine, Qt::RoundCap));
-        painter->drawLine(card.left() + 6, card.top() + 16, card.left() + 6, card.bottom() - 16);
         QFont font = option.font;
-        font.setPixelSize(12);
+        font.setPixelSize(11);
         painter->setFont(font);
         const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
         const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
@@ -274,40 +344,44 @@ public:
             painter->setPen(badgeFg);
             painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
         }
-        font.setPixelSize(15);
+        font.setPixelSize(13);
         font.setBold(true);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(card.adjusted(16, 9, -104, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QFontMetrics(font).elidedText(value(1), Qt::ElideRight, card.width() - 120));
-        font.setPixelSize(12);
+        painter->drawText(QRect(card.left() + 12, badge.top(), card.width() - 116, badge.height()),
+                          Qt::AlignVCenter | Qt::AlignLeft,
+                          QFontMetrics(font).elidedText(QString("[%1] %2").arg(value(0), value(1)),
+                                                       Qt::ElideRight, card.width() - 116));
+        font.setPixelSize(11);
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(16, 36, -14, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QString("ID %1 · SYS / COMP %2").arg(value(0), value(2)));
-        painter->setPen(QPen(QColor(dark ? "#35445f" : "#dde4ef"), 1));
-        painter->drawLine(card.left() + 16, card.top() + 59, card.right() - 14, card.top() + 59);
-        font.setPixelSize(11);
-        painter->setFont(font);
-        painter->setPen(foreground);
-        const QRect rates = card.adjusted(16, 69, -14, 0);
-        const int third = rates.width() / 3;
-        painter->drawText(QRect(rates.left(), rates.top(), third, 18), Qt::AlignLeft,
-                          "Target " + value(3) + " Hz");
-        if (running)
+        painter->drawText(card.adjusted(12, 36, -12, 0), Qt::AlignTop | Qt::AlignLeft,
+                          QString("System ID: %1 - Component ID: %2")
+                              .arg(value(2).section('/', 0, 0).trimmed(),
+                                   value(2).section('/', 1, 1).trimmed()));
+        painter->setPen(QPen(QColor(dark ? "#35445d" : "#e1e6ef"), 1));
+        painter->drawLine(card.left() + 12, card.top() + 55, card.right() - 12, card.top() + 55);
+        const QRect metrics = card.adjusted(12, 62, -12, -8);
+        const int third = metrics.width() / 3;
+        const QStringList labels = {"Target", "Actual", "Frames"};
+        const QStringList values = {value(3) + " Hz", value(4) + " Hz", value(5)};
+        for (int column = 0; column < 3; ++column)
         {
+            const int left = metrics.left() + column * third;
+            const int width = column == 2 ? metrics.width() - 2 * third : third;
+            font.setPixelSize(11);
+            font.setBold(false);
+            painter->setFont(font);
+            painter->setPen(muted);
+            painter->drawText(QRect(left, metrics.top(), width, 16), Qt::AlignLeft, labels[column]);
+            font.setPixelSize(13);
             font.setBold(true);
             painter->setFont(font);
-            painter->setPen(QColor(dark ? "#75cdb0" : "#2e947e"));
+            painter->setPen(column == 1 && running ? QColor(dark ? "#94e5bd" : "#17613e") : foreground);
+            const QString display = QFontMetrics(font).elidedText(values[column], Qt::ElideRight, width - 6);
+            painter->drawText(QRect(left, metrics.top() + 16, width, 18), Qt::AlignLeft, display);
         }
-        painter->drawText(QRect(rates.left() + third, rates.top(), third, 18), Qt::AlignCenter,
-                          "Actual " + value(4) + " Hz");
-        font.setBold(false);
-        painter->setFont(font);
-        painter->setPen(muted);
-        painter->drawText(QRect(rates.left() + third * 2, rates.top(), rates.width() - third * 2, 18),
-                          Qt::AlignRight, "Frames " + value(5));
         painter->restore();
     }
 };
@@ -480,6 +554,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
     settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
     settingsDialogLayout->setSpacing(16);
+    addDialogTitleBar(settingsDialog, settingsDialogLayout);
 
     auto *dialogTitle = new QLabel("Application Settings", settingsDialog);
     dialogTitle->setObjectName("panelTitle");
@@ -541,10 +616,43 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     helpMenu->setObjectName("helpMenu");
     auto *aboutAction = helpMenu->addAction("About MAVLink Simulator", this, [this]()
     {
-        QMessageBox::about(this, "About MAVLink Simulator",
-                           "<h3>MAVLink Simulator</h3>"
-                           "<p>Desktop serial workbench for Ubuntu/Linux.</p>"
-                           "<p>Dialect: ArduPilotMega / Common</p>");
+        QDialog dialog(this);
+        dialog.setObjectName("aboutDialog");
+        dialog.setWindowTitle("About MAVLink Simulator");
+        auto *layout = new QVBoxLayout(&dialog);
+        layout->setContentsMargins(20, 16, 20, 16);
+        layout->setSpacing(12);
+        addDialogTitleBar(&dialog, layout);
+        dialog.setMinimumWidth(480);
+        auto *name = new QLabel("MAVLink Simulator", &dialog);
+        name->setObjectName("heading");
+        layout->addWidget(name);
+        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_SIMULATOR_VERSION), &dialog);
+        version->setObjectName("secondaryText");
+        layout->addWidget(version);
+        auto *details = new QLabel(
+            "<p>A desktop workbench for sending, receiving and inspecting MAVLink messages over serial UART.</p>"
+            "<p><b>Features</b><br>"
+            "Configurable serial connection<br>"
+            "Periodic and single-message transmission<br>"
+            "Live message rates and frame counters<br>"
+            "RX streams grouped by System and Component<br>"
+            "Decoded payload field inspection</p>"
+            "<p><b>Protocol</b><br>MAVLink 1 and 2<br>"
+            "Dialect: ardupilotmega (including common)<br>"
+            "Official MAVLink C library</p>"
+            "<p><b>Platform</b><br>Ubuntu / Linux<br>"
+            "C++17 · Qt Widgets · Qt SerialPort</p>", &dialog);
+        details->setObjectName("aboutDetails");
+        details->setWordWrap(true);
+        details->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        details->ensurePolished();
+        details->setMinimumHeight(details->heightForWidth(440) + details->fontMetrics().lineSpacing());
+        layout->addWidget(details);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        layout->addWidget(buttons);
+        dialog.exec();
     });
     aboutAction->setObjectName("actionAbout");
     auto *uart = new QFrame;
@@ -704,7 +812,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setChildrenCollapsible(false);
     dashboards->setHandleWidth(12);
     auto *txGroup = new QFrame;
-    txGroup->setMinimumWidth(360);
+    txGroup->setMinimumWidth(340);
     txGroup->setObjectName("dashboardPanel");
     auto *txLayout = new QVBoxLayout(txGroup);
     txLayout->setContentsMargins(16, 16, 16, 12);
@@ -739,7 +847,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         txTable->hideColumn(column);
     }
-    txTable->verticalHeader()->setDefaultSectionSize(108);
+    txTable->verticalHeader()->setDefaultSectionSize(114);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
     txTable->viewport()->setMouseTracking(true);
@@ -877,7 +985,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
-    dashboards->setSizes({400, 940});
+    dashboards->setSizes({360, 980});
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
@@ -1113,11 +1221,12 @@ void MainWindow::editMessage(bool edit)
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(12);
+    addDialogTitleBar(&dialog, layout);
     auto *title = new QLabel(edit ? "Edit message" : "Add message");
     title->setObjectName("heading");
     layout->addWidget(title);
     auto *description = new QLabel(edit ? "Saving stops this TX entry. Review its payload before restarting." :
-                                  "Choose a MAVLink message, set its sender and rate, then edit the payload.");
+                                  "Choose a message, sender and rate. Saving starts periodic TX when connected.");
     description->setObjectName("secondaryText");
     layout->addWidget(description);
     auto *body = new QHBoxLayout;
@@ -1294,6 +1403,11 @@ void MainWindow::editMessage(bool edit)
     if (dialog.exec() == QDialog::Accepted)
     {
         QMetaObject::invokeMethod(worker, "saveEntry", Qt::QueuedConnection, Q_ARG(Mav::TxEntry, entry));
+        if (!edit && connected)
+        {
+            QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
+                                      Q_ARG(quint64, entry.key), Q_ARG(bool, true));
+        }
     }
 }
 
@@ -1327,12 +1441,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 1));
         cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
         cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
-        txTable->item(row, 6)->setToolTip(txTable->item(row, 6)->text());
         const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\n%6 frames handed to Qt output\n%7")
                                     .arg(messageName(entry.id), QString::number(entry.id), txTable->item(row, 2)->text(),
                                          txTable->item(row, 3)->text(), txTable->item(row, 4)->text(),
                                          txTable->item(row, 5)->text(), txTable->item(row, 6)->text());
-        txTable->item(row, 1)->setToolTip(description);
         txTable->item(row, 1)->setData(Qt::AccessibleTextRole, description);
         if (entry.key == selected && txTable->currentRow() != row)
         {
@@ -1659,6 +1771,10 @@ void MainWindow::applyTheme()
     qApp->setPalette(colors);
     const QString baseStyle = QString(
         "QMainWindow,QDialog { background:%1; color:%3; }"
+        "QDialog { border:1px solid %4; }"
+        "QFrame#dialogTitleBar { background:%1; border:0; border-bottom:1px solid %4; }"
+        "QLabel#dialogWindowTitle { background:transparent; color:%3; font-size:13px; font-weight:500; }"
+        "QPushButton#closeDialog { padding:0; font-size:20px; font-weight:400; }"
         "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; }"
         "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; }"
         "QMenuBar::item:selected { background:%6; color:%3; }"
@@ -1718,7 +1834,7 @@ void MainWindow::applyTheme()
         "QListWidget::item:hover:!selected { background:%6; }"
         "QAbstractItemView { background:%2; color:%3; alternate-background-color:%6; border:0; border-radius:0; gridline-color:%4; }"
         "QTableView::item { padding:0 6px; border:0; }"
-        "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; }"
+        "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; border:0; }"
         "QTreeView::item { padding:5px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QSplitter::handle { background:transparent; }"
@@ -1731,7 +1847,7 @@ void MainWindow::applyTheme()
     ).arg(background, surface, foreground, border, muted, alternate,
           dark ? "#fca5a5" : "#b91c1c", controlBorder);
     const QString connectionStyle = QString(
-        "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:600; }"
+        "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
         "QPushButton#connect[connected=true]:pressed { background:%6; }"
     ).arg(dark ? "#3b1e26" : "#fef2f2",
@@ -1750,6 +1866,7 @@ void MainWindow::applyTheme()
         "QLabel#dataPaneTitle { background:%3; color:%4; border-bottom:1px solid %2; padding:9px 10px; font-size:12px; font-weight:600; }"
         "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
         "QTableWidget#txTable { background:transparent; }"
+        "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
         "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"

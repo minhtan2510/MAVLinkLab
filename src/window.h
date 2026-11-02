@@ -31,7 +31,7 @@ private:
     void refreshPorts();
     /** @brief Send the selected serial configuration to the worker. */
     void toggleConnection();
-    /** @brief Create or edit one complete TX entry through generated metadata. */
+    /** @brief Create or edit a TX entry; start newly added entries when connected. */
     void editMessage(bool edit);
     /** @brief Apply one snapshot without rebuilding existing RX rows. */
     void applySnapshot(SnapshotPtr snapshot);

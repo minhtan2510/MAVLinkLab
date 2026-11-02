@@ -265,6 +265,11 @@ private slots:
         auto *once = window.findChild<QPushButton *>("sendOnce");
         auto *start = window.findChild<QPushButton *>("startTx");
         auto *stop = window.findChild<QPushButton *>("stopTx");
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+        QTRY_VERIFY(tx->item(0, 5)->text().toULongLong() > 0);
+        QVERIFY(!pty.read().isEmpty());
+        stop->click();
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
         QVERIFY(once->isEnabled());
         once->click();
         QTest::qWait(100);
@@ -379,7 +384,8 @@ private slots:
         QCOMPARE(tx->currentRow(), 2);
         QTest::qWait(250);
         QCOMPARE(tx->currentRow(), 2);
-        QVERIFY(tx->item(2, 1)->toolTip().contains("Target 10.0 Hz"));
+        QVERIFY(tx->item(2, 1)->toolTip().isEmpty());
+        QVERIFY(tx->item(2, 1)->data(Qt::AccessibleTextRole).toString().contains("Target 10.0 Hz"));
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
@@ -487,12 +493,45 @@ private slots:
             auto *settingsDialog = window.findChild<QDialog *>("settingsDialog");
             QVERIFY(settingsDialog);
             settingsDialog->show();
+            QVERIFY(settingsDialog->windowFlags() & Qt::FramelessWindowHint);
+            auto *titleBar = settingsDialog->findChild<QWidget *>("dialogTitleBar");
+            QVERIFY(titleBar);
+            // Explicit theme switches must repaint an already visible dialog header.
+            for (int liveMode : {2, 1, index})
+            {
+                theme->setCurrentIndex(liveMode);
+                QTest::qWait(10);
+                const QColor expected(liveMode == 2 ? "#0d1422" : "#edf1f8");
+                QCOMPARE(titleBar->grab().toImage().pixelColor(2, 2), expected);
+            }
             theme->showPopup();
             QTest::qWait(20);
             QVERIFY(theme->view()->window()->grab().save("qa/popup-" + mode + ".png"));
             theme->hidePopup();
             QVERIFY(settingsDialog->grab().save("qa/settings-dialog-" + mode + ".png"));
-            settingsDialog->hide();
+            settingsDialog->findChild<QPushButton *>("closeDialog")->click();
+            QVERIFY(!settingsDialog->isVisible());
+            QTimer::singleShot(30, &window, [&window, mode, index]()
+            {
+                auto *about = window.findChild<QDialog *>("aboutDialog");
+                QVERIFY(about && about->isVisible());
+                QVERIFY(about->windowFlags() & Qt::FramelessWindowHint);
+                auto *header = about->findChild<QWidget *>("dialogTitleBar");
+                QVERIFY(header);
+                QCOMPARE(header->grab().toImage().pixelColor(2, 2),
+                         QColor(index == 2 ? "#0d1422" : "#edf1f8"));
+                QVERIFY(about->grab().save("qa/about-" + mode + ".png"));
+                if (index == 2)
+                {
+                    QTest::keyClick(about, Qt::Key_Escape);
+                }
+                else
+                {
+                    about->findChild<QPushButton *>("closeDialog")->click();
+                }
+                QVERIFY(!about->isVisible());
+            });
+            window.findChild<QAction *>("actionAbout")->trigger();
             QTest::mouseClick(settings, Qt::LeftButton);
             QVERIFY(!settings->property("keyboardFocus").toBool());
             QTest::qWait(20);
