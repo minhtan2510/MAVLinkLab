@@ -202,20 +202,6 @@ static QTableWidget *table(const QStringList &headers)
     return result;
 }
 
-/** @brief Center noninteractive guidance inside a view without intercepting input. */
-static QLabel *emptyState(QAbstractItemView *view, const QString &title, const QString &detail)
-{
-    auto *label = new QLabel("<b>" + title + "</b><br>" + detail, view->viewport());
-    label->setObjectName("emptyState");
-    label->setAlignment(Qt::AlignCenter);
-    label->setWordWrap(true);
-    label->setAttribute(Qt::WA_TransparentForMouseEvents);
-    auto *layout = new QVBoxLayout(view->viewport());
-    layout->setContentsMargins(12, 4, 12, 4);
-    layout->addWidget(label);
-    return label;
-}
-
 /** @brief Draw a small consistent line icon using local theme colors. */
 static QIcon actionIcon(const QString &name, const QColor &color)
 {
@@ -297,15 +283,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *title = new QLabel("MAVLink Simulator");
     title->setObjectName("heading");
     identity->addWidget(title);
-    auto *subtitle = new QLabel("Your serial telemetry workspace");
-    subtitle->setObjectName("secondaryText");
-    identity->addWidget(subtitle);
     heading->addLayout(identity);
     heading->addStretch();
-    auto *dialect = new QLabel("ardupilotmega  /  MAVLink 1 + 2");
-    dialect->setObjectName("secondaryText");
-    heading->addWidget(dialect);
-    heading->addSpacing(12);
     themeBox = new WorkbenchComboBox;
     themeBox->setObjectName("theme");
     themeBox->addItems({"System", "Light", "Dark"});
@@ -315,21 +294,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *uart = new QFrame;
     uart->setObjectName("connectionBar");
     auto *uartLayout = new QVBoxLayout(uart);
-    uartLayout->setContentsMargins(12, 7, 12, 7);
+    uartLayout->setContentsMargins(12, 10, 12, 10);
     uartLayout->setSpacing(10);
     auto *uartRow = new QHBoxLayout;
     uartRow->setSpacing(10);
-    auto *serialIdentity = new QVBoxLayout;
-    serialIdentity->setSpacing(4);
-    auto *uartTitle = new QLabel("UART");
-    uartTitle->setObjectName("serialTitle");
-    serialIdentity->addWidget(uartTitle);
-    serialSummary = new QLabel;
-    serialSummary->setObjectName("serialSummary");
-    serialSummary->setMinimumWidth(116);
-    serialIdentity->addWidget(serialSummary);
-    uartRow->addLayout(serialIdentity);
-    uartRow->addSpacing(6);
     /** @brief Group each serial control with a persistent label and keyboard buddy. */
     const auto addCombo = [](QHBoxLayout *row, const QString &label,
                              QComboBox *&combo, const QStringList &values)
@@ -337,7 +305,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         auto *field = new QWidget;
         auto *fieldLayout = new QVBoxLayout(field);
         fieldLayout->setContentsMargins(0, 0, 0, 0);
-        fieldLayout->setSpacing(2);
+        fieldLayout->setSpacing(6);
         auto *caption = new QLabel(label);
         caption->setObjectName("serialFieldLabel");
         combo = new WorkbenchComboBox;
@@ -366,6 +334,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     baudBox->setEditable(true);
     baudBox->setCurrentText("115200");
     baudBox->setFixedWidth(116);
+    serialSummary = new QLabel;
+    serialSummary->setObjectName("serialSummary");
+    serialSummary->setMinimumWidth(116);
+    serialSummary->setFixedHeight(32);
+    serialSummary->setAccessibleName("Serial framing and flow control");
+    uartRow->addWidget(serialSummary, 0, Qt::AlignBottom);
     auto *settings = button("Advanced", "serialSettings", uartRow);
     settings->setFixedSize(112, 32);
     settings->setCheckable(true);
@@ -425,12 +399,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     }
     updateSerialSummary();
     uart->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-    root->addWidget(uart);
+    auto *workspace = new QVBoxLayout;
+    workspace->setSpacing(12);
+    workspace->addWidget(uart);
+    root->addLayout(workspace, 1);
 
     auto *dashboards = new QSplitter(Qt::Horizontal);
     dashboards->setObjectName("dashboards");
     dashboards->setChildrenCollapsible(false);
-    dashboards->setHandleWidth(16);
+    dashboards->setHandleWidth(12);
     auto *txGroup = new QFrame;
     txGroup->setMinimumWidth(360);
     txGroup->setObjectName("dashboardPanel");
@@ -438,7 +415,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->setContentsMargins(16, 16, 16, 12);
     txLayout->setSpacing(12);
     auto *txHeader = new QHBoxLayout;
-    auto *txTitle = new QLabel("Transmit");
+    auto *txTitle = new QLabel("TX Dashboard");
     txTitle->setObjectName("panelTitle");
     txHeader->addWidget(txTitle);
     txHeader->addStretch();
@@ -469,19 +446,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
     txTable->setAccessibleName("Transmit message cards");
-    txTable->setToolTip("Select a card to edit, send or start it. Counts measure complete frames handed to Qt output, not delivery to the device.");
     txLayout->addWidget(txTable, 1);
-    txEmpty = emptyState(txTable, "Your transmit list is empty", "Add a MAVLink message to set<br>its payload and send rate.");
     auto *sendActions = new QHBoxLayout;
     onceButton = button("Send once", "sendOnce", sendActions);
     startButton = button("Start", "startTx", sendActions);
     startButton->setProperty("role", "success");
     stopButton = button("Stop", "stopTx", sendActions);
     txLayout->addLayout(sendActions);
-    txHint = new QLabel("Select a message to send or schedule it.");
-    txHint->setWordWrap(true);
-    txHint->setObjectName("secondaryText");
-    txLayout->addWidget(txHint);
     dashboards->addWidget(txGroup);
 
     auto *rxGroup = new QFrame;
@@ -491,7 +462,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxLayout->setContentsMargins(16, 16, 16, 12);
     rxLayout->setSpacing(12);
     auto *rxHeader = new QHBoxLayout;
-    auto *rxTitle = new QLabel("Receive & inspect");
+    auto *rxTitle = new QLabel("RX Dashboard");
     rxTitle->setObjectName("panelTitle");
     rxHeader->addWidget(rxTitle);
     rxSummary = new QLabel("0 streams");
@@ -536,7 +507,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     inspector->horizontalHeader()->setStretchLastSection(false);
     inspector->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     inspector->hideColumn(3);
-    inspector->setToolTip("Units are unavailable in the generated MAVLink metadata");
     const auto addInspectorPane = [rxSplit](const QString &title, QWidget *content)
     {
         auto *pane = new QFrame;
@@ -554,20 +524,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     };
     addInspectorPane("RECEIVED MESSAGES", rxTree);
     inspectorTitle = addInspectorPane("DECODED FIELDS", inspector);
-    rxEmpty = emptyState(rxTree, "Waiting for MAVLink", "Connect a serial port to discover<br>systems, components and messages.");
-    inspectorEmpty = emptyState(inspector, "Inspect a message", "Select a message in the stream list<br>to view its decoded fields.");
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
-    rxHint = new QLabel("Waiting for MAVLink frames · Rates: trailing 1 s · Stale: >2 s · Signed frames are NOT authenticated");
-    rxHint->setWordWrap(true);
-    rxHint->setObjectName("secondaryText");
-    rxLayout->addWidget(rxHint);
     dashboards->addWidget(rxGroup);
     dashboards->setSizes({400, 940});
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
-    root->addWidget(dashboards, 1);
+    workspace->addWidget(dashboards, 1);
     metrics = new QLabel("RX 0 B/s    TX 0 B/s    CRC errors 0    Pending 0 B");
+    metrics->setContentsMargins(18, 0, 0, 0);
     statusBar()->addWidget(metrics);
     lastError = new QLabel("Ready");
     lastError->setMaximumWidth(560);
@@ -642,14 +607,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         inspector->setRowCount(0);
         inspectorTitle->setText("DECODED FIELDS");
         rxSummary->setText("0 streams");
-        updateEmptyStates();
     });
     connect(pause, &QPushButton::toggled, this, [this, pause](bool checked)
     {
         paused = checked;
         pause->setText(checked ? "Resume display" : "Pause display");
-        rxHint->setText(checked ? "Display paused · Parser and counters continue running" :
-                        "Rates: trailing 1 s · Stale: >2 s · Signed frames are NOT authenticated");
     });
     connect(rxFilter, &QLineEdit::textChanged, this, &MainWindow::filterRx);
     connect(rxTree, &QTreeWidget::itemSelectionChanged, this, &MainWindow::updateInspector);
@@ -673,7 +635,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     refreshPorts();
     applyTheme();
     updateActions();
-    updateEmptyStates();
 }
 
 MainWindow::~MainWindow()
@@ -995,8 +956,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     }
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
-    txHint->setText("Frames count Qt output, not device delivery.");
-    txHint->setToolTip("Queued frames do not confirm delivery to the device. Connect does not start transmission.");
     for (size_t i = 0; i < latest->tx.size(); ++i)
     {
         const auto &view = latest->tx[i];
@@ -1029,8 +988,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                     .arg(qulonglong(latest->crcErrors)).arg(qulonglong(latest->pending)).arg(qulonglong(latest->overflow)));
     if (!paused)
     {
-        rxHint->setText(latest->rx.empty() ? "Waiting for MAVLink frames · Parser active while connected" :
-                        "Rates: trailing 1 s · Stale: >2 s · Signed frames are NOT authenticated");
         for (const auto &entry : latest->rx)
         {
             const auto &message = entry.message;
@@ -1092,7 +1049,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         updateInspector();
     }
     updateActions();
-    updateEmptyStates();
 }
 
 void MainWindow::updateInspector()
@@ -1102,12 +1058,10 @@ void MainWindow::updateInspector()
         return;
     }
     inspectorTitle->setText("DECODED FIELDS");
-    inspectorTitle->setToolTip(QString());
     auto *item = rxTree->currentItem();
     if (!item || !item->parent() || !item->parent()->parent())
     {
         inspector->setRowCount(0);
-        updateEmptyStates();
         return;
     }
     const uint32_t id = item->data(0, Qt::UserRole).toUInt();
@@ -1124,12 +1078,10 @@ void MainWindow::updateInspector()
         if (!info)
         {
             inspector->setRowCount(0);
-            updateEmptyStates();
             return;
         }
         inspector->setRowCount(int(info->num_fields));
         inspectorTitle->setText("DECODED FIELDS  /  " + messageName(id));
-        inspectorTitle->setToolTip(QString("System %1 / Component %2 / Message %3").arg(system).arg(component).arg(id));
         for (unsigned i = 0; i < info->num_fields; ++i)
         {
             const auto &field = info->fields[i];
@@ -1144,7 +1096,6 @@ void MainWindow::updateInspector()
             inspector->item(int(i), 2)->setToolTip(inspector->item(int(i), 2)->text());
             cell(inspector, int(i), 3, "Unavailable");
         }
-        updateEmptyStates();
         return;
     }
 }
@@ -1173,23 +1124,6 @@ void MainWindow::filterRx()
         }
         system->setHidden(!systemVisible);
     }
-    updateEmptyStates();
-}
-
-void MainWindow::updateEmptyStates()
-{
-    txEmpty->setVisible(txTable->rowCount() == 0);
-    inspectorEmpty->setVisible(inspector->rowCount() == 0);
-    bool visible = false;
-    for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
-    {
-        visible |= !rxTree->topLevelItem(i)->isHidden();
-    }
-    const bool filtered = rxTree->topLevelItemCount() > 0;
-    rxEmpty->setText(filtered ? "<b>No matching messages</b><br>Try a message name, ID, system or component." :
-                     connected ? "<b>Listening for MAVLink</b><br>Messages will appear here as frames arrive." :
-                                 "<b>Waiting for MAVLink</b><br>Connect a serial port to discover<br>systems, components and messages.");
-    rxEmpty->setVisible(!visible);
 }
 
 void MainWindow::showError(const QString &message)
@@ -1267,12 +1201,11 @@ void MainWindow::applyTheme()
         "QLabel#panelTitle { font-size:18px; font-weight:700; }"
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
-        "QLabel#emptyState { color:%5; font-size:14px; background:transparent; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
         "QLabel#connectionState { color:%5; background:%6; border-radius:10px; padding:5px 9px; font-size:12px; }"
         "QFrame#connectionBar { background:%2; border:1px solid %4; border-radius:10px; }"
-        "QLabel#serialTitle { color:%3; font-size:13px; font-weight:600; }"
-        "QLabel#serialSummary,QLabel#serialFieldLabel { color:%5; font-size:11px; }"
+        "QLabel#serialSummary { color:%5; font-size:11px; }"
+        "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
         "QFrame#serialDivider { background:%4; border:0; }"
         "QFrame#serialAdvanced { background:%6; border:1px solid %4; border-radius:7px; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
@@ -1311,8 +1244,9 @@ void MainWindow::applyTheme()
         "QTableWidget#txTable::item { padding:0; }"
         "QTreeView::item { padding:8px 0; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
-        "QSplitter::handle { background:transparent; } QSplitter::handle:hover { background:%4; }"
-        "QStatusBar { color:%3; background:%2; border-top:1px solid %4; font-size:12px; } QStatusBar::item { border:0; }"
+        "QSplitter::handle { background:transparent; }"
+        "QStatusBar { color:%5; background:transparent; border:0; }"
+        "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"
         "QScrollBar:vertical { background:%6; width:10px; } QScrollBar:horizontal { background:%6; height:10px; }"
         "QScrollBar::handle { background:%8; border-radius:4px; min-width:24px; min-height:24px; }"
         "QScrollBar::handle:hover { background:#818cf8; } QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; }"
@@ -1339,7 +1273,6 @@ void MainWindow::applyTheme()
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
         "QHeaderView::section { background:%7; color:%4; border-bottom:1px solid %2; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
-        "QSplitter#rxSplit::handle:hover { background:#818cf8; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#4b5f7b" : "#bdcbdf",
           dark ? "#25334b" : "#e8eef8", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#172031" : "#f2f5fa",

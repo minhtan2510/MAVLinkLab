@@ -190,7 +190,7 @@ private slots:
         QVERIFY(settings && advanced && connectionBar);
         QVERIFY(!advanced->isVisible());
         const int collapsedHeight = connectionBar->height();
-        QVERIFY(collapsedHeight <= 64);
+        QVERIFY(collapsedHeight <= 76);
         settings->click();
         QTRY_VERIFY(advanced->isVisible());
         QTRY_VERIFY(connectionBar->height() > collapsedHeight);
@@ -276,10 +276,10 @@ private slots:
         QVERIFY(filter);
         filter->setText("no_such_message");
         auto *rxEmpty = rx->viewport()->findChild<QLabel *>("emptyState");
-        QVERIFY(rxEmpty && rxEmpty->isVisible());
-        QVERIFY(rxEmpty->text().contains("No matching messages"));
+        QVERIFY(!rxEmpty);
+        QVERIFY(rx->topLevelItem(0)->isHidden());
         filter->clear();
-        QVERIFY(!rxEmpty->isVisible());
+        QVERIFY(!rx->topLevelItem(0)->isHidden());
         QCOMPARE(rx->currentItem(), message);
         theme->setCurrentIndex(1);
         QTest::qWait(30);
@@ -421,7 +421,8 @@ private slots:
             theme->setCurrentIndex(index);
             auto *tx = window.findChild<QTableWidget *>("txTable");
             auto *empty = tx->viewport()->findChild<QLabel *>("emptyState");
-            QVERIFY(empty && empty->isVisible());
+            QVERIFY(!empty);
+            QCOMPARE(tx->rowCount(), 0);
             QVERIFY(window.grab().save("qa/empty-" + mode + ".png"));
             theme->setFocus();
             add->setFocus(Qt::TabFocusReason);

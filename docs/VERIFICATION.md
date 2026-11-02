@@ -110,3 +110,39 @@ Header fills, data borders, card accents and selection were softened while retai
 UART configuration now groups a framing/flow summary, labeled Serial port and Baud rate inputs, an accessible refresh icon, Advanced disclosure and separated connection actions. The collapsed bar measures **63 px** at the tested font/scale. Expanded parameters use four evenly spaced labeled fields and preserve values when hidden. Empty-state text spacing was tightened to avoid clipping when the advanced section is open at minimum window size.
 
 **Verification:** full build passed; CTest **2/2 passed in 8.48 s**. Widget checks cover typed PTY path preservation through Refresh, framing/flow summary updates, stop-bit retention when collapsed, configuration disabled while connected, keyboard disclosure and all advanced controls staying inside their panel at 1000×720. Offscreen Light/Dark review covered collapsed/expanded configuration, populated and empty dashboards, minimum size, disabled controls, press, hover, keyboard focus and popup rows. Added artifacts: `build/qa/serial-settings-small-{light,dark}.png`; existing dashboard and Settings captures were regenerated. CodeGraph reports up to date. Serial transport behavior was retained; native desktop rendering and physical UART/DMA are not established by these checks.
+
+## Reduced dashboard descriptions
+
+Removed the app subtitle, dialect label and TX/RX footer copy. View tooltips retain delivery/rate/signature details. Debug metrics and connection/error text remain in a transparent, borderless status bar.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.50 s**. Reviewed regenerated offscreen Light/Dark populated dashboards, minimum-size expanded UART and keyboard-focus captures; the existing widget suite also covers hover/press, disabled controls, popup rows and theme changes. CodeGraph reports up to date and `git diff --check` passed. Native desktop and physical UART/DMA were not retested.
+
+## Serial port alignment
+
+The Serial port field now starts at the left content edge of the connection bar. Removed the UART heading and moved the live framing/flow summary beside Baud rate, aligned with the control row. Existing configuration values and summary updates are retained.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.52 s**. Reviewed regenerated offscreen Light/Dark layouts, including expanded Advanced at 1000×720 and connected controls. Existing interaction/state checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART were not retested.
+
+## Serial field spacing
+
+Increased label/control spacing from 2 to 6 px and connection-card vertical padding from 7 to 10 px. The collapsed card is now 73 px at the tested font/scale; the compact-height check allows up to 76 px.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.51 s**. Reviewed regenerated offscreen Light/Dark renders, including Advanced expanded at 1000×720; no clipping was observed. Existing interaction/state checks passed. CodeGraph is up to date and `git diff --check` passed. Native desktop and physical UART were not retested.
+
+## Workspace gap and secondary typography
+
+Reduced the connection-to-dashboard gap from 16 to 12 px while preserving the header gap. Shared serial field labels are now 12 px (previously 11 px). Status labels explicitly use muted 12 px type; the metrics label has an 18 px content inset in addition to the status bar's native 2 px inset, aligning its text with the 20 px dashboard margin in the tested render.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.57 s**. Reviewed regenerated offscreen Light/Dark populated layouts and the minimum-size Advanced layout; status alignment and readability were checked visually. Existing widget interaction/state tests passed. CodeGraph is up to date and `git diff --check` passed. Native desktop and physical UART were not retested.
+
+## Blank message views
+
+Removed placeholder/guidance overlays from TX, RX and decoded-field viewports, including the no-matching-filter message. Empty views now remain blank while titles, table headers and actions stay available. Removed the unused overlay helper/state updater and adjusted widget checks to verify blank TX and actual filter visibility/selection behavior.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.63 s**. Reviewed regenerated offscreen Light/Dark empty dashboards. Existing populated, resize, theme and interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop and physical UART were not retested.
+
+## Dashboard gaps and passive hover
+
+Reduced the horizontal TX/RX splitter width from 16 to 12 px. Removed general tooltips from the TX/RX/field views and decoded-field heading, and removed splitter hover highlighting. Message-item and action tooltips remain; splitters remain draggable.
+
+**Verification:** full build passed; CTest **2/2 passed in 8.41 s**. Reviewed regenerated offscreen Light/Dark populated dashboards for spacing. Existing widget interaction tests passed; source review confirms no view-wide tooltip or splitter hover-fill rule remains. CodeGraph is up to date and `git diff --check` passed. Native desktop and physical UART were not retested.
