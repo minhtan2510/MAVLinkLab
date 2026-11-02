@@ -746,9 +746,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
-    txSelection = new QLabel;
-    txSelection->setObjectName("secondaryText");
-    txLayout->addWidget(txSelection);
     auto *sendActions = new QHBoxLayout;
     sendActions->setSpacing(6);
     onceButton = button("Send once", "sendOnce", sendActions);
@@ -884,7 +881,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
-    metrics = new QLabel("RX 0 B/s    TX 0 B/s    CRC errors 0    Pending 0 B");
+    metrics = new QLabel("RX 0 B/s &nbsp;|&nbsp; TX 0 B/s &nbsp;|&nbsp; CRC errors 0 &nbsp;|&nbsp; Pending 0 B &nbsp;|&nbsp; RX overflow 0");
     metrics->setTextFormat(Qt::RichText);
     metrics->setContentsMargins(18, 0, 0, 0);
     statusBar()->addWidget(metrics);
@@ -1067,10 +1064,7 @@ void MainWindow::updateActions()
     const bool running = selected && txTable->item(row, 6) && txTable->item(row, 6)->text() == "Running";
     startButton->setVisible(!running);
     stopButton->setVisible(running);
-    const QString name = selected && txTable->item(row, 1) ? txTable->item(row, 1)->text() : QString();
-    txSelection->setText(QFontMetrics(txSelection->font()).elidedText(
-        name.isEmpty() ? QString() : "Selected: " + name, Qt::ElideRight, txTable->width()));
-    txSelection->setToolTip(name);
+
 }
 
 void MainWindow::updateSerialSummary()
@@ -1360,7 +1354,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     const QString textOverflow = latest->overflow > 0 ?
         QString("<span style='color:%1; font-weight:bold;'>RX overflow %2</span>").arg(alertColor).arg(qulonglong(latest->overflow)) :
         QString("RX overflow %1").arg(qulonglong(latest->overflow));
-    metrics->setText(QString("RX %1 B/s    TX %2 B/s    %3    %4    %5")
+    metrics->setText(QString("RX %1 B/s &nbsp;|&nbsp; TX %2 B/s &nbsp;|&nbsp; %3 &nbsp;|&nbsp; %4 &nbsp;|&nbsp; %5")
                     .arg(latest->rxBytesPerSecond, 0, 'f', 0)
                     .arg(latest->txBytesPerSecond, 0, 'f', 0)
                     .arg(textCrc, textPending, textOverflow));

@@ -216,3 +216,27 @@ Reduced TX rows from 132 to 108 px, moved message names to the first line, combi
 Reduced RX row padding from 8 to 5 px and muted System/Component text, including immediate theme-change updates. Softened RX/Inspector borders and title-bar backgrounds. Inspector headings now identify message name/ID/System/Component. A field-row context menu offers Copy value; its displayed value is captured when the menu opens so later refreshes do not change the copied text. Empty message views remain blank.
 
 **Verification:** full build and CTest **2/2 passed in 9.33 s**. Added checks for clipboard content, inspector identity when switching components, Start/Stop visibility and selected-message toolbar containment/order at 1000×720. Existing PTY, editor, inline toggle, mouse/keyboard, hover/press, disabled control, popup and system/theme-change checks passed. Reviewed regenerated Light/Dark populated renders at 1440×900 and 1000×720, plus the empty minimum-size view. Artifacts include `build/qa/modern-small-{light,dark}.png`. CodeGraph is up to date; `git diff --check` passed. Native desktop clipboard/compositor integration and physical UART/DMA were not tested in this change.
+
+## Debug metric separators
+
+Added spaced vertical bars between RX, TX, CRC errors, Pending and RX overflow, in both the initial and refreshed status text. Existing alert colors and muted typography remain.
+
+**Verification:** full build and CTest **2/2 passed in 9.26 s**. Reviewed regenerated offscreen minimum-size Light/Dark status rows for separation and fit. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## Align app and TX titles
+
+Added a 17 px left content inset to the app title, aligning its text with the TX Dashboard title (16 px panel padding plus the 1 px panel border).
+
+**Verification:** full build and CTest **2/2 passed in 9.32 s**. Added a widget check comparing title content left edges in Light/Dark; reviewed minimum-size renders in both themes. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## Align app title with TX card edge
+
+Corrected the previous alignment interpretation: removed the app title's 17 px inset so it aligns with the outer left edge of the TX Dashboard card, rather than the text inside it. Updated the widget check to compare against the card edge.
+
+**Verification:** full build and CTest **2/2 passed in 9.27 s**. Reviewed minimum-size offscreen Light/Dark layouts. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.
+
+## Remove selected-message caption
+
+Removed the Selected caption and its unused label/update code from TX Dashboard. The action toolbar sits directly beneath the message list; selection and action enablement remain in use.
+
+**Verification:** full build and CTest **2/2 passed in 9.38 s**. Reviewed regenerated offscreen Light/Dark populated layouts. Existing interaction checks passed. CodeGraph is up to date; `git diff --check` passed. Native desktop rendering was not retested.

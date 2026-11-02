@@ -510,6 +510,8 @@ private slots:
             auto *bar = window.findChild<QWidget *>("connectionBar");
             auto *title = window.findChild<QLabel *>("heading");
             QVERIFY(bar && title);
+            QCOMPARE(title->mapTo(window.centralWidget(), title->contentsRect().topLeft()).x(),
+                     tx->parentWidget()->mapTo(window.centralWidget(), QPoint(0, 0)).x());
             QVERIFY(!bar->isAncestorOf(title));
             const QRect titleBounds(title->mapTo(window.centralWidget(), QPoint(0, 0)), title->size());
             const QRect barBounds(bar->mapTo(window.centralWidget(), QPoint(0, 0)), bar->size());
