@@ -2582,15 +2582,7 @@ void MainWindow::editMessage(bool edit)
     QWidget::setTabOrder(buttons->button(QDialogButtonBox::Cancel), buttons->button(QDialogButtonBox::Save));
     buttons->button(QDialogButtonBox::Save)->setProperty("role", "primary");
     buttons->button(QDialogButtonBox::Save)->setMinimumWidth(120);
-    const auto updateSubmitLabel = [=](bool online)
-    {
-        buttons->button(QDialogButtonBox::Save)->setText(edit ? "Save changes" : online ? "Add && start" : "Add message");
-    };
-    updateSubmitLabel(connected);
-    connect(worker, &SerialWorker::stateChanged, &dialog, [=](const QString &, bool online)
-    {
-        updateSubmitLabel(online);
-    });
+    buttons->button(QDialogButtonBox::Save)->setText(edit ? "Save changes" : "Add message");
     auto *footerRow = new QHBoxLayout;
     footerRow->setContentsMargins(0, 0, 0, 0);
     footerRow->setSpacing(12);

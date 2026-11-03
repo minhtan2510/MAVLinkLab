@@ -311,7 +311,7 @@ private slots:
             auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
             auto *buttons = dialog->findChild<QDialogButtonBox *>();
             QVERIFY(fields && buttons);
-            QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add && start"));
+            QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
             const auto senderControls = dialog->findChildren<QSpinBox *>();
             QCOMPARE(senderControls.size(), 2);
             auto *component = senderControls[1];
