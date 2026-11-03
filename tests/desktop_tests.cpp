@@ -847,7 +847,7 @@ private slots:
         QTest::qWait(30);
 
         const auto dashSizes = dashboards->sizes();
-        QVERIFY(qAbs(dashSizes[0] - 360) <= 2);
+        QVERIFY(qAbs(dashSizes[0] - 488) <= 2);
         const auto splitSizes = rxSplit->sizes();
         QVERIFY(qAbs(splitSizes[0] - splitSizes[1]) <= 2);
         QVERIFY(window.close());

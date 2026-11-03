@@ -593,107 +593,149 @@ public:
         const bool error = text != "Stopped" && !running;
         const QColor foreground(dark ? "#edf0fa" : "#20263b");
         const QColor muted(dark ? "#aab4cd" : "#626c84");
+        const QColor panelBg(dark ? "#1b2333" : "#ffffff");
         painter->save();
-        painter->fillRect(option.rect, QColor(dark ? "#1b2333" : "#ffffff"));
+        painter->fillRect(option.rect, panelBg);
         painter->setRenderHint(QPainter::Antialiasing);
-        const QRect card = option.rect.adjusted(1, 6, -2, -6);
+        const QRect card = option.rect.adjusted(1, 5, -2, -5);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
-                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#35445d" : "#d7dfeb");
-        QColor surface = error ? QColor(dark ? "#302332" : "#fff5f6") :
-                         running ? QColor(dark ? "#1b322f" : "#edf8f2") : QColor(dark ? "#252b36" : "#f2f3f5");
+                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
+        QColor surface = panelBg;
         if (hovered)
         {
-            surface = dark ? surface.lighter(110) : surface.darker(102);
+            surface = dark ? surface.lighter(112) : QColor("#f8fafc");
         }
-        // Preserve the state surface when selected; indigo identifies selection separately.
-        painter->setPen(QPen(selected ? QColor("#939bf0") : stateAccent, selected ? 1.5 : 1));
+        const QColor cardBorder = selected ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
+        painter->setPen(QPen(cardBorder, selected ? 1.5 : 1.2));
         painter->setBrush(surface);
-        painter->drawRoundedRect(card, 10, 10);
-        QFont font = option.font;
-        font.setPixelSize(11);
-        painter->setFont(font);
-        const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+        painter->drawRoundedRect(card, 8, 8);
+
+        // Accent strip on the left edge
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(stateAccent);
+        painter->drawRoundedRect(QRect(card.left() + 9, card.top() + 8, 4, card.height() - 16), 2, 2);
+
+        // Status badge button on top right
+        const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
         const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
-                               running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#263042" : "#edf0f6");
+                               running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#253144" : "#edf1f7");
         const QColor badgeBorder = error ? QColor(dark ? "#7a3749" : "#f8b4bc") :
-                                   running ? QColor(dark ? "#2e685a" : "#bfe6d3") : QColor(dark ? "#3d4c66" : "#d2dae6");
+                                   running ? QColor(dark ? "#2e685a" : "#bfe6d3") : QColor(dark ? "#3b4d6a" : "#d0d9e6");
         const QColor badgeFg = error ? QColor(dark ? "#ffb3bd" : "#b42340") :
                                running ? QColor(dark ? "#94e5bd" : "#17613e") : muted;
         painter->setPen(QPen(badgeBorder, 1));
         painter->setBrush(badgeBg);
-        painter->drawRoundedRect(badge, 6, 6);
+        painter->drawRoundedRect(badge, 5, 5);
         if (error)
         {
             painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setBold(true);
+            painter->setFont(badgeFont);
             painter->drawText(badge, Qt::AlignCenter, "Error");
         }
         else if (running)
         {
-            painter->fillRect(QRect(badge.left() + 9, badge.center().y() - 3, 7, 7), badgeFg);
+            painter->fillRect(QRect(badge.left() + 8, badge.center().y() - 3, 7, 7), badgeFg);
             painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setBold(true);
+            painter->setFont(badgeFont);
             painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Running");
         }
         else
         {
             QPolygonF play;
             play << QPointF(badge.left() + 9, badge.center().y() - 4)
-                 << QPointF(badge.left() + 16, badge.center().y())
+                 << QPointF(badge.left() + 15, badge.center().y())
                  << QPointF(badge.left() + 9, badge.center().y() + 4);
             painter->setPen(Qt::NoPen);
             painter->setBrush(badgeFg);
             painter->drawPolygon(play);
             painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setBold(false);
+            painter->setFont(badgeFont);
             painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
         }
-        font.setPixelSize(13);
-        font.setBold(true);
-        painter->setFont(font);
+
+        // Line 1: Title and Target Rate pill
+        const int textLeft = card.left() + 24;
+        QFont titleFont = option.font;
+        titleFont.setPixelSize(13);
+        titleFont.setBold(true);
+        painter->setFont(titleFont);
         painter->setPen(foreground);
-        const QStringList lines = txTitleLines(QString("[%1] %2").arg(value(0), value(1)), font, card.width() - 116);
+        const int maxTitleWidth = badge.left() - textLeft - 8;
+        const QString title = QString("[%1] %2").arg(value(0), value(1));
+        const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
         const int extra = lines.size() > 1 ? 16 : 0;
-        painter->drawText(QRect(card.left() + 12, badge.top(), card.width() - 116, badge.height() + extra),
-                          Qt::AlignVCenter | Qt::AlignLeft, lines.join('\n'));
-        font.setPixelSize(11);
-        font.setBold(false);
-        painter->setFont(font);
-        painter->setPen(muted);
-        painter->drawText(card.adjusted(12, 36 + extra, -12, 0), Qt::AlignTop | Qt::AlignLeft,
-                          QString("System ID: %1 - Component ID: %2")
-                              .arg(value(2).section('/', 0, 0).trimmed(),
-                                   value(2).section('/', 1, 1).trimmed()));
-        painter->setPen(QPen(QColor(dark ? "#35445d" : "#e1e6ef"), 1));
-        painter->drawLine(card.left() + 12, card.top() + 59 + extra, card.right() - 12, card.top() + 59 + extra);
-        const QRect metrics = card.adjusted(12, 69 + extra, -12, -8);
-        const int third = metrics.width() / 3;
-        font.setPixelSize(12);
-        font.setBold(true);
-        painter->setFont(font);
-        const QString rateText = value(3) + " Hz";
-        const int rateWidth = QFontMetrics(font).horizontalAdvance(rateText) + 16;
-        const QRect rateBadge(metrics.left(), metrics.top() + 3, rateWidth, 28);
-        painter->setPen(QPen(QColor(dark ? "#6688a8" : "#99b2ca"), 1));
-        painter->setBrush(QColor(dark ? "#334d68" : "#dde9f5"));
-        painter->drawRoundedRect(rateBadge, 5, 5);
-        painter->setPen(QColor(dark ? "#eef6ff" : "#294862"));
-        painter->drawText(rateBadge, Qt::AlignCenter, rateText);
-        const QStringList labels = {"", "Actual", "Frames"};
-        const QStringList values = {"", value(4) + " Hz", value(5)};
-        for (int column = 1; column < 3; ++column)
+        if (lines.size() > 1)
         {
-            const int left = metrics.left() + column * third;
-            const int width = column == 2 ? metrics.width() - 2 * third : third;
-            font.setPixelSize(11);
-            font.setBold(false);
-            painter->setFont(font);
-            painter->setPen(muted);
-            painter->drawText(QRect(left, metrics.top(), width, 16), Qt::AlignLeft, labels[column]);
-            font.setPixelSize(13);
-            font.setBold(true);
-            painter->setFont(font);
-            painter->setPen(column == 1 && running ? QColor(dark ? "#94e5bd" : "#17613e") : foreground);
-            const QString display = QFontMetrics(font).elidedText(values[column], Qt::ElideRight, width - 6);
-            painter->drawText(QRect(left, metrics.top() + 16, width, 18), Qt::AlignLeft, display);
+            painter->drawText(QRect(textLeft, badge.top(), maxTitleWidth, badge.height() + extra),
+                              Qt::AlignVCenter | Qt::AlignLeft, lines.join('\n'));
         }
+        else
+        {
+            const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
+            painter->drawText(QRect(textLeft, badge.top(), titleAdvance, badge.height()),
+                              Qt::AlignVCenter | Qt::AlignLeft, title);
+
+            // Draw compact Target Hz pill next to title if space allows
+            const QString rateText = value(3) + " Hz";
+            QFont pillFont = option.font;
+            pillFont.setPixelSize(11);
+            pillFont.setBold(true);
+            const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
+            const int pillWidth = rateAdvance + 12;
+            const int pillLeft = textLeft + titleAdvance + 8;
+            if (pillLeft + pillWidth <= badge.left() - 8)
+            {
+                const QRect pillRect(pillLeft, badge.top() + 3, pillWidth, 18);
+                painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+                painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
+                painter->drawRoundedRect(pillRect, 4, 4);
+                painter->setFont(pillFont);
+                painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
+                painter->drawText(pillRect, Qt::AlignCenter, rateText);
+            }
+        }
+
+        // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
+        const int line2Y = card.top() + 36 + extra;
+        const int line2Height = 18;
+        int curX = textLeft;
+        QFont metaFont = option.font;
+        metaFont.setPixelSize(12);
+        metaFont.setBold(false);
+        QFont boldFont = metaFont;
+        boldFont.setBold(true);
+
+        const auto drawPart = [&](const QString &txt, const QColor &col, bool isBold)
+        {
+            painter->setFont(isBold ? boldFont : metaFont);
+            painter->setPen(col);
+            const int adv = QFontMetrics(painter->font()).horizontalAdvance(txt);
+            if (curX + adv <= card.right() - 8)
+            {
+                painter->drawText(QRect(curX, line2Y, adv, line2Height), Qt::AlignVCenter | Qt::AlignLeft, txt);
+                curX += adv;
+            }
+        };
+
+        const QColor dotColor(dark ? "#4a5a74" : "#adbcd0");
+        const QString sysComp = QString("Sys %1 · Comp %2").arg(value(2).section('/', 0, 0).trimmed(),
+                                                                value(2).section('/', 1, 1).trimmed());
+        drawPart(sysComp, muted, false);
+        drawPart("   ·   ", dotColor, false);
+        drawPart("Actual: ", muted, false);
+        drawPart(value(4) + " Hz", running ? QColor(dark ? "#57c99a" : "#178255") : foreground, true);
+        drawPart("   ·   ", dotColor, false);
+        drawPart("Frames: ", muted, false);
+        drawPart(value(5), foreground, true);
         painter->restore();
     }
 };
@@ -1604,7 +1646,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         txTable->hideColumn(column);
     }
-    txTable->verticalHeader()->setDefaultSectionSize(120);
+    txTable->verticalHeader()->setDefaultSectionSize(74);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
     txTable->viewport()->setMouseTracking(true);
@@ -1818,7 +1860,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
-    dashboards->setSizes({360, 980});
+    dashboards->setSizes({488, 892});
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
@@ -2009,7 +2051,7 @@ void MainWindow::updateTxHeights()
             continue;
         }
         const QString title = QString("[%1] %2").arg(txTable->item(row, 0)->text(), txTable->item(row, 1)->text());
-        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 119).size() > 1 ? 136 : 120;
+        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 120).size() > 1 ? 90 : 74;
         if (txTable->rowHeight(row) != height)
         {
             txTable->setRowHeight(row, height);
@@ -2048,7 +2090,7 @@ void MainWindow::resetLayout()
     auto *dashboards = findChild<QSplitter *>("dashboards");
     if (dashboards)
     {
-        dashboards->setSizes({360, 980});
+        dashboards->setSizes({488, 892});
     }
     auto *rxSplit = findChild<QSplitter *>("rxSplit");
     if (rxSplit)
@@ -3162,8 +3204,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (index.isValid() && index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(1, 6, -2, -6);
-                    const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                     if (badge.contains(mouseEvent->pos()))
                     {
                         const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
@@ -3182,8 +3224,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (index.isValid() && index.column() == 1)
             {
                 const QRect rect = txTable->visualRect(index);
-                const QRect card = rect.adjusted(1, 6, -2, -6);
-                const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
+                const QRect card = rect.adjusted(1, 5, -2, -5);
+                const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                 txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
                                                Qt::PointingHandCursor : Qt::ArrowCursor);
             }
