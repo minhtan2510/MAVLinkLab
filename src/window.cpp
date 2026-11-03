@@ -1267,7 +1267,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     defaultVersionBox = new WorkbenchComboBox(mavlinkCard);
     defaultVersionBox->setObjectName("defaultVersion");
     defaultVersionBox->setAccessibleName("Default MAVLink Version");
-    defaultVersionBox->addItems({"MAVLink 2", "MAVLink 1"});
+    defaultVersionBox->addItems({"MAVLink v2", "MAVLink v1"});
     defaultVersionBox->setFixedHeight(32);
     addSettingsRow(mavlinkLayout, "Default Version:", defaultVersionBox);
 
@@ -2448,7 +2448,7 @@ void MainWindow::editMessage(bool edit)
     compid->setValue(entry.compid);
     auto *version = new WorkbenchComboBox;
     version->setObjectName("messageVersion");
-    version->addItems({"MAVLink 2", "MAVLink 1"});
+    version->addItems({"MAVLink v2", "MAVLink v1"});
     version->setCurrentIndex(entry.version1 ? 1 : 0);
     auto *rate = new WorkbenchSpinBox<QDoubleSpinBox>;
     rate->setDecimals(0);
@@ -2474,7 +2474,6 @@ void MainWindow::editMessage(bool edit)
     fieldControl("Component ID", compid);
     form->addSpacing(14);
     fieldControl("Rate (Hz)", rate);
-    fieldControl("Protocol", version);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");
@@ -2536,7 +2535,26 @@ void MainWindow::editMessage(bool edit)
     {
         updateSubmitLabel(online);
     });
-    layout->addWidget(buttons, 0, Qt::AlignRight | Qt::AlignAbsolute);
+    auto *footerRow = new QHBoxLayout;
+    footerRow->setContentsMargins(0, 0, 0, 0);
+    footerRow->setSpacing(12);
+
+    auto *protocolLayout = new QHBoxLayout;
+    protocolLayout->setSpacing(8);
+    auto *protocolLabel = new QLabel("MAVLink Version:");
+    protocolLabel->setObjectName("secondaryText");
+    protocolLabel->setBuddy(version);
+    protocolLayout->addWidget(protocolLabel, 0, Qt::AlignVCenter);
+    version->setFixedWidth(150);
+    version->setFixedHeight(32);
+    version->setAccessibleName("MAVLink Version");
+    protocolLayout->addWidget(version, 0, Qt::AlignVCenter);
+    footerRow->addLayout(protocolLayout);
+
+    footerRow->addStretch();
+    buttons->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    footerRow->addWidget(buttons, 0, Qt::AlignRight | Qt::AlignVCenter);
+    layout->addLayout(footerRow);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     const mavlink_message_info_t *selectedInfo = nullptr;
     std::map<uint32_t, QStringList> drafts;
