@@ -73,13 +73,46 @@ setup_qt_env()
 }
 
 ##
-# @brief Ensure git submodule for MAVLink is initialized.
+# @brief Discover Qt installation prefix if available.
 #
-ensure_submodules()
+# @return Prints path to Qt prefix directory if found.
+#
+detect_qt_prefix()
 {
-    if [[ ! -r "$project_dir/third_party/mavlink/ardupilotmega/mavlink.h" ]]; then
-        printf "%bInitializing git submodules...%b\n" "$YELLOW" "$NC"
-        git -C "$project_dir" submodule update --init --recursive
+    if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
+        printf '%s' "$CMAKE_PREFIX_PATH"
+        return 0
+    fi
+
+    local cache="$build_dir/CMakeCache.txt"
+    if [[ -r "$cache" ]]; then
+        local cached_prefix
+        cached_prefix="$(sed -n 's/^CMAKE_PREFIX_PATH:[^=]*=//p' "$cache")"
+        if [[ -n "$cached_prefix" && -d "$cached_prefix" ]]; then
+            printf '%s' "$cached_prefix"
+            return 0
+        fi
+    fi
+
+    # Fallback to local Qt installation prefix if present on this machine
+    if [[ -d "/tmp/mavlink-qt-prefix/usr" ]]; then
+        printf '%s' "/tmp/mavlink-qt-prefix/usr"
+        return 0
+    fi
+}
+
+##
+# @brief Update git submodules recursively.
+#
+update_submodules()
+{
+    printf "\n%b=== Updating Git Submodules ===%b\n" "$BLUE" "$NC"
+    if git -C "$project_dir" submodule update --init --recursive; then
+        printf "%bGit submodules updated successfully.%b\n" "$GREEN" "$NC"
+        return 0
+    else
+        printf "%bFailed to update git submodules!%b\n" "$RED" "$NC" >&2
+        return 1
     fi
 }
 
@@ -89,16 +122,38 @@ ensure_submodules()
 build_full()
 {
     printf "\n%b=== Building Full Project (Desktop & Tests) ===%b\n" "$BLUE" "$NC"
-    ensure_submodules
+    if ! update_submodules; then
+        return 1
+    fi
 
-    if [[ ! -f "$build_dir/CMakeCache.txt" ]]; then
+    local need_config=0
+    if [[ ! -f "$build_dir/CMakeCache.txt" || (! -f "$build_dir/Makefile" && ! -f "$build_dir/build.ninja") ]]; then
+        need_config=1
+    fi
+
+    if [[ "$need_config" -eq 1 ]]; then
         printf "%bConfiguring CMake in %s...%b\n" "$CYAN" "$build_dir" "$NC"
-        cmake -S "$project_dir" -B "$build_dir"
+        local cmake_args=("-S" "$project_dir" "-B" "$build_dir")
+        local qt_prefix
+        qt_prefix="$(detect_qt_prefix)"
+        if [[ -n "$qt_prefix" ]]; then
+            cmake_args+=("-DCMAKE_PREFIX_PATH=$qt_prefix")
+        fi
+
+        if ! cmake "${cmake_args[@]}"; then
+            printf "%bCMake configuration failed!%b\n" "$RED" "$NC" >&2
+            return 1
+        fi
     fi
 
     printf "%bCompiling...%b\n" "$CYAN" "$NC"
-    cmake --build "$build_dir" -j"$(nproc)"
+    if ! cmake --build "$build_dir" -j"$(nproc)"; then
+        printf "%bBuild failed!%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
     printf "%bBuild completed successfully!%b\n" "$GREEN" "$NC"
+    return 0
 }
 
 ##
@@ -107,16 +162,31 @@ build_full()
 build_core()
 {
     printf "\n%b=== Building Core Only (No GUI) ===%b\n" "$BLUE" "$NC"
-    ensure_submodules
+    if ! update_submodules; then
+        return 1
+    fi
 
-    if [[ ! -f "$build_core_dir/CMakeCache.txt" ]]; then
+    local need_config=0
+    if [[ ! -f "$build_core_dir/CMakeCache.txt" || (! -f "$build_core_dir/Makefile" && ! -f "$build_core_dir/build.ninja") ]]; then
+        need_config=1
+    fi
+
+    if [[ "$need_config" -eq 1 ]]; then
         printf "%bConfiguring CMake in %s (BUILD_GUI=OFF)...%b\n" "$CYAN" "$build_core_dir" "$NC"
-        cmake -S "$project_dir" -B "$build_core_dir" -DBUILD_GUI=OFF
+        if ! cmake -S "$project_dir" -B "$build_core_dir" -DBUILD_GUI=OFF; then
+            printf "%bCMake configuration failed!%b\n" "$RED" "$NC" >&2
+            return 1
+        fi
     fi
 
     printf "%bCompiling...%b\n" "$CYAN" "$NC"
-    cmake --build "$build_core_dir" -j"$(nproc)"
+    if ! cmake --build "$build_core_dir" -j"$(nproc)"; then
+        printf "%bCore build failed!%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
     printf "%bCore build completed successfully!%b\n" "$GREEN" "$NC"
+    return 0
 }
 
 ##
@@ -242,7 +312,7 @@ run_core_tests()
 clean_artifacts()
 {
     printf "\n%b=== Cleaning Build Artifacts ===%b\n" "$YELLOW" "$NC"
-    read -rp "Are you sure you want to delete build directories? [y/N]: " confirm
+    read -rp "Are you sure you want to delete build directories? [y/n]: " confirm
     case "$confirm" in
         [yY]|[yY][eE][sS])
             rm -rf "$build_dir" "$build_core_dir" "$project_dir/build-sanitize"
@@ -260,18 +330,10 @@ clean_artifacts()
 rebuild_project()
 {
     printf "\n%b=== Rebuilding Project ===%b\n" "$YELLOW" "$NC"
+    local saved_prefix
+    saved_prefix="$(detect_qt_prefix)"
     rm -rf "$build_dir"
-    build_full
-}
-
-##
-# @brief Update git submodules recursively.
-#
-update_submodules()
-{
-    printf "\n%b=== Updating Git Submodules ===%b\n" "$BLUE" "$NC"
-    git -C "$project_dir" submodule update --init --recursive
-    printf "%bGit submodules updated.%b\n" "$GREEN" "$NC"
+    CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-$saved_prefix}" build_full
 }
 
 ##
@@ -472,7 +534,7 @@ menu_run()
         local choice
         prompt_menu "Run Simulator" choice \
             "Run single window" \
-            "Run N windows (User input N)" \
+            "Run multi windows" \
             "← Back to Main Menu"
 
         case "$choice" in
@@ -566,7 +628,7 @@ interactive_menu()
         local choice
         prompt_menu "MAVLink Simulator CLI Workbench" choice \
             "[Build]  Build all, rebuild, or clean project" \
-            "[Run]    Run single or N windows (user input N)" \
+            "[Run]    Run project" \
             "[Test]   Run all tests or core tests" \
             "[Tools]  Update submodules or sync CodeGraph" \
             "[Exit]   Exit CLI"

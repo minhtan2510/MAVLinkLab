@@ -2385,7 +2385,7 @@ void MainWindow::editMessage(bool edit)
     auto *body = new QSplitter(Qt::Horizontal);
     body->setObjectName("messageSplitter");
     body->setChildrenCollapsible(false);
-    body->setHandleWidth(17);
+    body->setHandleWidth(2);
     auto *catalogWidget = new QWidget;
     catalogWidget->setMinimumWidth(240);
     auto *catalogPane = new QVBoxLayout(catalogWidget);
@@ -3281,7 +3281,7 @@ void MainWindow::applyTheme()
         "QLabel#selectedMessageTitle { font-size:16px; font-weight:600; color:%3; }"
         "QLabel#catalogResultCount,QLabel#payloadHint,QLabel#catalogEmpty { color:%5; font-size:12px; }"
         "QFrame#messageFooterDivider { background:%4; border:0; }"
-        "QSplitter#messageSplitter::handle { background:transparent; border-left:1px solid %4; margin:0 8px; }"
+        "QSplitter#messageSplitter::handle { background:transparent; border-left:1px solid %4; margin:0 7px; }"
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
