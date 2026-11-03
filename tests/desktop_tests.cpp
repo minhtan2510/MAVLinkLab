@@ -81,6 +81,7 @@ private slots:
     {
         QSettings("MAVLinkSimulator", "Layout").clear();
         QSettings("MAVLinkSimulator", "Preferences").clear();
+        QSettings("MAVLinkSimulator", "Workspace").clear();
     }
 
     /** @brief Verify serial RX/TX, silence on connect, stop/reconnect and error state. */
@@ -713,16 +714,19 @@ private slots:
             auto *sysIdBox = window.findChild<QSpinBox *>("defaultSysId");
             auto *compIdBox = window.findChild<QSpinBox *>("defaultCompId");
             auto *versionBox = window.findChild<QComboBox *>("defaultVersion");
-            QVERIFY(theme && sysIdBox && compIdBox && versionBox);
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            QVERIFY(theme && sysIdBox && compIdBox && versionBox && restoreTx);
 
             QCOMPARE(sysIdBox->value(), 1);
             QCOMPARE(compIdBox->value(), 1);
             QCOMPARE(versionBox->currentIndex(), 0);
+            QCOMPARE(restoreTx->isChecked(), false);
 
             sysIdBox->setValue(42);
             compIdBox->setValue(190);
             versionBox->setCurrentIndex(1);
             theme->setCurrentIndex(1);
+            restoreTx->setChecked(true);
 
             QTimer::singleShot(50, &window, [&]()
             {
@@ -750,13 +754,103 @@ private slots:
             auto *sysIdBox = window.findChild<QSpinBox *>("defaultSysId");
             auto *compIdBox = window.findChild<QSpinBox *>("defaultCompId");
             auto *versionBox = window.findChild<QComboBox *>("defaultVersion");
-            QVERIFY(theme && sysIdBox && compIdBox && versionBox);
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            QVERIFY(theme && sysIdBox && compIdBox && versionBox && restoreTx);
 
             QCOMPARE(sysIdBox->value(), 42);
             QCOMPARE(compIdBox->value(), 190);
             QCOMPARE(versionBox->currentIndex(), 1);
             QCOMPARE(theme->currentIndex(), 1);
+            QCOMPARE(restoreTx->isChecked(), true);
         }
+    }
+
+    /** @brief Verify TX message list persistence across sessions and stopped initial state. */
+    void workspaceTxPersistence()
+    {
+        {
+            MainWindow window;
+            window.show();
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            QVERIFY(tx && add && restoreTx);
+            QCOMPARE(restoreTx->isChecked(), false);
+            restoreTx->setChecked(true);
+
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                for (int row = 0; row < catalog->count(); ++row)
+                {
+                    if (catalog->item(row)->data(Qt::UserRole).toUInt() == 0)
+                    {
+                        catalog->setCurrentRow(row);
+                        break;
+                    }
+                }
+                dialog->findChild<QDoubleSpinBox *>()->setValue(5.0);
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 1);
+            QVERIFY(window.close());
+        }
+
+        {
+            MainWindow window;
+            window.show();
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+            QTRY_COMPARE(tx->rowCount(), 1);
+            QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+            QCOMPARE(tx->item(0, 1)->text(), QString("HEARTBEAT"));
+            QCOMPARE(tx->item(0, 3)->text(), QString("5"));
+            QCOMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+            QCOMPARE(tx->item(0, 5)->text(), QString("0"));
+
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            QVERIFY(restoreTx);
+            restoreTx->setChecked(false);
+            QVERIFY(window.close());
+        }
+
+        {
+            MainWindow window;
+            window.show();
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+            QTest::qWait(250);
+            QCOMPARE(tx->rowCount(), 0);
+        }
+    }
+
+    /** @brief Verify resetting window geometry, panel splitters and column widths to defaults. */
+    void workspaceResetLayout()
+    {
+        MainWindow window;
+        window.show();
+        window.resize(1100, 750);
+        auto *dashboards = window.findChild<QSplitter *>("dashboards");
+        auto *rxSplit = window.findChild<QSplitter *>("rxSplit");
+        auto *resetBtn = window.findChild<QPushButton *>("resetLayout");
+        QVERIFY(dashboards && rxSplit && resetBtn);
+
+        dashboards->setSizes({480, 620});
+        rxSplit->setSizes({220, 380});
+        QTest::qWait(30);
+
+        resetBtn->click();
+        QTest::qWait(30);
+
+        const auto dashSizes = dashboards->sizes();
+        QVERIFY(qAbs(dashSizes[0] - 360) <= 2);
+        const auto splitSizes = rxSplit->sizes();
+        QVERIFY(qAbs(splitSizes[0] - splitSizes[1]) <= 2);
+        QVERIFY(window.close());
     }
 
     /** @brief Exercise card selection, scheduling and a populated modern dashboard through real widgets. */
@@ -937,6 +1031,9 @@ private slots:
         {
             const QString mode = index == 1 ? "light" : "dark";
             theme->setCurrentIndex(index);
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            QVERIFY(restoreTx);
+            QCOMPARE(restoreTx->property("darkTheme").toBool(), index == 2);
             auto *tx = window.findChild<QTableWidget *>("txTable");
             auto *empty = tx->viewport()->findChild<QLabel *>("emptyState");
             QVERIFY(!empty);

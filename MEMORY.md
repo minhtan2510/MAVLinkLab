@@ -18,38 +18,55 @@
   * Worker thread owns `QSerialPort` and timers; never touch serial I/O or parser directly from the GUI thread.
   * GUI and Worker communicate strictly via queued commands and immutable data snapshots.
   * Monotonic clock used for scheduling to prevent catch-up bursts when deadlines are missed.
+* **State Persistence & Decoupled Scopes:**
+  * Application preferences (`MAVLinkSimulator/Preferences`), layout geometry (`MAVLinkSimulator/Layout`), and workspace TX messages (`MAVLinkSimulator/Workspace`) are kept in separate `QSettings` scopes.
+  * `QSignalBlocker` must be used during `restoreSettings()` to prevent widget signals (e.g., `valueChanged`) from triggering premature `saveSettings()`. Always invoke `settings.sync()` immediately after writing.
+* **Safe Session Restoration:**
+  * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
+  * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
+* **Custom Vector Form Controls:**
+  * Indicators for controls (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) are painted via vector paths with antialiased `QPainter` instead of crude QSS solid block colors, ensuring crisp rendering across themes.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
-  * Doxygen comments in English (`@brief`, `@param`, `@return`) on all new or significantly modified functions.
-* **MAVLink Integrity:**
-  * Never manually reimplement MAVLink codec or CRC; use the official submodule headers.
-  * RX frame identity is tracked by tuple `(sysid, compid, msgid)`.
-  * Parser must maintain state across fragmented chunks and noise.
+  * Concise Doxygen comments in English (`@brief`, `@param`, `@return`) on all new or significantly modified functions.
 
 ---
 
 ## 3. Known Gotchas & Constraints
-* **Qt SerialPort Dependency:**
-  * Some Ubuntu distributions (e.g. Jammy) omit `qt6-serialport-dev` from system packages.
-  * Build using `-DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/gcc_64` when using custom/external Qt installations. Never mix Qt major/minor versions.
-  * Core-only build is always available without Qt via `-DBUILD_GUI=OFF`.
+* **Custom Qt Prefix & CTest Offscreen Platform:**
+  * When running `ctest` in environments where Qt resides in a non-standard prefix (e.g. `/tmp/mavlink-qt-prefix`), set:
+    `QT_PLUGIN_PATH=/path/to/qt6/plugins LD_LIBRARY_PATH=/path/to/qt6/lib ctest --test-dir build --output-on-failure`
+  * Missing these variables results in `Could not find the Qt platform plugin "offscreen"`.
 * **Hardware & Serial Limits:**
   * Disconnect must immediately stop periodic TX and discard pending output.
   * Do not toggle DTR/RTS aggressively to avoid unintended device resets.
   * DMA depends on hardware kernel drivers; never infer DMA support from PTY or asynchronous I/O.
-* **Environment Safety:**
-  * Do not introduce Python runtime, TCP/UDP networking, or database dependencies unless explicitly requested.
+* **Multi-Agent Collaboration:**
+  * Divide complex or multi-step tasks among specialized Subagents (Research, Developer, Review, QA) for parallel execution and cross-verification.
 
 ---
 
-## 4. Current State & Testing Workflow
+## 4. Roadmap & Status
+* [x] **Phase 1: Foundation & MAVLink Defaults** (Settings dialog cards, default SysID/CompID/Version, QSettings persistence).
+* [x] **Phase 3: Workspace & TX Persistence** (Restore TX messages in Stopped state [default: OFF], Reset Layout to defaults, WorkbenchCheckBox).
+* [ ] **Phase 2: RX Display & Telemetry** (GUI refresh rate: 1/5/10 Hz, RX stream stale timeout, timestamp display format).
+* [ ] **Phase 4: Serial Port Management** (Port filtering, auto-reconnect handling on USB disconnect).
+* [ ] **Phase 5: Telemetry Logging** (Non-blocking `.tlog` raw bytes export).
+
+---
+
+## 5. Verification Workflow
 * **Full Build & Test:**
   ```bash
   git submodule update --init --recursive
   cmake -S . -B build
   cmake --build build -j
+  QT_PLUGIN_PATH=/tmp/mavlink-qt-prefix/usr/lib/x86_64-linux-gnu/qt6/plugins \
+  LD_LIBRARY_PATH=/tmp/mavlink-qt-prefix/usr/lib/x86_64-linux-gnu \
   ctest --test-dir build --output-on-failure
   ```
-* **Offscreen QA Tests:** Qt tests generate offscreen verification images in `build/qa/`.
-
+* **CodeGraph Synchronization:**
+  ```bash
+  codegraph sync && codegraph status
+  ```

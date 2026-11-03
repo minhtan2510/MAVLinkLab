@@ -10,6 +10,7 @@
 - Chỉ thay đổi trong scope được yêu cầu, giữ nguyên công việc sẵn có của user. Không commit/push/publish nếu chưa được yêu cầu.
 - Hỏi trước khi xóa file có sẵn, thêm dependency ngoài stack đã chốt, cài package hệ thống hoặc thay đổi cấu hình OS. Không hỏi lại quyền đã được cấp trong session.
 - Không chỉnh sửa `.agents/`, `.codex/`, `.aws/`, global configuration hoặc truy xuất credentials cho công việc thông thường của project.
+- Với các tác vụ nhiều bước hoặc có độ phức tạp kỹ thuật (phân tích dialect MAVLink, can thiệp worker thread, refactor UI, kiểm thử tự động), chủ động chia việc cho các **Subagents** chuyên trách (Research, Developer, Review, QA) để phối hợp xử lý song song, rà soát chéo và tối ưu thời gian.
 
 ## Project và architecture
 
@@ -65,6 +66,8 @@
   - Luôn gọi `settings.sync()` sau khi cập nhật dữ liệu để đảm bảo cấu hình được ghi tức thì xuống đĩa, tránh sai lệch giữa các tiến trình/test case.
 - Với thay đổi UI, tự kiểm tra rendered consistency ở **Light/Dark**, hover, pressed, focus, enabled/disabled, dropdown popup rows, resize và theme changes trong cùng session. Sửa regression tái hiện được trước khi kết luận.
 - Phân biệt **offscreen render** với native desktop integration. Nếu không có môi trường render, báo rõ giới hạn.
+- Các form controls có indicator (như checkbox, combobox chevrons, spinbox arrows) phải kế thừa lớp chuyên dụng (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) và tự vẽ bằng `QPainter` vector antialiasing theme-aware; không dùng QSS màu khối đặc thô sơ làm mất biểu tượng checkmark/indicator.
+- Các tùy chọn tự động khôi phục dữ liệu phiên làm việc (như Restore TX messages) phải luôn có giá trị **mặc định là tắt (`false` / disabled)** để đảm bảo an toàn và giữ trạng thái ứng dụng sạch sẽ khi khởi động.
 
 ## Build và verification
 

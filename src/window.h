@@ -14,6 +14,7 @@
 #include <QTreeWidget>
 #include <QLabel>
 #include <QSpinBox>
+#include <QCheckBox>
 #include <map>
 
 class MainWindow : public QMainWindow
@@ -56,10 +57,16 @@ private:
     void updateTxHeights();
     /** @brief Restore only presentation geometry and column widths from application settings. */
     void restoreLayout();
+    /** @brief Reset window geometry, splitters and column presentations to defaults. */
+    void resetLayout();
     /** @brief Restore application preferences such as theme and MAVLink defaults. */
     void restoreSettings();
     /** @brief Save application preferences such as theme and MAVLink defaults. */
     void saveSettings();
+    /** @brief Restore configured TX messages from workspace storage. */
+    void restoreTxMessages();
+    /** @brief Save configured TX messages to workspace storage. */
+    void saveTxMessages();
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -79,6 +86,7 @@ private:
     QSpinBox *defaultSysIdBox = nullptr;
     QSpinBox *defaultCompIdBox = nullptr;
     QComboBox *defaultVersionBox = nullptr;
+    QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *metrics = nullptr;

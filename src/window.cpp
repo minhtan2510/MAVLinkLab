@@ -309,6 +309,129 @@ protected:
     }
 };
 
+/** @brief Custom theme-aware checkbox with a crisp vector checkmark and focus indicator. */
+class WorkbenchCheckBox : public QCheckBox
+{
+public:
+    /**
+     * @brief Construct a theme-aware checkbox with label text.
+     * @param text Checkbox label string.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchCheckBox(const QString &text, QWidget *parent = nullptr) : QCheckBox(text, parent)
+    {
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover, true);
+    }
+
+    /**
+     * @brief Construct a theme-aware checkbox without initial label.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchCheckBox(QWidget *parent = nullptr) : QCheckBox(parent)
+    {
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover, true);
+    }
+
+    /**
+     * @brief Calculate recommended size matching vector indicator and label text.
+     * @return Recommended size hint for layout.
+     */
+    QSize sizeHint() const override
+    {
+        const QFontMetrics fm(font());
+        const int boxSize = 18;
+        const int textW = text().isEmpty() ? 0 : fm.horizontalAdvance(text()) + 10;
+        return QSize(boxSize + textW + 6, std::max(boxSize + 4, fm.height() + 4));
+    }
+
+protected:
+    /**
+     * @brief Trigger repaint upon hover entry.
+     * @param event Enter event from Qt.
+     */
+    void enterEvent(QEnterEvent *event) override
+    {
+        QCheckBox::enterEvent(event);
+        update();
+    }
+
+    /**
+     * @brief Trigger repaint upon hover departure.
+     * @param event Leave event from Qt.
+     */
+    void leaveEvent(QEvent *event) override
+    {
+        QCheckBox::leaveEvent(event);
+        update();
+    }
+
+    /**
+     * @brief Paint vector checkbox with a refined border and state feedback.
+     * @param event Paint event from Qt.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const int boxSize = 18;
+        const int y = (height() - boxSize) / 2;
+        const QRect boxRect(2, y, boxSize, boxSize);
+
+        const bool checked = isChecked();
+        const bool hovered = underMouse() && isEnabled();
+        const bool focused = hasFocus() && isEnabled();
+        const bool pressed = isDown() && isEnabled();
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (palette().color(QPalette::Window).lightness() < 128);
+
+        QColor borderColor = (hovered || focused) ? QColor("#818cf8") : (dark ? QColor("#667595") : QColor("#929db3"));
+        QColor bgColor = dark ? QColor("#1b2333") : QColor("#ffffff");
+
+        if (pressed && !checked)
+        {
+            bgColor = dark ? QColor("#222c3e") : QColor("#f1f5f9");
+        }
+
+        if (checked)
+        {
+            bgColor = isEnabled() ? (pressed ? QColor("#3730a3") : (hovered ? QColor("#4338ca") : QColor("#4f46e5")))
+                                  : (dark ? QColor("#3730a3") : QColor("#818cf8"));
+            borderColor = (focused || hovered) ? QColor("#818cf8") : bgColor;
+        }
+
+        painter.setPen(QPen(borderColor, 1.0));
+        painter.setBrush(bgColor);
+        painter.drawRoundedRect(boxRect, 4.0, 4.0);
+
+        if (checked)
+        {
+            QPainterPath path;
+            path.moveTo(boxRect.left() + 4.5, boxRect.top() + 9.5);
+            path.lineTo(boxRect.left() + 7.5, boxRect.top() + 12.5);
+            path.lineTo(boxRect.left() + 13.5, boxRect.top() + 5.5);
+
+            painter.setPen(QPen(Qt::white, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPath(path);
+        }
+
+        if (!text().isEmpty())
+        {
+            const QRect textRect(boxSize + 12, 0, width() - boxSize - 12, height());
+            const QColor textColor = isEnabled() ? (dark ? QColor("#edf0fa") : QColor("#20263b"))
+                                                : (dark ? QColor("#aab4cd") : QColor("#626c84"));
+            painter.setPen(textColor);
+            painter.setFont(font());
+            painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text());
+        }
+    }
+};
+
 /** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
 static QStringList txTitleLines(const QString &text, const QFont &font, int width)
 {
@@ -967,6 +1090,47 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     addSettingsRow(mavlinkLayout, "Default Version:", defaultVersionBox);
 
     settingsDialogLayout->addWidget(mavlinkCard);
+
+    auto *workspaceCard = new QFrame(settingsDialog);
+    workspaceCard->setObjectName("settingsCard");
+    auto *workspaceLayout = new QVBoxLayout(workspaceCard);
+    workspaceLayout->setContentsMargins(14, 12, 14, 12);
+    workspaceLayout->setSpacing(10);
+
+    auto *workspaceHeader = new QLabel("Workspace & Session", workspaceCard);
+    workspaceHeader->setObjectName("settingsGroupTitle");
+    workspaceLayout->addWidget(workspaceHeader);
+
+    auto *restoreGroup = new QVBoxLayout;
+    restoreGroup->setContentsMargins(0, 4, 0, 0);
+    restoreGroup->setSpacing(3);
+
+    restoreTxBox = new WorkbenchCheckBox("Restore TX messages on startup", workspaceCard);
+    restoreTxBox->setObjectName("restoreTxMessages");
+    restoreTxBox->setChecked(false);
+    restoreTxBox->setAccessibleName("Restore TX messages on startup");
+    restoreGroup->addWidget(restoreTxBox);
+
+    auto *restoreHint = new QLabel("Restored messages remain stopped until explicitly started.", workspaceCard);
+    restoreHint->setObjectName("secondaryText");
+    restoreHint->setStyleSheet("padding-left: 28px; font-size: 11px;");
+    restoreGroup->addWidget(restoreHint);
+    workspaceLayout->addLayout(restoreGroup);
+
+    auto *resetRow = new QHBoxLayout;
+    resetRow->setContentsMargins(0, 6, 0, 0);
+    auto *resetDesc = new QLabel("Window layout & panels:", workspaceCard);
+    resetDesc->setObjectName("secondaryText");
+    resetRow->addWidget(resetDesc);
+    resetRow->addStretch();
+
+    auto *resetLayoutButton = new QPushButton("Reset Layout", workspaceCard);
+    resetLayoutButton->setObjectName("resetLayout");
+    resetLayoutButton->setFixedWidth(130);
+    resetRow->addWidget(resetLayoutButton);
+    workspaceLayout->addLayout(resetRow);
+
+    settingsDialogLayout->addWidget(workspaceCard);
     settingsDialogLayout->addStretch();
 
     auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
@@ -1528,6 +1692,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         saveSettings();
     });
+    connect(restoreTxBox, &QCheckBox::toggled, this, [this]()
+    {
+        saveSettings();
+    });
+    connect(resetLayoutButton, &QPushButton::clicked, this, [this]()
+    {
+        resetLayout();
+    });
     qApp->installEventFilter(this);
     connect(&refresh, &QTimer::timeout, this, [this]()
     {
@@ -1545,6 +1717,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     updateActions();
     connect(txTable->horizontalHeader(), &QHeaderView::sectionResized, this, &MainWindow::updateTxHeights);
     restoreLayout();
+    restoreTxMessages();
 }
 
 /** @brief Fit TX card titles after model updates or viewport width changes. */
@@ -1589,6 +1762,44 @@ void MainWindow::restoreLayout()
     inspector->hideColumn(3);
 }
 
+/** @brief Reset window geometry, splitters and column presentations to defaults. */
+void MainWindow::resetLayout()
+{
+    QSettings settings("MAVLinkSimulator", "Layout");
+    settings.clear();
+    settings.sync();
+
+    resize(1440, 900);
+    auto *dashboards = findChild<QSplitter *>("dashboards");
+    if (dashboards)
+    {
+        dashboards->setSizes({360, 980});
+    }
+    auto *rxSplit = findChild<QSplitter *>("rxSplit");
+    if (rxSplit)
+    {
+        rxSplit->setSizes({300, 300});
+    }
+    if (rxTree)
+    {
+        rxTree->setColumnWidth(1, 52);
+        rxTree->setColumnWidth(2, 75);
+        rxTree->setColumnWidth(3, 58);
+        rxTree->setColumnWidth(4, 115);
+    }
+    if (inspector)
+    {
+        inspector->setColumnWidth(0, 150);
+        inspector->setColumnWidth(1, 90);
+        inspector->setColumnWidth(2, 220);
+        inspector->hideColumn(3);
+    }
+    if (lastError)
+    {
+        lastError->setText("Layout reset to defaults");
+    }
+}
+
 /** @brief Restore application preferences such as theme and MAVLink defaults from storage. */
 void MainWindow::restoreSettings()
 {
@@ -1617,6 +1828,12 @@ void MainWindow::restoreSettings()
         const QSignalBlocker blocker(defaultVersionBox);
         defaultVersionBox->setCurrentIndex(version);
     }
+    const bool restoreTx = settings.value("workspace/restoreTx", false).toBool();
+    if (restoreTxBox)
+    {
+        const QSignalBlocker blocker(restoreTxBox);
+        restoreTxBox->setChecked(restoreTx);
+    }
 }
 
 /** @brief Save application preferences such as theme and MAVLink defaults to storage. */
@@ -1639,13 +1856,88 @@ void MainWindow::saveSettings()
     {
         settings.setValue("mavlink/defaultVersion", defaultVersionBox->currentIndex());
     }
+    if (restoreTxBox)
+    {
+        settings.setValue("workspace/restoreTx", restoreTxBox->isChecked());
+    }
     settings.sync();
+}
+
+/** @brief Restore configured TX messages from workspace storage. */
+void MainWindow::restoreTxMessages()
+{
+    QSettings preferences("MAVLinkSimulator", "Preferences");
+    const bool restoreTx = preferences.value("workspace/restoreTx", false).toBool();
+    if (!restoreTx)
+    {
+        return;
+    }
+    QSettings workspace("MAVLinkSimulator", "Workspace");
+    const int count = workspace.beginReadArray("txMessages");
+    for (int i = 0; i < count; ++i)
+    {
+        workspace.setArrayIndex(i);
+        Mav::TxEntry entry;
+        entry.key = nextKey++;
+        entry.id = workspace.value("id").toUInt();
+        entry.sysid = static_cast<uint8_t>(workspace.value("sysid", 1).toUInt());
+        entry.compid = static_cast<uint8_t>(workspace.value("compid", 1).toUInt());
+        entry.version1 = workspace.value("version1", false).toBool();
+        entry.hz = workspace.value("hz", 1.0).toDouble();
+        const QByteArray payloadBytes = workspace.value("payload").toByteArray();
+        const auto *bytesPtr = reinterpret_cast<const uint8_t *>(payloadBytes.constData());
+        entry.payload.assign(bytesPtr, bytesPtr + payloadBytes.size());
+        entry.active = false;
+        entry.deadline = 0;
+        entry.count = 0;
+        entry.error.clear();
+        if (Mav::validTx(entry))
+        {
+            QMetaObject::invokeMethod(worker, "saveEntry", Qt::QueuedConnection, Q_ARG(Mav::TxEntry, entry));
+        }
+    }
+    workspace.endArray();
+}
+
+/** @brief Save configured TX messages to workspace storage. */
+void MainWindow::saveTxMessages()
+{
+    QSettings workspace("MAVLinkSimulator", "Workspace");
+    if (!latest)
+    {
+        return;
+    }
+    workspace.beginWriteArray("txMessages", int(latest->tx.size()));
+    for (int i = 0; i < int(latest->tx.size()); ++i)
+    {
+        workspace.setArrayIndex(i);
+        const auto &entry = latest->tx[i].entry;
+        workspace.setValue("id", entry.id);
+        workspace.setValue("sysid", entry.sysid);
+        workspace.setValue("compid", entry.compid);
+        workspace.setValue("version1", entry.version1);
+        workspace.setValue("hz", entry.hz);
+        const QByteArray payloadBytes(reinterpret_cast<const char *>(entry.payload.data()), int(entry.payload.size()));
+        workspace.setValue("payload", payloadBytes);
+    }
+    workspace.endArray();
+    workspace.sync();
 }
 
 /** @brief Save only geometry, splitters and column presentation on a normal close. */
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveSettings();
+    if (restoreTxBox && restoreTxBox->isChecked())
+    {
+        saveTxMessages();
+    }
+    else
+    {
+        QSettings workspace("MAVLinkSimulator", "Workspace");
+        workspace.remove("txMessages");
+        workspace.sync();
+    }
     QSettings settings("MAVLinkSimulator", "Layout");
     settings.setValue("version", 1);
     settings.setValue("geometry", saveGeometry());
@@ -2620,6 +2912,11 @@ void MainWindow::applyTheme()
     {
         inspector->setProperty("darkTheme", dark);
     }
+    if (restoreTxBox)
+    {
+        restoreTxBox->setProperty("darkTheme", dark);
+        restoreTxBox->update();
+    }
     const QString background = dark ? "#0d1422" : "#edf1f8";
     const QString surface = dark ? "#1b2333" : "#ffffff";
     const QString foreground = dark ? "#edf0fa" : "#20263b";
@@ -2681,6 +2978,7 @@ void MainWindow::applyTheme()
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
         "QFrame#settingsCard { background:%2; border:1px solid %4; border-radius:8px; }"
         "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
+        "QCheckBox { background:transparent; color:%3; font-size:13px; outline:none; }"
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
         "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll { font-size:12px; padding:4px 8px; border-radius:5px; }"
