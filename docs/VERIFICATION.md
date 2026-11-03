@@ -362,3 +362,15 @@ Reduced nested RX header emphasis and made System/Component labels secondary to 
 Search controls now set only their QPalette PlaceholderText role to a softer Light/Dark hint color, including the magnifier, while retaining normal input text colors and inherited palette roles. Palette/style changes refresh this role for RX search, catalog search and parameter filtering.
 
 **Verification:** build and targeted messageEditorUi/modernDashboard checks passed (4 Qt test entries, 0 failures). Reviewed regenerated Light/Dark offscreen search renders; existing typed-input, clear, filtering and live-theme interactions passed. Native desktop rendering was not retested.
+
+## Whole-number dashboard frequencies
+
+TX Target/Actual and RX Hz now display rounded whole numbers, such as 10 Hz instead of 10.0 Hz. Scheduling and fractional Add/Edit rate inputs retain their original precision.
+
+**Verification:** build and targeted modernDashboard test passed (3 Qt entries, 0 failures), including the updated accessible TX frequency check. Reviewed regenerated Light/Dark minimum-size offscreen dashboard renders. CodeGraph is current; git diff --check passed. Native desktop and physical UART were not retested.
+
+## Whole-number TX rate configuration
+
+Add/Edit Rate now configures TX at whole-number rates from 1 to 1000 Hz in 1 Hz steps, removing the fractional input and decimal suffix. This supersedes fractional Add/Edit input described in the preceding verification entry; core timing calculations retain their existing precision.
+
+**Verification:** full build and CTest 2/2 passed in 12.42 s. Editor checks exercise lower/upper bounds, fractional-value rounding, integer text and 1 Hz stepping. Reviewed Light/Dark offscreen editor renders; existing PTY scheduling, validation and interaction checks passed. CodeGraph is current; git diff --check passed. Physical UART and native desktop were not tested.

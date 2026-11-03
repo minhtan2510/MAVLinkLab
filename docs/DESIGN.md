@@ -45,3 +45,5 @@
 **Long TX names:** headings wrap into at most two lines at the available card width; the second line elides if necessary. Wrapped cards grow from 114 to 130 px, moving sender/divider/metrics down together. Inline status button geometry remains stable. Row heights are recalculated on width/model changes while retaining scroll position.
 
 **Presentation preferences:** a normal close stores window geometry, dashboard/RX splitter states and RX/field header states in application-scoped QSettings (`MAVLinkSimulator/Layout`, schema version 1). Startup restores presentation only, keeping the unavailable Unit column hidden. Invalid geometry/splitter state falls back to the existing usable layout. Serial connection, payloads, TX activation and pause/filter state remain session-only. Multiple instances use the last saved layout. Automated tests redirect settings to a temporary directory.
+
+**Frequency presentation:** TX Target/Actual and RX Hz display rounded whole numbers without a decimal suffix. Add/Edit Rate configures TX scheduling using whole-number rates from 1 to 1000 Hz in 1 Hz steps.

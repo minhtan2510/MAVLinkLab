@@ -1734,8 +1734,9 @@ void MainWindow::editMessage(bool edit)
     version->addItems({"MAVLink 2", "MAVLink 1"});
     version->setCurrentIndex(entry.version1 ? 1 : 0);
     auto *rate = new WorkbenchSpinBox<QDoubleSpinBox>;
-    rate->setRange(0.1, 1000);
-    rate->setDecimals(1);
+    rate->setDecimals(0);
+    rate->setRange(1, 1000);
+    rate->setSingleStep(1);
     rate->setValue(entry.hz);
     rate->setSuffix(" Hz");
     const auto fieldControl = [&](const QString &name, QWidget *control)
@@ -2153,8 +2154,8 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
         cell(txTable, row, 1, messageName(entry.id));
         cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
-        cell(txTable, row, 3, QString::number(entry.hz, 'f', 1));
-        cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 1));
+        cell(txTable, row, 3, QString::number(entry.hz, 'f', 0));
+        cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
         cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
         cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
         const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\n%6 frames handed to Qt output\n%7")
@@ -2260,7 +2261,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             item->setText(0, messageName(message.msgid));
             item->setText(1, QString::number(message.msgid));
             item->setText(2, QString::number(qulonglong(entry.count)));
-            item->setText(3, QString::number(entry.hz, 'f', 1));
+            item->setText(3, QString::number(entry.hz, 'f', 0));
             item->setText(4, QString("%1 s · %2").arg(entry.age, 0, 'f', 1).arg(entry.age > 2 ? "Stale" : "Recent"));
             item->setToolTip(0, (message.incompat_flags & MAVLINK_IFLAG_SIGNED) ?
                               "Signed frame; signature NOT verified" : "Unsigned frame; no authentication");

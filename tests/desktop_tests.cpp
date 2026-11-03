@@ -446,6 +446,18 @@ private slots:
                 QVERIFY(catalog && search && fields && title && hint && buttons && splitter);
                 QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
                 QCOMPARE(title->text(), QString("[0] HEARTBEAT"));
+                auto *rate = dialog->findChild<QDoubleSpinBox *>();
+                QVERIFY(rate);
+                rate->setValue(0);
+                QCOMPARE(rate->value(), 1.0);
+                rate->setValue(1001);
+                QCOMPARE(rate->value(), 1000.0);
+                rate->setValue(10.4);
+                QCOMPARE(rate->value(), 10.0);
+                QCOMPARE(rate->text(), QString("10 Hz"));
+                rate->stepUp();
+                QCOMPARE(rate->value(), 11.0);
+                rate->setValue(1);
                 fields->editItem(fields->item(0, 2));
                 auto *valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
                 QVERIFY(valueEditor);
@@ -730,7 +742,7 @@ private slots:
         QTest::qWait(250);
         QCOMPARE(tx->currentRow(), 2);
         QVERIFY(tx->item(2, 1)->toolTip().isEmpty());
-        QVERIFY(tx->item(2, 1)->data(Qt::AccessibleTextRole).toString().contains("Target 10.0 Hz"));
+        QVERIFY(tx->item(2, 1)->data(Qt::AccessibleTextRole).toString().contains("Target 10 Hz"));
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
