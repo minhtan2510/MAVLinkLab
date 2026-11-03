@@ -44,6 +44,11 @@
   * DMA depends on hardware kernel drivers; never infer DMA support from PTY or asynchronous I/O.
 * **Multi-Agent Collaboration:**
   * Divide complex or multi-step tasks among specialized Subagents (Research, Developer, Review, QA) for parallel execution and cross-verification.
+* **Linux X11 Popups & Rounded Window Masks:**
+  * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
+* **Editable ComboBox Text Clipping & Inner Focus Outlines:**
+  * Child `QLineEdit` inside editable `QComboBox` inherits generic `QLineEdit:focus` styling; avoid QSS `outline` which ignores border-radius, and explicitly clear child line-edit borders/outlines (`QComboBox QLineEdit { border: none; outline: none; }`).
+  * Child text width is reduced by drop-down width and padding; maintain sufficient fixed width (≥140px for baud rates) and zero text margins to prevent horizontal scroll clipping on high rates.
 
 ---
 

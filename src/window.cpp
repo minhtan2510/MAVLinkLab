@@ -257,24 +257,115 @@ static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QStri
 class WorkbenchComboBox : public QComboBox
 {
 public:
-    /** @brief Use a standard item delegate so popup selection follows theme tokens. */
-    explicit WorkbenchComboBox(QWidget *parent = nullptr) : QComboBox(parent)
+    /**
+     * @brief Construct combo box with vector chevron and theme-aware delegate.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchComboBox(QWidget *parent = nullptr)
+        : QComboBox(parent)
     {
         setItemDelegate(new QStyledItemDelegate(this));
+        setAttribute(Qt::WA_Hover, true);
+        if (view())
+        {
+            view()->installEventFilter(this);
+            if (QWidget *container = view()->window())
+            {
+                container->setAttribute(Qt::WA_TranslucentBackground, true);
+            }
+        }
     }
+
+    /**
+     * @brief Show popup with rounded mask and translucent background.
+     */
+    void showPopup() override
+    {
+        QComboBox::showPopup();
+        if (QWidget *container = view() ? view()->window() : nullptr)
+        {
+            container->setAttribute(Qt::WA_TranslucentBackground, true);
+            QPainterPath outline;
+            outline.addRoundedRect(QRectF(container->rect()), 8.0, 8.0);
+            container->setMask(QRegion(outline.toFillPolygon().toPolygon()));
+        }
+        update();
+    }
+
+    /**
+     * @brief Hide popup and trigger repaint for closed state indicator.
+     */
+    void hidePopup() override
+    {
+        QComboBox::hidePopup();
+        update();
+    }
+
+    /**
+     * @brief Filter events from popup view to refresh chevron state on show/hide.
+     * @param watched Object receiving the event.
+     * @param event The Qt event.
+     * @return True if event was filtered, false otherwise.
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == view())
+        {
+            if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
+            {
+                update();
+            }
+        }
+        return QComboBox::eventFilter(watched, event);
+    }
+
 protected:
-    /** @brief Paint a consistent dropdown indicator without an image dependency. */
+    /**
+     * @brief Trigger repaint upon hover entry.
+     * @param event Enter event from Qt.
+     */
+    void enterEvent(QEnterEvent *event) override
+    {
+        QComboBox::enterEvent(event);
+        update();
+    }
+
+    /**
+     * @brief Trigger repaint upon hover departure.
+     * @param event Leave event from Qt.
+     */
+    void leaveEvent(QEvent *event) override
+    {
+        QComboBox::leaveEvent(event);
+        update();
+    }
+
+    /**
+     * @brief Paint a consistent dropdown indicator with state feedback and rotation.
+     * @param event Paint event from Qt.
+     */
     void paintEvent(QPaintEvent *event) override
     {
         QComboBox::paintEvent(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        const auto group = isEnabled() ? QPalette::Active : QPalette::Disabled;
-        painter.setPen(QPen(palette().color(group, QPalette::ButtonText), 1.5,
-                            Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        const QPointF center(width() - 12.0, height() / 2.0);
-        painter.drawLine(center + QPointF(-3, -1.5), center + QPointF(0, 1.5));
-        painter.drawLine(center + QPointF(0, 1.5), center + QPointF(3, -1.5));
+
+        const bool isOpen = view() && view()->isVisible();
+        const bool isHovered = underMouse() && isEnabled();
+        const bool isFocused = hasFocus() && isEnabled();
+        const bool dark = property("darkTheme").isValid()
+            ? property("darkTheme").toBool()
+            : (palette().color(QPalette::Window).lightness() < 128);
+
+        const QColor chevronColor = (isOpen || isHovered || isFocused)
+            ? QColor("#818cf8")
+            : (dark ? QColor("#aab4cd") : QColor("#626c84"));
+
+        const qreal direction = isOpen ? -1.0 : 1.0;
+        const QPointF center(width() - 14.0, height() / 2.0);
+        painter.setPen(QPen(chevronColor, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawLine(center + QPointF(-4.0, -2.0 * direction), center + QPointF(0, 2.0 * direction));
+        painter.drawLine(center + QPointF(0, 2.0 * direction), center + QPointF(4.0, -2.0 * direction));
     }
 };
 
@@ -1041,6 +1132,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     themeBox->addItems({"System", "Light", "Dark"});
     themeBox->setAccessibleName("Application theme");
     themeBox->setFixedWidth(130);
+    themeBox->setFixedHeight(32);
     themeRow->addWidget(themeBox);
     appearanceLayout->addLayout(themeRow);
 
@@ -1087,6 +1179,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     defaultVersionBox->setObjectName("defaultVersion");
     defaultVersionBox->setAccessibleName("Default MAVLink Version");
     defaultVersionBox->addItems({"MAVLink 2", "MAVLink 1"});
+    defaultVersionBox->setFixedHeight(32);
     addSettingsRow(mavlinkLayout, "Default Version:", defaultVersionBox);
 
     settingsDialogLayout->addWidget(mavlinkCard);
@@ -1197,6 +1290,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         dialog.exec();
     });
     aboutAction->setObjectName("actionAbout");
+    for (auto *menu : {fileMenu, viewMenu, toolMenu, helpMenu})
+    {
+        menu->setAttribute(Qt::WA_TranslucentBackground, true);
+        menu->installEventFilter(this);
+    }
     auto *uart = new QFrame;
     uart->setObjectName("connectionBar");
     auto *uartLayout = new QVBoxLayout(uart);
@@ -1228,7 +1326,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     portBox->setFixedHeight(32);
     portBox->setFixedWidth(160);
     portBox->setEditable(true);
-    portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
+    if (portBox->lineEdit())
+    {
+        portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
+        portBox->lineEdit()->setTextMargins(0, 0, 0, 0);
+    }
     portBox->setObjectName("port");
     portBox->setAccessibleName("Serial port");
     uartRow->addWidget(portBox);
@@ -1241,11 +1343,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     uartRow->addSpacing(8);
     baudBox = new WorkbenchComboBox;
     baudBox->setFixedHeight(32);
-    baudBox->setFixedWidth(116);
+    baudBox->setFixedWidth(140);
     baudBox->addItems({"9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"});
     baudBox->setObjectName("baudRate");
     baudBox->setEditable(true);
     baudBox->setCurrentText("115200");
+    if (baudBox->lineEdit())
+    {
+        baudBox->lineEdit()->setPlaceholderText("Baud rate");
+        baudBox->lineEdit()->setTextMargins(0, 0, 0, 0);
+        baudBox->lineEdit()->setCursorPosition(0);
+    }
     baudBox->setAccessibleName("Baud rate");
     uartRow->addWidget(baudBox);
 
@@ -1399,6 +1507,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addWidget(txTable, 1);
     auto *txMenu = new QMenu(txTable);
     txMenu->setObjectName("txMessageMenu");
+    txMenu->setAttribute(Qt::WA_TranslucentBackground, true);
+    txMenu->installEventFilter(this);
     const auto addTxAction = [txMenu](const QString &text, const char *name)
     {
         auto *action = txMenu->addAction(text);
@@ -1514,6 +1624,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     inspector->setContextMenuPolicy(Qt::CustomContextMenu);
     auto *valueMenu = new QMenu(inspector);
     valueMenu->setObjectName("inspectorMenu");
+    valueMenu->setAttribute(Qt::WA_TranslucentBackground, true);
+    valueMenu->installEventFilter(this);
     auto *copyValue = valueMenu->addAction("Copy value");
     copyValue->setObjectName("copyInspectorValue");
     connect(copyValue, &QAction::triggered, this, [copyValue]()
@@ -2812,14 +2924,13 @@ void MainWindow::showError(const QString &message)
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched->objectName() == "serialMenu" &&
-        (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+    if (auto *popup = qobject_cast<QMenu *>(watched))
     {
-        auto *popup = qobject_cast<QMenu *>(watched);
-        if (popup)
+        if (event->type() == QEvent::Resize || event->type() == QEvent::Show)
         {
+            popup->setAttribute(Qt::WA_TranslucentBackground, true);
             QPainterPath outline;
-            outline.addRoundedRect(QRectF(popup->rect()), 7, 7);
+            outline.addRoundedRect(QRectF(popup->rect()), 6.0, 6.0);
             popup->setMask(QRegion(outline.toFillPolygon().toPolygon()));
         }
     }
@@ -2948,11 +3059,11 @@ void MainWindow::applyTheme()
         "QPushButton#closeDialog:hover { background:%6; }"
         "QPushButton#closeDialog:pressed { background:%4; }"
         "QPushButton#closeDialog[keyboardFocus=true] { border-color:#818cf8; }"
-        "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; }"
-        "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; }"
+        "QMenuBar { background:%1; color:%3; border-bottom:1px solid %4; padding:2px 8px; font-size:13px; outline:none; }"
+        "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; outline:none; }"
         "QMenuBar::item:selected { background:%6; color:%3; }"
         "QMenuBar::item:pressed { background:%6; }"
-        "QMenu { background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:4px; font-size:13px; }"
+        "QMenu { background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:4px; font-size:13px; outline:none; }"
         "QMenu::item { padding:6px 24px 6px 12px; border-radius:4px; }"
         "QMenu::item:selected { background:#4f46e5; color:white; }"
         "QMenu::separator { height:1px; background:%4; margin:4px 6px; }"
@@ -2992,22 +3103,27 @@ void MainWindow::applyTheme()
         "QPushButton[role=success]:pressed { background:#065446; border-color:#065446; }"
         "QPushButton[role=danger] { color:%7; }"
         "QPushButton:disabled,QPushButton[role=primary]:disabled,QPushButton[role=success]:disabled,QPushButton[role=danger]:disabled { color:%5; background:%6; border-color:%4; }"
-        "QLineEdit:focus,QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus { border:1px solid #4f46e5; outline:1px solid #818cf8; }"
+        "QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus { border:1px solid #4f46e5; outline:none; }"
         "QPushButton[keyboardFocus=true],QPushButton[role=primary][keyboardFocus=true],QPushButton[role=success][keyboardFocus=true] { border:2px solid #818cf8; padding:6px 9px; outline:none; }"
-        "QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:7px; }"
+        "QLineEdit,QSpinBox,QDoubleSpinBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:7px; }"
+        "QComboBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:4px 28px 4px 10px; min-height:22px; outline:none; }"
+        "QComboBox:hover { background:%6; border-color:#818cf8; }"
+        "QComboBox:focus,QComboBox:on { border:1px solid #4f46e5; outline:none; }"
         "QComboBox:disabled { color:%5; background:%6; border-color:%4; }"
-        "QComboBox::drop-down { border:0; width:22px; }"
+        "QComboBox::drop-down { subcontrol-origin:padding; subcontrol-position:top right; width:26px; border:0; }"
         "QComboBox::down-arrow { image:none; }"
-        "QFrame#connectionBar QComboBox { padding:4px 24px 4px 8px; }"
-        "QFrame#connectionBar QComboBox QLineEdit { padding:0; border:0; background:transparent; }"
+        "QComboBox QLineEdit,QComboBox QLineEdit:focus,QComboBox QLineEdit:hover { padding:0; margin:0; border:0; outline:none; background:transparent; }"
+        "QComboBox QFrame { background:transparent; border:0; }"
         "QPushButton#refreshPorts { padding:0; }"
         "QPushButton#refreshPorts[keyboardFocus=true] { padding:0; }"
         "QSpinBox::up-button,QDoubleSpinBox::up-button { subcontrol-origin:border; subcontrol-position:top right; width:20px; border-left:1px solid %4; border-bottom:1px solid %4; }"
         "QSpinBox::down-button,QDoubleSpinBox::down-button { subcontrol-origin:border; subcontrol-position:bottom right; width:20px; border-left:1px solid %4; }"
         "QSpinBox::up-arrow,QSpinBox::down-arrow,QDoubleSpinBox::up-arrow,QDoubleSpinBox::down-arrow { image:none; }"
-        "QComboBox QAbstractItemView,QListWidget { background:%2; color:%3; selection-background-color:#4f46e5; selection-color:white; padding:3px; }"
-        "QComboBox QAbstractItemView::item { min-height:24px; padding:3px 6px; }"
-        "QComboBox QAbstractItemView::item:selected { background:#4f46e5; color:white; }"
+        "QComboBox QAbstractItemView { background:%2; color:%3; border:1px solid %4; border-radius:8px; padding:4px; outline:none; selection-background-color:transparent; }"
+        "QComboBox QAbstractItemView::item { min-height:28px; padding:4px 10px; border-radius:5px; margin:1px 2px; }"
+        "QComboBox QAbstractItemView::item:hover { background:%6; color:%3; }"
+        "QComboBox QAbstractItemView::item:selected { background:#4f46e5; color:#ffffff; }"
+        "QListWidget { background:%2; color:%3; selection-background-color:#4f46e5; selection-color:white; padding:3px; }"
         "QListWidget::item { padding:5px 6px; border-radius:3px; }"
         "QListWidget::item:selected { background:#4f46e5; color:white; }"
         "QListWidget::item:hover:!selected { background:%6; }"

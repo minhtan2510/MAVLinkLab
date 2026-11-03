@@ -1180,6 +1180,127 @@ private slots:
         QVERIFY(window.palette().color(QPalette::Window).lightness() > 128);
         qApp->setPalette(original);
     }
+
+    /**
+     * @brief Verify input box sizing, focused edit styling, and popup transparency attributes.
+     */
+    void uiWidgetRefinements()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        // 1. Verify baudBox available width for high baud rates without clipping/scrolling
+        auto *baudBox = window.findChild<QComboBox *>("baudRate");
+        QVERIFY(baudBox);
+        QVERIFY(baudBox->isEditable());
+        auto *baudEdit = baudBox->lineEdit();
+        QVERIFY(baudEdit);
+
+        for (const QString &rate : {"115200", "921600"})
+        {
+            baudBox->setEditText(rate);
+            QTest::qWait(10);
+
+            const int textWidth = baudEdit->fontMetrics().horizontalAdvance(rate);
+            const int availableWidth = baudEdit->contentsRect().width();
+            QVERIFY2(textWidth <= availableWidth,
+                     qPrintable(QString("Rate '%1' pixel width (%2 px) exceeds available width (%3 px)")
+                                .arg(rate).arg(textWidth).arg(availableWidth)));
+
+            baudEdit->setCursorPosition(0);
+            QCOMPARE(baudEdit->cursorPosition(), 0);
+
+            baudEdit->setCursorPosition(rate.length());
+            QCOMPARE(baudEdit->cursorPosition(), rate.length());
+
+            baudEdit->setCursorPosition(0);
+            QCOMPARE(baudEdit->cursorPosition(), 0);
+        }
+
+        // 2. Verify portBox and baudBox child QLineEdit do not render square focus borders
+        const QColor focusBorder("#4f46e5");
+        const QColor focusOutline("#818cf8");
+
+        for (const auto &name : {"port", "baudRate"})
+        {
+            auto *combo = window.findChild<QComboBox *>(name);
+            QVERIFY(combo && combo->lineEdit());
+            auto *lineEdit = combo->lineEdit();
+
+            lineEdit->setFocus();
+            QVERIFY(lineEdit->hasFocus());
+            QTest::qWait(20);
+
+            const QImage img = lineEdit->grab().toImage();
+            bool hasInnerBorder = false;
+
+            for (int x = 0; x < img.width(); ++x)
+            {
+                const QColor topColor = img.pixelColor(x, 0);
+                const QColor bottomColor = img.pixelColor(x, img.height() - 1);
+                if (topColor == focusBorder || topColor == focusOutline ||
+                    bottomColor == focusBorder || bottomColor == focusOutline)
+                {
+                    hasInnerBorder = true;
+                    break;
+                }
+            }
+
+            for (int y = 0; y < img.height() && !hasInnerBorder; ++y)
+            {
+                const QColor leftColor = img.pixelColor(0, y);
+                const QColor rightColor = img.pixelColor(img.width() - 1, y);
+                if (leftColor == focusBorder || leftColor == focusOutline ||
+                    rightColor == focusBorder || rightColor == focusOutline)
+                {
+                    hasInnerBorder = true;
+                    break;
+                }
+            }
+
+            QVERIFY2(!hasInnerBorder,
+                     qPrintable(QString("Child QLineEdit in combo '%1' renders an inner focus border")
+                                .arg(name)));
+        }
+
+        // 3. Verify QMenus and ComboBox popup containers have translucent background or mask
+        const QStringList menuNames = {
+            "fileMenu", "viewMenu", "toolMenu", "helpMenu",
+            "serialMenu", "txMessageMenu", "inspectorMenu"
+        };
+
+        for (const auto &name : menuNames)
+        {
+            auto *menu = window.findChild<QMenu *>(name);
+            QVERIFY2(menu != nullptr, qPrintable(QString("Menu '%1' not found").arg(name)));
+
+            const bool hasTranslucent = menu->testAttribute(Qt::WA_TranslucentBackground);
+            const bool hasMask = !menu->mask().isEmpty();
+            QVERIFY2(hasTranslucent || hasMask,
+                     qPrintable(QString("Menu '%1' lacks WA_TranslucentBackground or mask").arg(name)));
+        }
+
+        for (const auto &name : {"theme", "port", "baudRate"})
+        {
+            auto *combo = window.findChild<QComboBox *>(name);
+            QVERIFY(combo && combo->view());
+
+            combo->showPopup();
+            QTest::qWait(20);
+
+            QWidget *popupWindow = combo->view()->window();
+            QVERIFY(popupWindow);
+
+            const bool hasTranslucent = popupWindow->testAttribute(Qt::WA_TranslucentBackground);
+            const bool hasMask = !popupWindow->mask().isEmpty();
+
+            combo->hidePopup();
+            QVERIFY2(hasTranslucent || hasMask,
+                     qPrintable(QString("ComboBox '%1' popup window lacks WA_TranslucentBackground or mask")
+                                .arg(name)));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
