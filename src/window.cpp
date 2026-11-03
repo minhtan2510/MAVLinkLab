@@ -1026,9 +1026,62 @@ static QIcon actionIcon(const QString &name, const QColor &color)
         path.closeSubpath();
         painter.drawPath(path);
     }
-    else if (name == "stopTx" || name == "stopAll")
+    else if (name == "stopTx")
     {
         painter.drawRoundedRect(QRectF(4, 4, 8, 8), 1, 1);
+    }
+    else if (name == "runAll")
+    {
+        painter.setBrush(color);
+        QPainterPath first;
+        first.moveTo(3.0, 4.2);
+        first.lineTo(7.5, 8.0);
+        first.lineTo(3.0, 11.8);
+        first.closeSubpath();
+        painter.drawPath(first);
+
+        QPainterPath second;
+        second.moveTo(8.5, 4.2);
+        second.lineTo(13.0, 8.0);
+        second.lineTo(8.5, 11.8);
+        second.closeSubpath();
+        painter.drawPath(second);
+    }
+    else if (name == "stopAll")
+    {
+        painter.setBrush(color);
+        painter.drawRoundedRect(QRectF(3.5, 3.5, 9.0, 9.0), 2.0, 2.0);
+    }
+    else if (name == "deleteAll")
+    {
+        painter.setBrush(Qt::NoBrush);
+        // Handle on top: rounded arch
+        QPainterPath handle;
+        handle.moveTo(6.3, 3.5);
+        handle.lineTo(6.3, 2.3);
+        handle.quadTo(6.3, 1.7, 6.9, 1.7);
+        handle.lineTo(9.1, 1.7);
+        handle.quadTo(9.7, 1.7, 9.7, 2.3);
+        handle.lineTo(9.7, 3.5);
+        painter.drawPath(handle);
+
+        // Lid: rounded rectangle overhanging the container body
+        painter.drawRoundedRect(QRectF(2.2, 3.4, 11.6, 2.0), 0.8, 0.8);
+
+        // Body: tapered container with generously rounded bottom corners
+        QPainterPath body;
+        body.moveTo(3.2, 5.4);
+        body.lineTo(3.7, 12.6);
+        body.quadTo(3.9, 13.8, 5.0, 13.8);
+        body.lineTo(11.0, 13.8);
+        body.quadTo(12.1, 13.8, 12.3, 12.6);
+        body.lineTo(12.8, 5.4);
+        painter.drawPath(body);
+
+        // Three vertical parallel ribs
+        painter.drawLine(QPointF(5.8, 7.2), QPointF(5.8, 11.8));
+        painter.drawLine(QPointF(8.0, 7.2), QPointF(8.0, 11.8));
+        painter.drawLine(QPointF(10.2, 7.2), QPointF(10.2, 11.8));
     }
     else if (name == "editMessage")
     {
@@ -1577,17 +1630,26 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addWidget(batchDivider);
     auto *batchActions = new QHBoxLayout;
     batchActions->setSpacing(4);
-    runAllButton = button("Run all", "runAll", batchActions);
+    runAllButton = button("", "runAll", batchActions);
     runAllButton->setProperty("role", "success");
-    stopAllButton = button("Stop all", "stopAll", batchActions);
+    runAllButton->setFixedSize(28, 28);
+    runAllButton->setToolTip("Run all");
+    runAllButton->setAccessibleName("Run all messages");
+
+    stopAllButton = button("", "stopAll", batchActions);
     stopAllButton->setProperty("role", "danger");
+    stopAllButton->setFixedSize(28, 28);
+    stopAllButton->setToolTip("Stop all");
+    stopAllButton->setAccessibleName("Stop all messages");
+
     batchActions->addStretch();
-    deleteAllButton = button("Delete all", "deleteAll", batchActions);
+
+    deleteAllButton = button("", "deleteAll", batchActions);
     deleteAllButton->setProperty("role", "danger");
-    for (auto *control : {runAllButton, stopAllButton, deleteAllButton})
-    {
-        control->setFixedHeight(28);
-    }
+    deleteAllButton->setFixedSize(28, 28);
+    deleteAllButton->setToolTip("Delete all");
+    deleteAllButton->setAccessibleName("Delete all messages");
+
     txLayout->addLayout(batchActions);
     dashboards->addWidget(txGroup);
 
@@ -3178,7 +3240,7 @@ void MainWindow::applyTheme()
         "QCheckBox { background:transparent; color:%3; font-size:13px; outline:none; }"
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
-        "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll { font-size:12px; padding:4px 8px; border-radius:5px; }"
+        "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll { padding:0; border-radius:5px; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
         "QPushButton[role=primary] { background:#4f46e5; color:white; border-color:#4f46e5; }"
@@ -3281,7 +3343,7 @@ void MainWindow::applyTheme()
             system->child(child)->setForeground(0, QColor(muted));
         }
     }
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage"})
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)

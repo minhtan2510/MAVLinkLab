@@ -1000,6 +1000,15 @@ private slots:
         auto *stopAll = window.findChild<QPushButton *>("stopAll");
         auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
         QVERIFY(runAll && stopAll && deleteAll);
+        QCOMPARE(runAll->toolTip(), QString("Run all"));
+        QCOMPARE(stopAll->toolTip(), QString("Stop all"));
+        QCOMPARE(deleteAll->toolTip(), QString("Delete all"));
+        QVERIFY(!runAll->icon().isNull());
+        QVERIFY(!stopAll->icon().isNull());
+        QVERIFY(!deleteAll->icon().isNull());
+        QVERIFY(runAll->text().isEmpty());
+        QVERIFY(stopAll->text().isEmpty());
+        QVERIFY(deleteAll->text().isEmpty());
         QVERIFY(stopAll->geometry().top() > tx->geometry().bottom());
         stopAll->click();
         for (int row = 0; row < tx->rowCount(); ++row)
