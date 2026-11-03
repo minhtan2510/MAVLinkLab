@@ -1,11 +1,13 @@
 #include "core.h"
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 
 namespace Mav
@@ -37,17 +39,37 @@ static uint64_t parseBits(const std::string &text, mavlink_message_type_t type)
     uint64_t bits = 0;
     if (type == MAVLINK_TYPE_FLOAT || type == MAVLINK_TYPE_DOUBLE)
     {
-        const double number = std::stod(text, &used);
-        if (!std::isfinite(number))
+        const auto first = text.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
         {
-            throw std::invalid_argument("Non-finite values are not accepted");
+            throw std::invalid_argument("Empty number");
+        }
+        const auto last = text.find_last_not_of(" \t\r\n");
+        const char *begin = text.data() + first;
+        const char *end = text.data() + last + 1;
+        if (*begin == '+')
+        {
+            ++begin;
+            if (begin == end)
+            {
+                throw std::invalid_argument("Unexpected trailing characters");
+            }
         }
         if (type == MAVLINK_TYPE_FLOAT)
         {
-            const float value = static_cast<float>(number);
-            if (!std::isfinite(value))
+            float value = 0.0f;
+            const auto [ptr, ec] = std::from_chars(begin, end, value);
+            if (ec == std::errc::result_out_of_range)
             {
                 throw std::out_of_range("float overflow");
+            }
+            if (ec != std::errc() || ptr != end)
+            {
+                throw std::invalid_argument("Unexpected trailing characters");
+            }
+            if (!std::isfinite(value))
+            {
+                throw std::invalid_argument("Non-finite values are not accepted");
             }
             uint32_t raw = 0;
             std::memcpy(&raw, &value, sizeof(raw));
@@ -55,8 +77,23 @@ static uint64_t parseBits(const std::string &text, mavlink_message_type_t type)
         }
         else
         {
-            std::memcpy(&bits, &number, sizeof(bits));
+            double value = 0.0;
+            const auto [ptr, ec] = std::from_chars(begin, end, value);
+            if (ec == std::errc::result_out_of_range)
+            {
+                throw std::out_of_range("double overflow");
+            }
+            if (ec != std::errc() || ptr != end)
+            {
+                throw std::invalid_argument("Unexpected trailing characters");
+            }
+            if (!std::isfinite(value))
+            {
+                throw std::invalid_argument("Non-finite values are not accepted");
+            }
+            std::memcpy(&bits, &value, sizeof(bits));
         }
+        return bits;
     }
     else if (type == MAVLINK_TYPE_INT8_T || type == MAVLINK_TYPE_INT16_T ||
              type == MAVLINK_TYPE_INT32_T || type == MAVLINK_TYPE_INT64_T)
@@ -185,15 +222,19 @@ std::string readField(const mavlink_message_t &message, const mavlink_field_info
         if (field.type == MAVLINK_TYPE_FLOAT)
         {
             const uint32_t raw = uint32_t(bits);
-            float value = 0;
+            float value = 0.0f;
             std::memcpy(&value, &raw, sizeof(value));
-            output << value;
+            char buffer[32];
+            const auto res = std::to_chars(buffer, buffer + sizeof(buffer), value);
+            output << std::string_view(buffer, res.ptr - buffer);
         }
         else if (field.type == MAVLINK_TYPE_DOUBLE)
         {
-            double value = 0;
+            double value = 0.0;
             std::memcpy(&value, &bits, sizeof(value));
-            output << value;
+            char buffer[64];
+            const auto res = std::to_chars(buffer, buffer + sizeof(buffer), value);
+            output << std::string_view(buffer, res.ptr - buffer);
         }
         else if (field.type == MAVLINK_TYPE_INT8_T || field.type == MAVLINK_TYPE_INT16_T ||
                  field.type == MAVLINK_TYPE_INT32_T || field.type == MAVLINK_TYPE_INT64_T)
