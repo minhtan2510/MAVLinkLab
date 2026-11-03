@@ -13,6 +13,8 @@
 #include <QDoubleSpinBox>
 #include <QTest>
 #include <QSplitter>
+#include <QPlainTextEdit>
+#include <QToolButton>
 #include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
@@ -440,7 +442,36 @@ private slots:
                 QVERIFY(catalog->isVisible());
                 QVERIFY(!catalog->item(0)->isHidden());
                 QCOMPARE(fields->item(0, 2)->text(), QString("1"));
-                search->clear();
+                search->setText("1");
+                QCOMPARE(catalog->item(0)->data(Qt::UserRole).toUInt(), 1U);
+                QVERIFY(search->isClearButtonEnabled());
+                auto *clearSearch = search->findChild<QToolButton *>();
+                QVERIFY(clearSearch);
+                QTest::qWait(180);
+                QTest::mouseClick(clearSearch, Qt::LeftButton);
+                QTRY_VERIFY(search->text().isEmpty());
+                QCOMPARE(catalog->currentItem()->data(Qt::UserRole).toUInt(), 0U);
+                // Validate on commit, including corrections that remain invalid.
+                fields->item(0, 2)->setText("256");
+                QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                fields->item(0, 2)->setText("-1");
+                QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-inline-error-light.png" : "qa/editor-inline-error-dark.png"));
+                catalog->setCurrentRow(1);
+                catalog->setCurrentRow(0);
+                QCOMPARE(fields->item(0, 2)->text(), QString("-1"));
+                QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                fields->item(0, 2)->setText("1");
+                QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                // Switching messages commits an active native editor into that message's draft.
+                fields->editItem(fields->item(0, 2));
+                valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                QVERIFY(valueEditor);
+                valueEditor->setText("2");
+                catalog->setCurrentRow(1);
+                catalog->setCurrentRow(0);
+                QCOMPARE(fields->item(0, 2)->text(), QString("2"));
+                fields->item(0, 2)->setText("1");
                 for (int row = 0; row < fields->rowCount(); ++row)
                 {
                     if (fields->item(row, 0)->text() == "mavlink_version")
@@ -478,6 +509,46 @@ private slots:
                                 fields->setCurrentCell(int(row), 2);
                                 QVERIFY(hint->isVisible());
                                 QVERIFY(hint->text().contains(charArray ? "UTF-8" : "comma-separated"));
+                                auto *arrayButton = dialog->findChild<QPushButton *>("editPayloadArray");
+                                QVERIFY(arrayButton && arrayButton->isVisible());
+                                const QString original = fields->item(int(row), 2)->text();
+                                // Cancel leaves the table untouched, including multiline input.
+                                QTimer::singleShot(20, dialog, [&]()
+                                {
+                                    auto *arrayDialog = dialog->findChild<QDialog *>("arrayDialog");
+                                    QVERIFY(arrayDialog);
+                                    auto *input = arrayDialog->findChild<QPlainTextEdit *>("arrayValueEditor");
+                                    QVERIFY(input);
+                                    input->setPlainText("discarded draft");
+                                    arrayDialog->reject();
+                                });
+                                arrayButton->click();
+                                QCOMPARE(fields->item(int(row), 2)->text(), original);
+                                QTimer::singleShot(20, dialog, [&]()
+                                {
+                                    auto *arrayDialog = dialog->findChild<QDialog *>("arrayDialog");
+                                    QVERIFY(arrayDialog);
+                                    QTimer::singleShot(1500, arrayDialog, &QDialog::reject);
+                                    auto *input = arrayDialog->findChild<QPlainTextEdit *>("arrayValueEditor");
+                                    auto *actions = arrayDialog->findChild<QDialogButtonBox *>();
+                                    QVERIFY(input && actions);
+                                    input->setPlainText(charArray ? QString(field.array_length + 1, 'x') : "invalid");
+                                    actions->button(QDialogButtonBox::Save)->click();
+                                    QVERIFY(arrayDialog->isVisible());
+                                    QVERIFY(arrayDialog->findChild<QLabel *>("validationError")->isVisible());
+                                    QVERIFY(arrayDialog->grab().save(mode == 1 ? "qa/array-error-light.png" : "qa/array-error-dark.png"));
+                                    QStringList numbers;
+                                    for (unsigned n = 0; n < field.array_length; ++n)
+                                    {
+                                        numbers.append("1");
+                                    }
+                                    input->setPlainText(charArray ? "sample" : numbers.join(",\n"));
+                                    actions->button(QDialogButtonBox::Save)->click();
+                                    QVERIFY(!arrayDialog->isVisible());
+                                });
+                                arrayButton->click();
+                                QVERIFY(fields->item(int(row), 2)->text() != original);
+                                QVERIFY(!fields->item(int(row), 2)->data(Qt::UserRole + 1).toBool());
                                 found = true;
                                 break;
                             }
@@ -485,7 +556,42 @@ private slots:
                     }
                     QVERIFY(found);
                 }
+                auto *parameterSearch = dialog->findChild<QLineEdit *>("parameterSearch");
+                QVERIFY(parameterSearch);
+                bool manyFields = false;
+                for (int i = 0; i < catalog->count(); ++i)
+                {
+                    const auto *info = mavlink_get_message_info_by_id(catalog->item(i)->data(Qt::UserRole).toUInt());
+                    if (info->num_fields > 12)
+                    {
+                        catalog->setCurrentRow(i);
+                        QVERIFY(parameterSearch->isVisible());
+                        parameterSearch->setText("no_such_field");
+                        for (int row = 0; row < fields->rowCount(); ++row)
+                        {
+                            QVERIFY(fields->isRowHidden(row));
+                        }
+                        parameterSearch->setText(fields->item(0, 0)->text());
+                        QVERIFY(!fields->isRowHidden(0));
+                        const QString originalValue = fields->item(0, 2)->text();
+                        fields->item(0, 2)->setText("invalid");
+                        QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                        parameterSearch->setText("no_such_field");
+                        buttons->button(QDialogButtonBox::Save)->click();
+                        QVERIFY(dialog->isVisible());
+                        QVERIFY(!fields->isRowHidden(0));
+                        QVERIFY(parameterSearch->text().isEmpty());
+                        fields->item(0, 2)->setText(originalValue);
+                        QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                        QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-many-light.png" : "qa/editor-many-dark.png"));
+                        manyFields = true;
+                        break;
+                    }
+                }
+                QVERIFY(manyFields);
                 catalog->setCurrentRow(0);
+                QVERIFY(parameterSearch->isHidden());
+                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
                 dialog->resize(880, 600);
                 splitter->setSizes({320, 540});
                 QTest::qWait(30);
@@ -498,6 +604,9 @@ private slots:
                 const QRect footer(buttons->mapTo(dialog, QPoint(0, 0)), buttons->size());
                 QVERIFY(dialog->rect().contains(footer));
                 QVERIFY(footer.top() > splitter->geometry().bottom());
+                QVERIFY(footer.right() > dialog->width() - 30);
+                QVERIFY(buttons->button(QDialogButtonBox::Cancel)->geometry().right() <
+                        buttons->button(QDialogButtonBox::Save)->geometry().left());
                 QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-small-light.png" : "qa/editor-small-dark.png"));
                 dialog->reject();
             });
