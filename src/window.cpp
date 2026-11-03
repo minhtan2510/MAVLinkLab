@@ -662,8 +662,8 @@ public:
                               .arg(value(2).section('/', 0, 0).trimmed(),
                                    value(2).section('/', 1, 1).trimmed()));
         painter->setPen(QPen(QColor(dark ? "#35445d" : "#e1e6ef"), 1));
-        painter->drawLine(card.left() + 12, card.top() + 55 + extra, card.right() - 12, card.top() + 55 + extra);
-        const QRect metrics = card.adjusted(12, 62 + extra, -12, -8);
+        painter->drawLine(card.left() + 12, card.top() + 59 + extra, card.right() - 12, card.top() + 59 + extra);
+        const QRect metrics = card.adjusted(12, 69 + extra, -12, -8);
         const int third = metrics.width() / 3;
         font.setPixelSize(12);
         font.setBold(true);
@@ -1604,7 +1604,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         txTable->hideColumn(column);
     }
-    txTable->verticalHeader()->setDefaultSectionSize(114);
+    txTable->verticalHeader()->setDefaultSectionSize(120);
     txTable->setAlternatingRowColors(false);
     txTable->setMouseTracking(true);
     txTable->viewport()->setMouseTracking(true);
@@ -1783,24 +1783,38 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         return caption;
     };
     addInspectorPane("RECEIVED MESSAGES", rxTree);
-    auto *inspectorContent = new QWidget;
-    auto *inspectorContentLayout = new QVBoxLayout(inspectorContent);
-    inspectorContentLayout->setContentsMargins(0, 0, 0, 0);
-    inspectorContentLayout->setSpacing(0);
-    inspectorTitle = addInspectorPane("DECODED FIELDS", inspectorContent);
+
+    auto *inspectorPane = new QFrame;
+    inspectorPane->setObjectName("dataPane");
+    auto *inspectorLayout = new QVBoxLayout(inspectorPane);
+    inspectorLayout->setContentsMargins(1, 1, 1, 1);
+    inspectorLayout->setSpacing(0);
+
+    auto *inspectorHeader = new QFrame;
+    inspectorHeader->setObjectName("inspectorHeader");
+    auto *headerLayout = new QHBoxLayout(inspectorHeader);
+    headerLayout->setContentsMargins(10, 8, 10, 8);
+    headerLayout->setSpacing(10);
+
+    inspectorTitle = new QLabel("DECODED FIELDS");
     inspectorTitle->setObjectName("inspectorMessageTitle");
-    auto *inspectorMeta = new QHBoxLayout;
-    inspectorMeta->setContentsMargins(10, 0, 10, 8);
+    headerLayout->addWidget(inspectorTitle);
+
     inspectorSource = new QLabel;
     inspectorSource->setObjectName("inspectorSource");
     inspectorSource->hide();
-    inspectorMeta->addWidget(inspectorSource, 1);
+    headerLayout->addWidget(inspectorSource);
+
+    headerLayout->addStretch(1);
+
     pausedLabel = new QLabel("Display paused");
     pausedLabel->setObjectName("displayPaused");
     pausedLabel->hide();
-    inspectorMeta->addWidget(pausedLabel);
-    inspectorContentLayout->addLayout(inspectorMeta);
-    inspectorContentLayout->addWidget(inspector, 1);
+    headerLayout->addWidget(pausedLabel);
+
+    inspectorLayout->addWidget(inspectorHeader);
+    inspectorLayout->addWidget(inspector, 1);
+    rxSplit->addWidget(inspectorPane);
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
@@ -1995,7 +2009,7 @@ void MainWindow::updateTxHeights()
             continue;
         }
         const QString title = QString("[%1] %2").arg(txTable->item(row, 0)->text(), txTable->item(row, 1)->text());
-        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 119).size() > 1 ? 130 : 114;
+        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 119).size() > 1 ? 136 : 120;
         if (txTable->rowHeight(row) != height)
         {
             txTable->setRowHeight(row, height);
@@ -3379,10 +3393,11 @@ void MainWindow::applyTheme()
     ).arg(dark ? "#2c3550" : "#eeedfa", foreground, alternate);
     const QString dataStyle = QString(
         "QFrame#dataPane { background:%1; border:1px solid %2; border-radius:5px; }"
-        "QLabel#dataPaneTitle { background:%1; color:%4; border-bottom:1px solid %2; padding:7px 10px; font-size:11px; font-weight:500; }"
-        "QLabel#inspectorMessageTitle { background:%1; color:%4; padding:8px 10px 5px; font-size:13px; font-weight:600; }"
+        "QLabel#dataPaneTitle { background:%3; color:%4; border-bottom:1px solid %2; padding:8px 10px; font-size:12px; font-weight:600; }"
+        "QFrame#inspectorHeader { background:%3; border-bottom:1px solid %2; }"
+        "QLabel#inspectorMessageTitle { background:transparent; color:%4; font-size:12px; font-weight:600; }"
         "QLabel#inspectorSource { color:%4; font-size:12px; }"
-        "QLabel#displayPaused { color:%7; background:%3; padding:3px 6px; border-radius:4px; font-size:11px; }"
+        "QLabel#displayPaused { color:%7; background:%1; padding:2px 6px; border-radius:4px; font-size:11px; }"
         "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
         "QTableWidget#txTable { background:transparent; }"
         "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
