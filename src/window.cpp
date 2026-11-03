@@ -355,7 +355,11 @@ protected:
         const bool isFocused = hasFocus() && isEnabled();
         const bool dark = property("darkTheme").isValid()
             ? property("darkTheme").toBool()
-            : (palette().color(QPalette::Window).lightness() < 128);
+            : (window() && window()->property("darkTheme").isValid()
+               ? window()->property("darkTheme").toBool()
+               : (qApp && qApp->property("darkTheme").isValid()
+                  ? qApp->property("darkTheme").toBool()
+                  : (palette().color(QPalette::Window).lightness() < 128)));
 
         const QColor chevronColor = (isOpen || isHovered || isFocused)
             ? QColor("#818cf8")
@@ -478,7 +482,11 @@ protected:
         const bool pressed = isDown() && isEnabled();
         const bool dark = property("darkTheme").isValid() ?
                           property("darkTheme").toBool() :
-                          (palette().color(QPalette::Window).lightness() < 128);
+                          (window() && window()->property("darkTheme").isValid() ?
+                           window()->property("darkTheme").toBool() :
+                           (qApp && qApp->property("darkTheme").isValid() ?
+                            qApp->property("darkTheme").toBool() :
+                            (palette().color(QPalette::Window).lightness() < 128)));
 
         QColor borderColor = (hovered || focused) ? QColor("#818cf8") : (dark ? QColor("#667595") : QColor("#929db3"));
         QColor bgColor = dark ? QColor("#1b2333") : QColor("#ffffff");
@@ -1148,11 +1156,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     mavlinkHeader->setObjectName("settingsGroupTitle");
     mavlinkLayout->addWidget(mavlinkHeader);
 
-    const auto addSettingsRow = [mavlinkCard](QVBoxLayout *cardLayout, const QString &label, QWidget *control)
+    const auto addSettingsRow = [](QVBoxLayout *cardLayout, const QString &label, QWidget *control)
     {
         auto *row = new QHBoxLayout;
         row->setContentsMargins(0, 4, 0, 0);
-        auto *caption = new QLabel(label, mavlinkCard);
+        auto *caption = new QLabel(label);
         caption->setObjectName("secondaryText");
         row->addWidget(caption);
         row->addStretch();
@@ -1160,6 +1168,34 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         row->addWidget(control);
         cardLayout->addLayout(row);
     };
+
+    auto *serialCard = new QFrame(settingsDialog);
+    serialCard->setObjectName("settingsCard");
+    auto *serialLayout = new QVBoxLayout(serialCard);
+    serialLayout->setContentsMargins(14, 12, 14, 12);
+    serialLayout->setSpacing(8);
+
+    auto *serialHeader = new QLabel("Serial Management", serialCard);
+    serialHeader->setObjectName("settingsGroupTitle");
+    serialLayout->addWidget(serialHeader);
+
+    auto *reconnectGroup = new QVBoxLayout;
+    reconnectGroup->setContentsMargins(0, 4, 0, 0);
+    reconnectGroup->setSpacing(3);
+
+    autoReconnectBox = new WorkbenchCheckBox("Auto-reconnect on unexpected disconnect", serialCard);
+    autoReconnectBox->setObjectName("autoReconnect");
+    autoReconnectBox->setChecked(false);
+    autoReconnectBox->setAccessibleName("Auto-reconnect on unexpected disconnect");
+    reconnectGroup->addWidget(autoReconnectBox);
+
+    auto *reconnectHint = new QLabel("Automatically retries connection with backoff if physical link drops.", serialCard);
+    reconnectHint->setObjectName("secondaryText");
+    reconnectHint->setStyleSheet("padding-left: 28px; font-size: 11px;");
+    reconnectGroup->addWidget(reconnectHint);
+    serialLayout->addLayout(reconnectGroup);
+
+    settingsDialogLayout->addWidget(serialCard);
 
     defaultSysIdBox = new WorkbenchSpinBox<QSpinBox>(mavlinkCard);
     defaultSysIdBox->setObjectName("defaultSysId");
@@ -1713,21 +1749,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         connected = open;
         connecting = state == "Connecting";
-        connectButton->setText(open ? "Disconnect" : "Connect");
+        reconnecting = state == "Reconnecting";
+        if (reconnecting)
+        {
+            connectButton->setText("Cancel (Reconnecting...)");
+            connectButton->setEnabled(true);
+        }
+        else
+        {
+            connectButton->setText(open ? "Disconnect" : "Connect");
+            connectButton->setEnabled(!connecting);
+        }
         connectButton->setProperty("connected", open);
+        connectButton->setProperty("reconnecting", reconnecting);
         connectButton->style()->unpolish(connectButton);
         connectButton->style()->polish(connectButton);
-        connectButton->setEnabled(!connecting);
-        refreshPortsButton->setEnabled(!open && !connecting);
+        refreshPortsButton->setEnabled(!open && !connecting && !reconnecting);
         for (auto *combo : {portBox, baudBox, dataBox, parityBox, stopBox, flowBox})
         {
-            combo->setEnabled(!open && !connecting);
+            combo->setEnabled(!open && !connecting && !reconnecting);
         }
         if (open)
         {
             rxTree->clear();
             inspector->setRowCount(0);
             lastError->setText("Connected");
+        }
+        else if (reconnecting)
+        {
+            lastError->setText("Link lost. Reconnecting to " + portBox->currentText() + "...");
         }
         updateActions();
     });
@@ -1804,6 +1854,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         saveSettings();
     });
+    connect(autoReconnectBox, &QCheckBox::toggled, this, [this](bool enabled)
+    {
+        saveSettings();
+        if (worker)
+        {
+            QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection, Q_ARG(bool, enabled));
+        }
+    });
     connect(restoreTxBox, &QCheckBox::toggled, this, [this]()
     {
         saveSettings();
@@ -1823,8 +1881,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     thread.start();
     refresh.start(200);
-    refreshPorts();
     restoreSettings();
+    refreshPorts();
     applyTheme();
     updateActions();
     connect(txTable->horizontalHeader(), &QHeaderView::sectionResized, this, &MainWindow::updateTxHeights);
@@ -1940,6 +1998,17 @@ void MainWindow::restoreSettings()
         const QSignalBlocker blocker(defaultVersionBox);
         defaultVersionBox->setCurrentIndex(version);
     }
+    const bool autoReconnect = settings.value("serial/autoReconnect", false).toBool();
+    if (autoReconnectBox)
+    {
+        const QSignalBlocker blocker(autoReconnectBox);
+        autoReconnectBox->setChecked(autoReconnect);
+    }
+    if (worker && autoReconnectBox)
+    {
+        QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection,
+                                  Q_ARG(bool, autoReconnectBox->isChecked()));
+    }
     const bool restoreTx = settings.value("workspace/restoreTx", false).toBool();
     if (restoreTxBox)
     {
@@ -1967,6 +2036,10 @@ void MainWindow::saveSettings()
     if (defaultVersionBox)
     {
         settings.setValue("mavlink/defaultVersion", defaultVersionBox->currentIndex());
+    }
+    if (autoReconnectBox)
+    {
+        settings.setValue("serial/autoReconnect", autoReconnectBox->isChecked());
     }
     if (restoreTxBox)
     {
@@ -2072,7 +2145,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::refreshPorts()
 {
-    if (connected || connecting)
+    if (connected || connecting || reconnecting)
     {
         return;
     }
@@ -2083,8 +2156,11 @@ void MainWindow::refreshPorts()
         if (isPluggedPort(info))
         {
             portBox->addItem(info.systemLocation());
-            portBox->setItemData(portBox->count() - 1,
-                                 info.description() + " · " + info.manufacturer(), Qt::ToolTipRole);
+            const QString desc = info.description();
+            const QString mfg = info.manufacturer();
+            const QString tip = (!desc.isEmpty() || !mfg.isEmpty()) ?
+                                (desc + " · " + mfg) : info.systemLocation();
+            portBox->setItemData(portBox->count() - 1, tip, Qt::ToolTipRole);
         }
     }
     if (!previous.isEmpty())
@@ -2095,7 +2171,7 @@ void MainWindow::refreshPorts()
 
 void MainWindow::toggleConnection()
 {
-    if (connected)
+    if (connected || reconnecting)
     {
         QMetaObject::invokeMethod(worker, "closePort", Qt::QueuedConnection);
         return;
@@ -2109,6 +2185,7 @@ void MainWindow::toggleConnection()
         showError("Select a port and a baud rate from 1 to 12000000");
         return;
     }
+    config.autoReconnect = autoReconnectBox ? autoReconnectBox->isChecked() : false;
     config.data = static_cast<QSerialPort::DataBits>(dataBox->currentText().toInt());
     const QSerialPort::Parity parities[] = {QSerialPort::NoParity, QSerialPort::EvenParity,
                                           QSerialPort::OddParity, QSerialPort::MarkParity, QSerialPort::SpaceParity};
@@ -3015,6 +3092,12 @@ void MainWindow::applyTheme()
 {
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+    qApp->setProperty("darkTheme", dark);
+    setProperty("darkTheme", dark);
+    if (settingsDialog)
+    {
+        settingsDialog->setProperty("darkTheme", dark);
+    }
     if (txTable)
     {
         txTable->setProperty("darkTheme", dark);
@@ -3023,10 +3106,13 @@ void MainWindow::applyTheme()
     {
         inspector->setProperty("darkTheme", dark);
     }
-    if (restoreTxBox)
+    for (auto *box : {restoreTxBox, autoReconnectBox})
     {
-        restoreTxBox->setProperty("darkTheme", dark);
-        restoreTxBox->update();
+        if (box)
+        {
+            box->setProperty("darkTheme", dark);
+            box->update();
+        }
     }
     const QString background = dark ? "#0d1422" : "#edf1f8";
     const QString surface = dark ? "#1b2333" : "#ffffff";
@@ -3150,12 +3236,21 @@ void MainWindow::applyTheme()
         "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
         "QPushButton#connect[connected=true]:pressed { background:%6; }"
+        "QPushButton#connect[reconnecting=true] { background:%7; color:%8; border:1px solid %9; font-weight:400; }"
+        "QPushButton#connect[reconnecting=true]:hover { background:%10; border-color:#f59e0b; color:%11; }"
+        "QPushButton#connect[reconnecting=true]:pressed { background:%12; }"
     ).arg(dark ? "#3b1e26" : "#fef2f2",
           dark ? "#fca5a5" : "#b91c1c",
           dark ? "#7f2d3f" : "#fca5a5",
           dark ? "#4e2531" : "#fee2e2",
           dark ? "#ffffff" : "#991b1b",
-          dark ? "#2d151c" : "#fecaca");
+          dark ? "#2d151c" : "#fecaca")
+     .arg(dark ? "#3d2a10" : "#fffbeb",
+          dark ? "#fcd34d" : "#b45309",
+          dark ? "#78350f" : "#fde68a",
+          dark ? "#4e3614" : "#fef3c7",
+          dark ? "#ffffff" : "#92400e",
+          dark ? "#291b08" : "#fde68a");
     const QString selectionStyle = QString(
         "QTableView::item:selected,QTreeView::item:selected { background:%1; color:%2; }"
         "QTreeView::branch:selected { background:%1; }"

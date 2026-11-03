@@ -73,6 +73,7 @@ private:
     bool snapshotPending = false;
     bool connected = false;
     bool connecting = false;
+    bool reconnecting = false;
     bool paused = false;
     uint64_t nextKey = 1;
     SnapshotPtr latest;
@@ -86,6 +87,7 @@ private:
     QSpinBox *defaultSysIdBox = nullptr;
     QSpinBox *defaultCompIdBox = nullptr;
     QComboBox *defaultVersionBox = nullptr;
+    QCheckBox *autoReconnectBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;

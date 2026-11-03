@@ -14,6 +14,7 @@ struct PortConfig
     QSerialPort::Parity parity = QSerialPort::NoParity;
     QSerialPort::StopBits stop = QSerialPort::OneStop;
     QSerialPort::FlowControl flow = QSerialPort::NoFlowControl;
+    bool autoReconnect = false;
 };
 Q_DECLARE_METATYPE(PortConfig)
 Q_DECLARE_METATYPE(Mav::TxEntry)
@@ -75,6 +76,11 @@ public slots:
     void clearStatistics();
     /** @brief Emit one bounded snapshot in response to a GUI request. */
     void requestSnapshot();
+    /**
+     * @brief Enable or disable automatic reconnection on unexpected link drop.
+     * @param enabled True to automatically retry connection when link is dropped.
+     */
+    void setAutoReconnect(bool enabled);
 signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);
@@ -92,8 +98,17 @@ private:
     void discardOutput();
     /** @brief Report an error without losing its reason. */
     void fail(const QString &message);
+    /**
+     * @brief Handle unexpected serial drop and transition to reconnecting state if configured.
+     * @param reason Failure message or error description.
+     */
+    void handleUnexpectedDisconnect(const QString &reason);
+    /** @brief Periodic attempt to rediscover and reopen the configured serial port. */
+    void attemptReconnect();
+
     QSerialPort *port = nullptr;
     QTimer *timer = nullptr;
+    QTimer *reconnectTimer = nullptr;
     QElapsedTimer clock;
     PortConfig config;
     Mav::Parser parser;
@@ -106,4 +121,5 @@ private:
     uint64_t txBytes = 0;
     int64_t lastReport = 0;
     bool closing = false;
+    bool reconnecting = false;
 };

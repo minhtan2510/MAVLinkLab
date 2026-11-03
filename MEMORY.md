@@ -24,6 +24,12 @@
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
   * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
+* **Serial Port Management & Auto-Reconnect Strategy:**
+  * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
+  * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
+  * Manual disconnect (`closePort()`) immediately cancels any active reconnection loop and transitions directly to `Disconnected`.
+  * Reconnection strictly maintains safety: no frames or heartbeats are sent automatically upon re-establishing the link.
+  * Serial port enumeration automatically focuses on active plugged devices (USB converters, CDC-ACM, active onboard UARTs) to keep the toolbar dropdown clean.
 * **Custom Vector Form Controls:**
   * Indicators for controls (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) are painted via vector paths with antialiased `QPainter` instead of crude QSS solid block colors, ensuring crisp rendering across themes.
 * **Code Style & Formatting:**
@@ -55,8 +61,8 @@
 ## 4. Roadmap & Status
 * [x] **Phase 1: Foundation & MAVLink Defaults** (Settings dialog cards, default SysID/CompID/Version, QSettings persistence).
 * [x] **Phase 3: Workspace & TX Persistence** (Restore TX messages in Stopped state [default: OFF], Reset Layout to defaults, WorkbenchCheckBox).
+* [x] **Phase 4: Serial Port Management** (Auto-reconnect handling on unexpected link drop, clean device enumeration).
 * [ ] **Phase 2: RX Display & Telemetry** (GUI refresh rate: 1/5/10 Hz, RX stream stale timeout, timestamp display format).
-* [ ] **Phase 4: Serial Port Management** (Port filtering, auto-reconnect handling on USB disconnect).
 * [ ] **Phase 5: Telemetry Logging** (Non-blocking `.tlog` raw bytes export).
 
 ---

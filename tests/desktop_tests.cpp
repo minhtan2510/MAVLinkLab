@@ -1034,6 +1034,9 @@ private slots:
             auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
             QVERIFY(restoreTx);
             QCOMPARE(restoreTx->property("darkTheme").toBool(), index == 2);
+            auto *autoReconnect = window.findChild<QCheckBox *>("autoReconnect");
+            QVERIFY(autoReconnect);
+            QCOMPARE(autoReconnect->property("darkTheme").toBool(), index == 2);
             auto *tx = window.findChild<QTableWidget *>("txTable");
             auto *empty = tx->viewport()->findChild<QLabel *>("emptyState");
             QVERIFY(!empty);
@@ -1299,6 +1302,129 @@ private slots:
             QVERIFY2(hasTranslucent || hasMask,
                      qPrintable(QString("ComboBox '%1' popup window lacks WA_TranslucentBackground or mask")
                                 .arg(name)));
+        }
+    }
+
+    /**
+     * @brief Verify Serial Port Management preferences, filtering modes, and auto-reconnect handling.
+     */
+    void serialPortManagement()
+    {
+        // 1. Settings Dialog: Check default values and persistence in QSettings
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        settings.remove("serial");
+        settings.sync();
+
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+
+            auto *autoReconnect = window.findChild<QCheckBox *>("autoReconnect");
+            QVERIFY(autoReconnect);
+            QCOMPARE(autoReconnect->isChecked(), false);
+
+            // Change preferences
+            autoReconnect->setChecked(true);
+            QTest::qWait(20);
+
+            QCOMPARE(settings.value("serial/autoReconnect").toBool(), true);
+        }
+
+        // Verify restoration in a fresh window instance
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+
+            auto *autoReconnect = window.findChild<QCheckBox *>("autoReconnect");
+            QVERIFY(autoReconnect);
+            QCOMPARE(autoReconnect->isChecked(), true);
+
+            // Restore defaults for subsequent tests
+            autoReconnect->setChecked(false);
+            QTest::qWait(20);
+        }
+
+        // 2. SerialWorker auto-reconnect behavior
+        {
+            Pty pty;
+            QVERIFY(pty.master >= 0);
+
+            SerialWorker worker;
+            worker.initialize();
+            QSignalSpy states(&worker, &SerialWorker::stateChanged);
+
+            PortConfig config;
+            config.port = pty.name;
+            config.autoReconnect = true;
+            worker.openPort(config);
+            QVERIFY(states.last()[1].toBool());
+            QCOMPARE(states.last()[0].toString(), QString("Connected"));
+
+            // Add an entry to trigger write failure upon link loss
+            Mav::TxEntry entry;
+            entry.key = 1;
+            entry.id = 0;
+            entry.hz = 20;
+            entry.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+            worker.saveEntry(entry);
+
+            // Force unexpected link drop by closing master/slave
+            if (pty.master >= 0)
+            {
+                ::close(pty.master);
+                pty.master = -1;
+            }
+            if (pty.slave >= 0)
+            {
+                ::close(pty.slave);
+                pty.slave = -1;
+            }
+
+            // Attempt write which triggers failure and auto-reconnect transition
+            worker.sendOnce(1);
+            QTest::qWait(50);
+
+            bool sawReconnecting = false;
+            for (const auto &args : states)
+            {
+                if (args[0].toString() == "Reconnecting")
+                {
+                    sawReconnecting = true;
+                    break;
+                }
+            }
+            QVERIFY(sawReconnecting);
+
+            // Explicit user cancel stops auto-reconnect
+            worker.closePort();
+            QCOMPARE(states.last()[0].toString(), QString("Disconnected"));
+            QCOMPARE(states.last()[1].toBool(), false);
+        }
+
+        // 3. MainWindow UI cancel reconnect button interaction
+        {
+            MainWindow window;
+            window.show();
+            auto *connectButton = window.findChild<QPushButton *>("connect");
+            QVERIFY(connectButton);
+
+            auto *worker = window.findChild<SerialWorker *>();
+            if (worker)
+            {
+                emit worker->stateChanged("Reconnecting", false);
+                QTest::qWait(20);
+                QCOMPARE(connectButton->text(), QString("Cancel (Reconnecting...)"));
+                QVERIFY(connectButton->isEnabled());
+                QCOMPARE(connectButton->property("reconnecting").toBool(), true);
+
+                // Clicking Cancel must call closePort and return to Connect
+                connectButton->click();
+                QTest::qWait(50);
+                QTRY_COMPARE(connectButton->text(), QString("Connect"));
+                QCOMPARE(connectButton->property("reconnecting").toBool(), false);
+            }
         }
     }
 };
