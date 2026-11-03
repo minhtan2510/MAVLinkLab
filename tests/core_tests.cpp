@@ -97,6 +97,12 @@ int main()
         integer.type = MAVLINK_TYPE_INT64_T;
         check(Mav::setField(payload, integer, "-9223372036854775808", error), "int64 minimum");
         integer.type = MAVLINK_TYPE_FLOAT;
+        check(Mav::setField(payload, integer, "0.2", error), "Parse float 0.2");
+        std::copy(payload.begin(), payload.end(), reinterpret_cast<uint8_t *>(_MAV_PAYLOAD_NON_CONST(&message)));
+        check(Mav::readField(message, integer) == "0.2", "float 0.2 roundtrip formatted cleanly");
+        check(Mav::setField(payload, integer, "+0.2", error), "Parse float +0.2");
+        check(Mav::setField(payload, integer, "-0.2", error), "Parse float -0.2");
+        check(!Mav::setField(payload, integer, "0.2junk", error), "Trailing chars in float rejected");
         check(!Mav::setField(payload, integer, "1e100", error), "float overflow");
         check(!Mav::setField(payload, integer, "nan", error), "Non-finite rejected");
         integer.type = MAVLINK_TYPE_UINT16_T;

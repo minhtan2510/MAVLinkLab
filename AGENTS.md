@@ -10,6 +10,7 @@
 - Chỉ thay đổi trong scope được yêu cầu, giữ nguyên công việc sẵn có của user. Không commit/push/publish nếu chưa được yêu cầu.
 - Hỏi trước khi xóa file có sẵn, thêm dependency ngoài stack đã chốt, cài package hệ thống hoặc thay đổi cấu hình OS. Không hỏi lại quyền đã được cấp trong session.
 - Không chỉnh sửa `.agents/`, `.codex/`, `.aws/`, global configuration hoặc truy xuất credentials cho công việc thông thường của project.
+- Với các tác vụ nhiều bước hoặc có độ phức tạp kỹ thuật (phân tích dialect MAVLink, can thiệp worker thread, refactor UI, kiểm thử tự động), chủ động chia việc cho các **Subagents** chuyên trách (Research, Developer, Review, QA) để phối hợp xử lý song song, rà soát chéo và tối ưu thời gian.
 
 ## Project và architecture
 
@@ -60,8 +61,13 @@
 - Giữ **UART bar gọn**, Port/Baud/Connect/status dễ tìm; thông số ít dùng nằm trong **Settings**. Ưu tiên diện tích cho TX/RX dashboards.
 - Dùng semantic theme tokens, hierarchy rõ, keyboard navigation và status text; không truyền đạt trạng thái chỉ bằng màu.
 - Giữ selection, scroll position và field đang xem khi refresh. Giới hạn GUI refresh; Pause Display không dừng parser/counters.
+- Khi đồng bộ hai chiều giữa UI controls và `QSettings`:
+  - Dùng `QSignalBlocker` trong các hàm khôi phục (`restoreSettings`) để tránh phát tín hiệu ngược kích hoạt `saveSettings`.
+  - Luôn gọi `settings.sync()` sau khi cập nhật dữ liệu để đảm bảo cấu hình được ghi tức thì xuống đĩa, tránh sai lệch giữa các tiến trình/test case.
 - Với thay đổi UI, tự kiểm tra rendered consistency ở **Light/Dark**, hover, pressed, focus, enabled/disabled, dropdown popup rows, resize và theme changes trong cùng session. Sửa regression tái hiện được trước khi kết luận.
 - Phân biệt **offscreen render** với native desktop integration. Nếu không có môi trường render, báo rõ giới hạn.
+- Các form controls có indicator (như checkbox, combobox chevrons, spinbox arrows) phải kế thừa lớp chuyên dụng (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) và tự vẽ bằng `QPainter` vector antialiasing theme-aware; không dùng QSS màu khối đặc thô sơ làm mất biểu tượng checkmark/indicator.
+- Các tùy chọn tự động khôi phục dữ liệu phiên làm việc (như Restore TX messages) phải luôn có giá trị **mặc định là tắt (`false` / disabled)** để đảm bảo an toàn và giữ trạng thái ứng dụng sạch sẽ khi khởi động.
 
 ## Build và verification
 
@@ -84,6 +90,7 @@ ctest --test-dir build-core --output-on-failure
 ```
 
 - Nếu Qt không nằm trong system prefix, dùng `CMAKE_PREFIX_PATH` phù hợp. Không trộn Qt major/minor versions; không hardcode đường dẫn `/tmp` vào source/build configuration được commit.
+- Khi chạy `ctest` cho desktop tests trong môi trường có Qt nằm ngoài system prefix (như `/tmp/mavlink-qt-prefix`), cần thiết lập `QT_PLUGIN_PATH` và `LD_LIBRARY_PATH` tương ứng với cấu hình trong `CMakeCache.txt` (tương tự `run.sh`) để nạp đúng plugin `offscreen`.
 - Chạy checks phù hợp với thay đổi. Test logic mới/sửa bằng các trường hợp có ý nghĩa, gồm invalid input, bounds và failure paths; tránh tests chỉ lặp lại implementation.
 - Tự kiểm tra syntax/types, API usage, initialization/lifetime, buffer bounds, state machine, concurrency và error handling. Cân nhắc sanitizers/static analysis khi có nguy cơ tương ứng.
 - Báo riêng **build**, **automated tests**, **rendered GUI**, **PTY**, **physical UART** và **DMA**. Test fixture không phải bằng chứng hardware.

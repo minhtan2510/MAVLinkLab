@@ -13,6 +13,8 @@
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QLabel>
+#include <QSpinBox>
+#include <QCheckBox>
 #include <map>
 
 class MainWindow : public QMainWindow
@@ -24,14 +26,16 @@ public:
     /** @brief Close the serial port in its owning thread and join the worker. */
     ~MainWindow() override;
 protected:
-    /** @brief Track system palette and button input modality for keyboard-only focus indicators. */
+    /** @brief Persist presentation layout when the window closes normally. */
+    void closeEvent(QCloseEvent *event) override;
+    /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
 private:
     /** @brief Re-enumerate ports while retaining an explicitly typed PTY/device path. */
     void refreshPorts();
     /** @brief Send the selected serial configuration to the worker. */
     void toggleConnection();
-    /** @brief Create or edit one complete TX entry through generated metadata. */
+    /** @brief Create or edit a TX entry; start newly added entries when connected. */
     void editMessage(bool edit);
     /** @brief Apply one snapshot without rebuilding existing RX rows. */
     void applySnapshot(SnapshotPtr snapshot);
@@ -49,17 +53,27 @@ private:
     void updateActions();
     /** @brief Refresh the compact serial framing summary without changing I/O. */
     void updateSerialSummary();
-    /**
-     * @brief Update the hardware connection status LED indicator.
-     * @param state Current connection state string.
-     */
-    void updateStatusDot(const QString &state);
+    /** @brief Resize TX rows to fit at most two title lines without moving inline controls. */
+    void updateTxHeights();
+    /** @brief Restore only presentation geometry and column widths from application settings. */
+    void restoreLayout();
+    /** @brief Reset window geometry, splitters and column presentations to defaults. */
+    void resetLayout();
+    /** @brief Restore application preferences such as theme and MAVLink defaults. */
+    void restoreSettings();
+    /** @brief Save application preferences such as theme and MAVLink defaults. */
+    void saveSettings();
+    /** @brief Restore configured TX messages from workspace storage. */
+    void restoreTxMessages();
+    /** @brief Save configured TX messages to workspace storage. */
+    void saveTxMessages();
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
     bool snapshotPending = false;
     bool connected = false;
     bool connecting = false;
+    bool reconnecting = false;
     bool paused = false;
     uint64_t nextKey = 1;
     SnapshotPtr latest;
@@ -70,25 +84,32 @@ private:
     QComboBox *stopBox = nullptr;
     QComboBox *flowBox = nullptr;
     QComboBox *themeBox = nullptr;
+    QSpinBox *defaultSysIdBox = nullptr;
+    QSpinBox *defaultCompIdBox = nullptr;
+    QComboBox *defaultVersionBox = nullptr;
+    QCheckBox *autoReconnectBox = nullptr;
+    QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
-    QLabel *connectionLabel = nullptr;
-    QLabel *statusDot = nullptr;
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;
     QTableWidget *txTable = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
-    QPushButton *editButton = nullptr;
-    QPushButton *removeButton = nullptr;
-    QPushButton *onceButton = nullptr;
-    QPushButton *startButton = nullptr;
-    QPushButton *stopButton = nullptr;
+    QAction *editAction = nullptr;
+    QAction *removeAction = nullptr;
+    QAction *onceAction = nullptr;
+    QAction *startAction = nullptr;
+    QAction *stopAction = nullptr;
+    QPushButton *runAllButton = nullptr;
     QPushButton *stopAllButton = nullptr;
+    QPushButton *deleteAllButton = nullptr;
     QLabel *serialSummary = nullptr;
     QLabel *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
+    QLabel *inspectorSource = nullptr;
+    QLabel *pausedLabel = nullptr;
     std::map<QString, QString> lastFieldValues;
 };

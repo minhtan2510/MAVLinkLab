@@ -117,6 +117,8 @@ Queue không sở hữu QSerialPort. Clear queue không thu hồi bytes đã chu
 | `clearStatistics()` | Reset Receiver/Parser và RX/TX byte accumulators; không reset TX frame counts/entries |
 | `requestSnapshot()` | Phát immutable snapshot; consume/reset byte accumulators và cập nhật measurement window |
 
+**Batch TX:** `runAll()` checks the complete periodic load against the open link before activating any additional entry; rejection leaves active states unchanged and emits `failure`. `deleteAll()` stops all entries, discards pending output and clears the TX list.
+
 Các slots trả `void`; việc command đã được enqueue không chứng minh operation thành công. Dùng signals/snapshot để phản ánh kết quả. Khi queue full hoặc serialization thất bại, affected entry bị stopped và phát `"TX queue full or serialization failed; periodic TX stopped"`.
 
 ## Signals và snapshots
