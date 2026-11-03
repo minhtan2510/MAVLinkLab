@@ -1354,19 +1354,36 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         auto *version = new QLabel(QString("Version %1").arg(MAVLINK_SIMULATOR_VERSION), &dialog);
         version->setObjectName("secondaryText");
         layout->addWidget(version);
+
+        QString mavlinkLib = QString("Wire v%1 · %2").arg(MAVLINK_WIRE_PROTOCOL_VERSION, MAVLINK_BUILD_DATE);
+        QFile gitRef(".git/modules/third_party/mavlink/refs/heads/master");
+        if (gitRef.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            const QString commit = QString::fromUtf8(gitRef.readLine()).trimmed().left(8);
+            if (!commit.isEmpty())
+            {
+                mavlinkLib = QString("Wire v%1 (rev %2) · %3").arg(MAVLINK_WIRE_PROTOCOL_VERSION, commit, MAVLINK_BUILD_DATE);
+            }
+        }
+
+        auto *mavVersion = new QLabel(QString("MAVLink library: %1").arg(mavlinkLib), &dialog);
+        mavVersion->setObjectName("secondaryText");
+        layout->addWidget(mavVersion);
+
         auto *details = new QLabel(
-            "<p>A desktop workbench for sending, receiving and inspecting MAVLink messages over serial UART.</p>"
-            "<p><b>Features</b><br>"
-            "Configurable serial connection<br>"
-            "Periodic and single-message transmission<br>"
-            "Live message rates and frame counters<br>"
-            "RX streams grouped by System and Component<br>"
-            "Decoded payload field inspection</p>"
-            "<p><b>Protocol</b><br>MAVLink 1 and 2<br>"
-            "Dialect: ardupilotmega (including common)<br>"
-            "Official MAVLink C library</p>"
-            "<p><b>Platform</b><br>Ubuntu / Linux<br>"
-            "C++17 · Qt Widgets · Qt SerialPort</p>", &dialog);
+            QString(
+                "<p>A desktop workbench for sending, receiving and inspecting MAVLink messages over serial UART.</p>"
+                "<p><b>Features</b><br>"
+                "Configurable serial connection<br>"
+                "Periodic and single-message transmission<br>"
+                "Live message rates and frame counters<br>"
+                "RX streams grouped by System and Component<br>"
+                "Decoded payload field inspection</p>"
+                "<p><b>Protocol</b><br>MAVLink 1 and 2<br>"
+                "Dialect: ardupilotmega (including common)<br>"
+                "Official MAVLink C library (%1)</p>"
+                "<p><b>Platform</b><br>Ubuntu / Linux<br>"
+                "C++17 · Qt Widgets · Qt SerialPort</p>").arg(mavlinkLib), &dialog);
         details->setObjectName("aboutDetails");
         details->setWordWrap(true);
         details->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -1833,6 +1850,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         if (open)
         {
+            // Persist the serial port and baudrate of the last successful connection
+            QSettings settings("MAVLinkSimulator", "Preferences");
+            if (portBox)
+            {
+                settings.setValue("serial/port", portBox->currentText());
+            }
+            if (baudBox)
+            {
+                settings.setValue("serial/baud", baudBox->currentText());
+            }
+            settings.sync();
+
             rxTree->clear();
             inspector->setRowCount(0);
             lastError->setText("Connected");
@@ -2036,6 +2065,18 @@ void MainWindow::resetLayout()
 void MainWindow::restoreSettings()
 {
     QSettings settings("MAVLinkSimulator", "Preferences");
+    const QString savedPort = settings.value("serial/port", "").toString();
+    if (portBox && !savedPort.isEmpty())
+    {
+        const QSignalBlocker blocker(portBox);
+        portBox->setCurrentText(savedPort);
+    }
+    const QString savedBaud = settings.value("serial/baud", "").toString();
+    if (baudBox && !savedBaud.isEmpty())
+    {
+        const QSignalBlocker blocker(baudBox);
+        baudBox->setCurrentText(savedBaud);
+    }
     const int themeIndex = settings.value("theme", 0).toInt();
     if (themeBox && themeIndex >= 0 && themeIndex < themeBox->count())
     {
@@ -2432,8 +2473,8 @@ void MainWindow::editMessage(bool edit)
     fieldControl("System ID", sysid);
     fieldControl("Component ID", compid);
     form->addSpacing(14);
-    fieldControl("Protocol", version);
     fieldControl("Rate (Hz)", rate);
+    fieldControl("Protocol", version);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");

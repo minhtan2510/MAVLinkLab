@@ -16,8 +16,20 @@ target_compile_options(mavcore PRIVATE -Wall -Wextra -Wpedantic)
 if(BUILD_GUI)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets SerialPort)
     set(CMAKE_AUTOMOC ON)
+    execute_process(
+        COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mavlink" rev-parse --short HEAD
+        OUTPUT_VARIABLE MAVLINK_LIB_GIT_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT MAVLINK_LIB_GIT_HASH)
+        set(MAVLINK_LIB_GIT_HASH "unknown")
+    endif()
     add_library(mavdesktop src/worker.cpp src/window.cpp)
-    target_compile_definitions(mavdesktop PRIVATE MAVLINK_SIMULATOR_VERSION="${PROJECT_VERSION}")
+    target_compile_definitions(mavdesktop PRIVATE
+        MAVLINK_SIMULATOR_VERSION="${PROJECT_VERSION}"
+        MAVLINK_LIB_GIT_HASH="${MAVLINK_LIB_GIT_HASH}"
+    )
     target_link_libraries(mavdesktop PUBLIC mavcore Qt6::Widgets Qt6::SerialPort)
     target_compile_options(mavdesktop PRIVATE -Wall -Wextra -Wpedantic)
     add_executable(mavlink-simulator src/main.cpp)
