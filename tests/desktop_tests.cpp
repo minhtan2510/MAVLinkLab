@@ -448,13 +448,18 @@ private slots:
                 QCOMPARE(title->text(), QString("[0] HEARTBEAT"));
                 auto *rate = dialog->findChild<QDoubleSpinBox *>();
                 QVERIFY(rate);
+                QCOMPARE(rate->accessibleName(), QString("Rate (Hz)"));
+                for (auto *sender : dialog->findChildren<QSpinBox *>())
+                {
+                    QCOMPARE(sender->value(), 1);
+                }
                 rate->setValue(0);
                 QCOMPARE(rate->value(), 1.0);
                 rate->setValue(1001);
                 QCOMPARE(rate->value(), 1000.0);
                 rate->setValue(10.4);
                 QCOMPARE(rate->value(), 10.0);
-                QCOMPARE(rate->text(), QString("10 Hz"));
+                QCOMPARE(rate->text(), QString("10"));
                 rate->stepUp();
                 QCOMPARE(rate->value(), 11.0);
                 rate->setValue(1);
@@ -811,7 +816,8 @@ private slots:
             menu->hide();
             tx->setCurrentCell(0, 1);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-small-light.png" : "qa/modern-small-dark.png"));
-            QVERIFY(tx->rowHeight(2) > tx->rowHeight(0));
+            // Wider cards may fit the longer identity on one line.
+            QVERIFY(tx->rowHeight(2) >= tx->rowHeight(0));
             auto *pause = window.findChild<QPushButton *>("pauseDisplay");
             pause->click();
             QVERIFY(window.findChild<QLabel *>("displayPaused")->isVisible());

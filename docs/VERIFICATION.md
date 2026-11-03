@@ -374,3 +374,51 @@ TX Target/Actual and RX Hz now display rounded whole numbers, such as 10 Hz inst
 Add/Edit Rate now configures TX at whole-number rates from 1 to 1000 Hz in 1 Hz steps, removing the fractional input and decimal suffix. This supersedes fractional Add/Edit input described in the preceding verification entry; core timing calculations retain their existing precision.
 
 **Verification:** full build and CTest 2/2 passed in 12.42 s. Editor checks exercise lower/upper bounds, fractional-value rounding, integer text and 1 Hz stepping. Reviewed Light/Dark offscreen editor renders; existing PTY scheduling, validation and interaction checks passed. CodeGraph is current; git diff --check passed. Physical UART and native desktop were not tested.
+
+## TX target-rate badge
+
+TX cards replace the Target label/value pair with a compact rounded indigo badge, such as `1 HZ`. Actual Hz, frame count and scheduling behavior are unchanged; accessible text still identifies the target frequency.
+
+**Verification:** build and targeted modernDashboard/interactionStates checks passed (4 Qt entries, 0 failures). Reviewed regenerated minimum-size Light/Dark offscreen dashboard renders, including running/stopped cards and wrapped headings. Existing selection, focus, hover, pressed, disabled, popup and live-theme checks passed. CodeGraph is current; git diff --check passed. Native desktop and physical UART were not retested.
+
+## Softer, smaller TX frequency badge
+
+The target-rate badge now uses `Hz` casing, a subtler indigo background in both themes and a 22 px height (previously 26 px), with reduced horizontal padding.
+
+**Verification:** build and targeted modernDashboard/interactionStates checks passed (4 Qt entries, 0 failures). Reviewed regenerated minimum-size Light/Dark offscreen dashboards. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Slate-blue frequency badge
+
+The frequency badge now uses a quiet slate-blue surface and matching text instead of indigo, retaining its 22 px height and `Hz` casing.
+
+**Verification:** build and targeted modernDashboard check passed (3 Qt entries, 0 failures). Reviewed minimum-size Light/Dark offscreen dashboards with running/stopped cards and live theme changes. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Frequency badge contrast across card states
+
+Strengthened the slate-blue badge surface and text, and added a thin outline to separate it from both Running and Stopped card backgrounds. Text/background contrast calculated from the opaque sRGB colors is 7.76:1 in Light and 8.02:1 in Dark.
+
+**Verification:** build and targeted modernDashboard/interactionStates checks passed (4 Qt entries, 0 failures). Reviewed regenerated minimum-size Light/Dark offscreen dashboards with Running/Stopped cards; interaction and live-theme checks passed. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Wider TX cards
+
+Reduced horizontal card insets from 4/8 px to 1/2 px, adding 9 px of usable width. Updated title-height calculation and status-toggle hover/click geometry to match. The dashboard check now allows the longer identity to fit on one line at the minimum window size.
+
+**Verification:** build and targeted modernDashboard/interactionStates checks passed (4 Qt entries, 0 failures). Reviewed regenerated Light/Dark minimum-size offscreen dashboards; selection, status actions, resize and live-theme checks passed. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Frequency badge sizing alignment
+
+Enlarged the frequency badge from 22 to 28 px high, with a minimum width of 56 px and increased horizontal padding. Its vertical center aligns with the adjacent two-line Actual metric.
+
+**Verification:** build and targeted modernDashboard check passed (3 Qt entries, 0 failures). Reviewed regenerated Light/Dark minimum-size offscreen dashboards with Running/Stopped cards. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Narrower frequency badge
+
+Removed the minimum badge width and reduced horizontal padding to 8 px per side. Height remains 28 px, preserving vertical alignment with Actual.
+
+**Verification:** build and targeted modernDashboard check passed (3 Qt entries, 0 failures). Reviewed regenerated minimum-size Light/Dark offscreen dashboards. CodeGraph is current; git diff --check passed. Native desktop was not retested.
+
+## Message editor sender defaults and rate unit
+
+New GUI messages initialize System ID and Component ID to 1; editing retains the saved IDs. Moved the rate unit from the numeric input suffix to the visible/accessibility label `Rate (Hz)`.
+
+**Verification:** build and full CTest 2/2 passed in 12.62 s. Editor checks assert sender defaults, rate accessible name and numeric-only input text. Reviewed regenerated minimum-size Light/Dark offscreen editors. Existing PTY and interaction checks passed. CodeGraph is current; git diff --check passed. Native desktop and physical UART were not retested.

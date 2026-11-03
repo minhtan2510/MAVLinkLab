@@ -356,7 +356,7 @@ class TxCardDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    /** @brief Paint state-specific card surfaces while keeping selection and actions distinct. */
+    /** @brief Paint state-specific cards with a compact target-rate badge and distinct actions. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const auto value = [&index](int column)
@@ -374,7 +374,7 @@ public:
         painter->save();
         painter->fillRect(option.rect, QColor(dark ? "#1b2333" : "#ffffff"));
         painter->setRenderHint(QPainter::Antialiasing);
-        const QRect card = option.rect.adjusted(4, 6, -8, -6);
+        const QRect card = option.rect.adjusted(1, 6, -2, -6);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#35445d" : "#d7dfeb");
         QColor surface = error ? QColor(dark ? "#302332" : "#fff5f6") :
@@ -443,9 +443,20 @@ public:
         painter->drawLine(card.left() + 12, card.top() + 55 + extra, card.right() - 12, card.top() + 55 + extra);
         const QRect metrics = card.adjusted(12, 62 + extra, -12, -8);
         const int third = metrics.width() / 3;
-        const QStringList labels = {"Target", "Actual", "Frames"};
-        const QStringList values = {value(3) + " Hz", value(4) + " Hz", value(5)};
-        for (int column = 0; column < 3; ++column)
+        font.setPixelSize(12);
+        font.setBold(true);
+        painter->setFont(font);
+        const QString rateText = value(3) + " Hz";
+        const int rateWidth = QFontMetrics(font).horizontalAdvance(rateText) + 16;
+        const QRect rateBadge(metrics.left(), metrics.top() + 3, rateWidth, 28);
+        painter->setPen(QPen(QColor(dark ? "#6688a8" : "#99b2ca"), 1));
+        painter->setBrush(QColor(dark ? "#334d68" : "#dde9f5"));
+        painter->drawRoundedRect(rateBadge, 5, 5);
+        painter->setPen(QColor(dark ? "#eef6ff" : "#294862"));
+        painter->drawText(rateBadge, Qt::AlignCenter, rateText);
+        const QStringList labels = {"", "Actual", "Frames"};
+        const QStringList values = {"", value(4) + " Hz", value(5)};
+        for (int column = 1; column < 3; ++column)
         {
             const int left = metrics.left() + column * third;
             const int width = column == 2 ? metrics.width() - 2 * third : third;
@@ -1488,7 +1499,7 @@ void MainWindow::updateTxHeights()
             continue;
         }
         const QString title = QString("[%1] %2").arg(txTable->item(row, 0)->text(), txTable->item(row, 1)->text());
-        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 128).size() > 1 ? 130 : 114;
+        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 119).size() > 1 ? 130 : 114;
         if (txTable->rowHeight(row) != height)
         {
             txTable->setRowHeight(row, height);
@@ -1652,6 +1663,8 @@ void MainWindow::editMessage(bool edit)
     else
     {
         entry.key = nextKey++;
+        entry.sysid = 1;
+        entry.compid = 1;
     }
     QDialog dialog(this);
     dialog.setObjectName("messageDialog");
@@ -1738,7 +1751,6 @@ void MainWindow::editMessage(bool edit)
     rate->setRange(1, 1000);
     rate->setSingleStep(1);
     rate->setValue(entry.hz);
-    rate->setSuffix(" Hz");
     const auto fieldControl = [&](const QString &name, QWidget *control)
     {
         auto *field = new QVBoxLayout;
@@ -1758,7 +1770,7 @@ void MainWindow::editMessage(bool edit)
     fieldControl("Component ID", compid);
     form->addSpacing(14);
     fieldControl("Protocol", version);
-    fieldControl("Rate", rate);
+    fieldControl("Rate (Hz)", rate);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");
@@ -2415,7 +2427,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (index.isValid() && index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(4, 6, -8, -6);
+                    const QRect card = rect.adjusted(1, 6, -2, -6);
                     const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
                     if (badge.contains(mouseEvent->pos()))
                     {
@@ -2435,7 +2447,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (index.isValid() && index.column() == 1)
             {
                 const QRect rect = txTable->visualRect(index);
-                const QRect card = rect.adjusted(4, 6, -8, -6);
+                const QRect card = rect.adjusted(1, 6, -2, -6);
                 const QRect badge(card.right() - 94, card.top() + 8, 82, 24);
                 txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
                                                Qt::PointingHandCursor : Qt::ArrowCursor);
