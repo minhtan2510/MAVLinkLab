@@ -1,5 +1,8 @@
 #include "window.h"
 #include <QApplication>
+#include <QCloseEvent>
+#include <QSettings>
+#include <QTextLayout>
 #include <QClipboard>
 #include <QWidgetAction>
 #include <QDialog>
@@ -36,6 +39,7 @@
 #include <QMouseEvent>
 #include <QWindow>
 #include <algorithm>
+#include <limits>
 
 /** @brief Provide a themeable dialog title bar with native system dragging where available. */
 class DialogTitleBar : public QFrame
@@ -305,6 +309,48 @@ protected:
     }
 };
 
+/** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
+static QStringList txTitleLines(const QString &text, const QFont &font, int width)
+{
+    width = std::max(1, width);
+    const QFontMetrics metrics(font);
+    if (metrics.horizontalAdvance(text) <= width)
+    {
+        return {text};
+    }
+    int split = -1;
+    int balance = std::numeric_limits<int>::max();
+    for (int at = text.indexOf('_'); at >= 0; at = text.indexOf('_', at + 1))
+    {
+        const int left = metrics.horizontalAdvance(text.left(at + 1));
+        const int right = metrics.horizontalAdvance(text.mid(at + 1));
+        if (left <= width && right <= width && qAbs(left - right) < balance)
+        {
+            split = at + 1;
+            balance = qAbs(left - right);
+        }
+    }
+    if (split > 0)
+    {
+        return {text.left(split), text.mid(split)};
+    }
+    QTextLayout layout(text, font);
+    QTextOption wrapping;
+    wrapping.setWrapMode(QTextOption::WrapAnywhere);
+    layout.setTextOption(wrapping);
+    layout.beginLayout();
+    QTextLine first = layout.createLine();
+    first.setLineWidth(width);
+    const int length = first.textLength();
+    layout.endLayout();
+    QStringList lines{text.left(length).trimmed()};
+    if (length < text.size())
+    {
+        lines.append(QFontMetrics(font).elidedText(text.mid(length).trimmed(), Qt::ElideRight, width));
+    }
+    return lines;
+}
+
 /** @brief Present each TX entry as a readable card backed by the existing row model. */
 class TxCardDelegate : public QStyledItemDelegate
 {
@@ -381,21 +427,21 @@ public:
         font.setBold(true);
         painter->setFont(font);
         painter->setPen(foreground);
-        painter->drawText(QRect(card.left() + 12, badge.top(), card.width() - 116, badge.height()),
-                          Qt::AlignVCenter | Qt::AlignLeft,
-                          QFontMetrics(font).elidedText(QString("[%1] %2").arg(value(0), value(1)),
-                                                       Qt::ElideRight, card.width() - 116));
+        const QStringList lines = txTitleLines(QString("[%1] %2").arg(value(0), value(1)), font, card.width() - 116);
+        const int extra = lines.size() > 1 ? 16 : 0;
+        painter->drawText(QRect(card.left() + 12, badge.top(), card.width() - 116, badge.height() + extra),
+                          Qt::AlignVCenter | Qt::AlignLeft, lines.join('\n'));
         font.setPixelSize(11);
         font.setBold(false);
         painter->setFont(font);
         painter->setPen(muted);
-        painter->drawText(card.adjusted(12, 36, -12, 0), Qt::AlignTop | Qt::AlignLeft,
+        painter->drawText(card.adjusted(12, 36 + extra, -12, 0), Qt::AlignTop | Qt::AlignLeft,
                           QString("System ID: %1 - Component ID: %2")
                               .arg(value(2).section('/', 0, 0).trimmed(),
                                    value(2).section('/', 1, 1).trimmed()));
         painter->setPen(QPen(QColor(dark ? "#35445d" : "#e1e6ef"), 1));
-        painter->drawLine(card.left() + 12, card.top() + 55, card.right() - 12, card.top() + 55);
-        const QRect metrics = card.adjusted(12, 62, -12, -8);
+        painter->drawLine(card.left() + 12, card.top() + 55 + extra, card.right() - 12, card.top() + 55 + extra);
+        const QRect metrics = card.adjusted(12, 62 + extra, -12, -8);
         const int third = metrics.width() / 3;
         const QStringList labels = {"Target", "Actual", "Frames"};
         const QStringList values = {value(3) + " Hz", value(4) + " Hz", value(5)};
@@ -428,9 +474,34 @@ public:
     {
         setTextMargins(22, 0, 0, 0);
         setClearButtonEnabled(true);
+        updatePlaceholderColor();
     }
 
 protected:
+    /** @brief Keep search hints subdued when the application theme changes. */
+    void changeEvent(QEvent *event) override
+    {
+        QLineEdit::changeEvent(event);
+        if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange ||
+            event->type() == QEvent::StyleChange)
+        {
+            updatePlaceholderColor();
+        }
+    }
+
+    /** @brief Change only the placeholder role, preserving normal input text colors. */
+    void updatePlaceholderColor()
+    {
+        QPalette colors = palette();
+        const QColor hint(colors.color(QPalette::Window).lightness() < 128 ? "#7e899f" : "#8992a6");
+        if (colors.color(QPalette::PlaceholderText) != hint)
+        {
+            colors.setResolveMask(0);
+            colors.setColor(QPalette::PlaceholderText, hint);
+            setPalette(colors);
+        }
+    }
+
     /** @brief Paint the glyph using the current palette, including live theme changes. */
     void paintEvent(QPaintEvent *event) override
     {
@@ -635,7 +706,11 @@ protected:
         const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
         option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         option->font.setBold(false);
-        option->palette.setColor(QPalette::Text, QColor(dark ? "#b2c8e2" : "#3f628b"));
+        option->font.setPixelSize(13);
+        const bool changed = option->widget && option->widget->objectName() == "inspector" &&
+                             index.data(Qt::UserRole + 5).toBool();
+        option->palette.setColor(QPalette::Text, QColor(changed ? (dark ? "#58a6ff" : "#0969da") :
+                                                                 (dark ? "#b2c8e2" : "#3f628b")));
         option->backgroundBrush = QColor(dark ? "#1b2b3e" : "#f4f7fc");
         if (option->widget && option->widget->objectName() == "payloadFields")
         {
@@ -1166,7 +1241,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxHeader->addStretch();
     rxLayout->addLayout(rxHeader);
     auto *rxActions = new QHBoxLayout;
-    rxFilter = new QLineEdit;
+    rxFilter = new CatalogSearch;
     rxFilter->setObjectName("rxFilter");
     rxFilter->setPlaceholderText("Search messages or sender…");
     rxFilter->setClearButtonEnabled(true);
@@ -1175,6 +1250,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxActions->addWidget(rxFilter);
     auto *pause = button("Pause display", "pauseDisplay", rxActions);
     pause->setCheckable(true);
+    pause->setMinimumWidth(136);
     auto *clear = button("Clear", "clearStatistics", rxActions);
     clear->setToolTip("Clear received messages and statistics");
     rxLayout->addLayout(rxActions);
@@ -1211,6 +1287,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setColumnWidth(4, 115);
     inspector = table({"Field", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
+    inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));
+    inspector->setItemDelegateForColumn(1, new PayloadIdentityDelegate(inspector));
+    inspector->setAlternatingRowColors(false);
+    inspector->verticalHeader()->setDefaultSectionSize(36);
     inspector->setContextMenuPolicy(Qt::CustomContextMenu);
     auto *valueMenu = new QMenu(inspector);
     valueMenu->setObjectName("inspectorMenu");
@@ -1256,7 +1336,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         return caption;
     };
     addInspectorPane("RECEIVED MESSAGES", rxTree);
-    inspectorTitle = addInspectorPane("DECODED FIELDS", inspector);
+    auto *inspectorContent = new QWidget;
+    auto *inspectorContentLayout = new QVBoxLayout(inspectorContent);
+    inspectorContentLayout->setContentsMargins(0, 0, 0, 0);
+    inspectorContentLayout->setSpacing(0);
+    inspectorTitle = addInspectorPane("DECODED FIELDS", inspectorContent);
+    inspectorTitle->setObjectName("inspectorMessageTitle");
+    auto *inspectorMeta = new QHBoxLayout;
+    inspectorMeta->setContentsMargins(10, 0, 10, 8);
+    inspectorSource = new QLabel;
+    inspectorSource->setObjectName("inspectorSource");
+    inspectorSource->hide();
+    inspectorMeta->addWidget(inspectorSource, 1);
+    pausedLabel = new QLabel("Display paused");
+    pausedLabel->setObjectName("displayPaused");
+    pausedLabel->hide();
+    inspectorMeta->addWidget(pausedLabel);
+    inspectorContentLayout->addLayout(inspectorMeta);
+    inspectorContentLayout->addWidget(inspector, 1);
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
@@ -1341,12 +1438,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         rxTree->clear();
         inspector->setRowCount(0);
         inspectorTitle->setText("DECODED FIELDS");
-        rxSummary->setText("0 streams");
+        inspectorSource->clear();
+        inspectorSource->hide();
+        filterRx();
     });
     connect(pause, &QPushButton::toggled, this, [this, pause](bool checked)
     {
         paused = checked;
         pause->setText(checked ? "Resume display" : "Pause display");
+        pausedLabel->setVisible(checked);
     });
     connect(rxFilter, &QLineEdit::textChanged, this, &MainWindow::filterRx);
     connect(rxTree, &QTreeWidget::itemSelectionChanged, this, &MainWindow::updateInspector);
@@ -1370,6 +1470,65 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     refreshPorts();
     applyTheme();
     updateActions();
+    connect(txTable->horizontalHeader(), &QHeaderView::sectionResized, this, &MainWindow::updateTxHeights);
+    restoreLayout();
+}
+
+/** @brief Fit TX card titles after model updates or viewport width changes. */
+void MainWindow::updateTxHeights()
+{
+    const int scroll = txTable->verticalScrollBar()->value();
+    QFont font = txTable->font();
+    font.setPixelSize(13);
+    font.setBold(true);
+    for (int row = 0; row < txTable->rowCount(); ++row)
+    {
+        if (!txTable->item(row, 0) || !txTable->item(row, 1))
+        {
+            continue;
+        }
+        const QString title = QString("[%1] %2").arg(txTable->item(row, 0)->text(), txTable->item(row, 1)->text());
+        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 128).size() > 1 ? 130 : 114;
+        if (txTable->rowHeight(row) != height)
+        {
+            txTable->setRowHeight(row, height);
+        }
+    }
+    txTable->verticalScrollBar()->setValue(scroll);
+}
+
+/** @brief Restore presentation state without restoring ports, payloads or transmission state. */
+void MainWindow::restoreLayout()
+{
+    QSettings settings("MAVLinkSimulator", "Layout");
+    if (settings.value("version").toInt() != 1)
+    {
+        return;
+    }
+    restoreGeometry(settings.value("geometry").toByteArray());
+    for (const QString &name : {QString("dashboards"), QString("rxSplit")})
+    {
+        findChild<QSplitter *>(name)->restoreState(settings.value(name).toByteArray());
+    }
+    rxTree->header()->restoreState(settings.value("rxColumns").toByteArray());
+    inspector->horizontalHeader()->restoreState(settings.value("fieldColumns").toByteArray());
+    // Hidden metadata is not part of the user-configurable table presentation.
+    inspector->hideColumn(3);
+}
+
+/** @brief Save only geometry, splitters and column presentation on a normal close. */
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    QSettings settings("MAVLinkSimulator", "Layout");
+    settings.setValue("version", 1);
+    settings.setValue("geometry", saveGeometry());
+    for (const QString &name : {QString("dashboards"), QString("rxSplit")})
+    {
+        settings.setValue(name, findChild<QSplitter *>(name)->saveState());
+    }
+    settings.setValue("rxColumns", rxTree->header()->saveState());
+    settings.setValue("fieldColumns", inspector->horizontalHeader()->saveState());
+    QMainWindow::closeEvent(event);
 }
 
 MainWindow::~MainWindow()
@@ -1983,11 +2142,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     });
     txSummary->setText(QString("%1 %2  ·  %3 running").arg(latest->tx.size())
                        .arg(latest->tx.size() == 1 ? "message" : "messages").arg(running));
-    if (!paused)
-    {
-        rxSummary->setText(QString("%1 %2").arg(latest->rx.size())
-                           .arg(latest->rx.size() == 1 ? "stream" : "streams"));
-    }
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
@@ -2015,6 +2169,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             txTable->verticalScrollBar()->setValue(scroll);
         }
     }
+    updateTxHeights();
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
     const QString alertColor = dark ? "#f87171" : "#dc2626";
@@ -2071,6 +2226,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             const QColor groupColor(dark ? "#aab4cd" : "#626c84");
             system->setForeground(0, groupColor);
             component->setForeground(0, groupColor);
+            QFont groupFont = rxTree->font();
+            groupFont.setPixelSize(12);
+            system->setFont(0, groupFont);
+            component->setFont(0, groupFont);
             QTreeWidgetItem *item = nullptr;
             for (int i = 0; i < component->childCount(); ++i)
             {
@@ -2085,10 +2244,13 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 item = new QTreeWidgetItem(component);
                 item->setData(0, Qt::UserRole, message.msgid);
                 const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-                for (int col = 0; col < 5; ++col)
+                for (int col = 1; col < 5; ++col)
                 {
                     item->setFont(col, fixedFont);
                 }
+                QFont messageFont = rxTree->font();
+                messageFont.setPixelSize(13);
+                item->setFont(0, messageFont);
                 item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
                 item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
                 item->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
@@ -2116,6 +2278,8 @@ void MainWindow::updateInspector()
         return;
     }
     inspectorTitle->setText("DECODED FIELDS");
+    inspectorSource->clear();
+    inspectorSource->hide();
     auto *item = rxTree->currentItem();
     if (!item || !item->parent() || !item->parent()->parent())
     {
@@ -2139,8 +2303,9 @@ void MainWindow::updateInspector()
             return;
         }
         inspector->setRowCount(int(info->num_fields));
-        inspectorTitle->setText(QString("%1 · ID %2 · SYS %3 / COMP %4")
-                                .arg(messageName(id)).arg(id).arg(system).arg(component));
+        inspectorTitle->setText(QString("[%1] %2").arg(id).arg(messageName(id)));
+        inspectorSource->setText(QString("System %1 · Component %2").arg(system).arg(component));
+        inspectorSource->show();
         const bool dark = themeBox->currentIndex() == 2 ||
                           (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
         for (unsigned i = 0; i < info->num_fields; ++i)
@@ -2153,6 +2318,11 @@ void MainWindow::updateInspector()
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(inspector, int(i), 1, type);
+            QFont identityFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            identityFont.setPixelSize(13);
+            inspector->item(int(i), 0)->setFont(identityFont);
+            identityFont.setPixelSize(12);
+            inspector->item(int(i), 1)->setFont(identityFont);
             const QString valStr = QString::fromStdString(Mav::readField(message, field));
             const QString fieldKey = QString("%1.%2.%3.%4").arg(system).arg(component).arg(id).arg(field.name);
             const auto prevIt = lastFieldValues.find(fieldKey);
@@ -2160,6 +2330,7 @@ void MainWindow::updateInspector()
             lastFieldValues[fieldKey] = valStr;
             cell(inspector, int(i), 2, valStr);
             auto *valItem = inspector->item(int(i), 2);
+            valItem->setData(Qt::UserRole + 5, changed);
             if (changed)
             {
                 valItem->setForeground(QColor(dark ? "#58a6ff" : "#0969da"));
@@ -2179,6 +2350,8 @@ void MainWindow::updateInspector()
 void MainWindow::filterRx()
 {
     const auto query = rxFilter->text().trimmed();
+    int total = 0;
+    int matched = 0;
     for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
     {
         auto *system = rxTree->topLevelItem(i);
@@ -2193,6 +2366,8 @@ void MainWindow::filterRx()
                 const QString identity = system->text(0) + " " + component->text(0) + " " + item->text(0) + " " + item->text(1);
                 const bool visible = identity.contains(query, Qt::CaseInsensitive);
                 item->setHidden(!visible);
+                ++total;
+                matched += visible;
                 componentVisible |= visible;
             }
             component->setHidden(!componentVisible);
@@ -2200,6 +2375,8 @@ void MainWindow::filterRx()
         }
         system->setHidden(!systemVisible);
     }
+    rxSummary->setText(query.isEmpty() ? QString("%1 %2").arg(total).arg(total == 1 ? "stream" : "streams") :
+                       QString("%1 / %2 streams").arg(matched).arg(total));
 }
 
 void MainWindow::showError(const QString &message)
@@ -2436,10 +2613,13 @@ void MainWindow::applyTheme()
         "QTableView::item:selected,QTreeView::item:selected { background:%1; color:%2; }"
         "QTreeView::branch:selected { background:%1; }"
         "QTableView::item:hover:!selected,QTreeView::item:hover:!selected { background:%3; }"
-    ).arg(dark ? "#333a5c" : "#e8e8fb", foreground, alternate);
+    ).arg(dark ? "#2c3550" : "#eeedfa", foreground, alternate);
     const QString dataStyle = QString(
         "QFrame#dataPane { background:%1; border:1px solid %2; border-radius:5px; }"
-        "QLabel#dataPaneTitle { background:%3; color:%4; border-bottom:1px solid %2; padding:9px 10px; font-size:12px; font-weight:600; }"
+        "QLabel#dataPaneTitle { background:%1; color:%4; border-bottom:1px solid %2; padding:7px 10px; font-size:11px; font-weight:500; }"
+        "QLabel#inspectorMessageTitle { background:%1; color:%4; padding:8px 10px 5px; font-size:13px; font-weight:600; }"
+        "QLabel#inspectorSource { color:%4; font-size:12px; }"
+        "QLabel#displayPaused { color:%7; background:%3; padding:3px 6px; border-radius:4px; font-size:11px; }"
         "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
         "QTableWidget#txTable { background:transparent; }"
         "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
@@ -2448,7 +2628,7 @@ void MainWindow::applyTheme()
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
-          dark ? "#1d2b41" : "#f4f7fb", dark ? "#202e44" : "#f2f5fa");
+          dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
     setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
     for (int row = 0; row < rxTree->topLevelItemCount(); ++row)
     {

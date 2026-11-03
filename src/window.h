@@ -24,6 +24,8 @@ public:
     /** @brief Close the serial port in its owning thread and join the worker. */
     ~MainWindow() override;
 protected:
+    /** @brief Persist presentation layout when the window closes normally. */
+    void closeEvent(QCloseEvent *event) override;
     /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
 private:
@@ -49,6 +51,10 @@ private:
     void updateActions();
     /** @brief Refresh the compact serial framing summary without changing I/O. */
     void updateSerialSummary();
+    /** @brief Resize TX rows to fit at most two title lines without moving inline controls. */
+    void updateTxHeights();
+    /** @brief Restore only presentation geometry and column widths from application settings. */
+    void restoreLayout();
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -85,5 +91,7 @@ private:
     QLabel *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
+    QLabel *inspectorSource = nullptr;
+    QLabel *pausedLabel = nullptr;
     std::map<QString, QString> lastFieldValues;
 };

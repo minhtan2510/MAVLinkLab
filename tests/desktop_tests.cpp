@@ -15,6 +15,9 @@
 #include <QSplitter>
 #include <QPlainTextEdit>
 #include <QToolButton>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <QHeaderView>
 #include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
@@ -63,7 +66,22 @@ public:
 class DesktopTests : public QObject
 {
     Q_OBJECT
+    QTemporaryDir settingsDirectory;
 private slots:
+    /** @brief Isolate presentation preferences from the user's application configuration. */
+    void initTestCase()
+    {
+        QVERIFY(settingsDirectory.isValid());
+        QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, settingsDirectory.path());
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDirectory.path());
+    }
+
+    /** @brief Start each test with default presentation state. */
+    void init()
+    {
+        QSettings("MAVLinkSimulator", "Layout").clear();
+    }
+
     /** @brief Verify serial RX/TX, silence on connect, stop/reconnect and error state. */
     void serialPty()
     {
@@ -364,11 +382,13 @@ private slots:
         QCOMPARE(inspector->currentRow(), 0);
         auto *pause = window.findChild<QPushButton *>("pauseDisplay");
         pause->click();
+        QVERIFY(window.findChild<QLabel *>("displayPaused")->isVisible());
         const auto frozenCount = message->text(2);
         QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         QTest::qWait(300);
         QCOMPARE(message->text(2), frozenCount);
         pause->click();
+        QVERIFY(window.findChild<QLabel *>("displayPaused")->isHidden());
         QTRY_VERIFY(message->text(2) != frozenCount);
         start->trigger();
         QTest::qWait(100);
@@ -614,6 +634,56 @@ private slots:
         }
     }
 
+    /** @brief Restore geometry, splitters and column widths without restoring UART or TX state. */
+    void layoutPreferences()
+    {
+        QSize size;
+        QList<int> dashboardSizes;
+        QList<int> inspectorSizes;
+        {
+            MainWindow window;
+            window.show();
+            window.resize(1200, 800);
+            auto *dashboards = window.findChild<QSplitter *>("dashboards");
+            auto *rxSplit = window.findChild<QSplitter *>("rxSplit");
+            dashboards->setSizes({430, 700});
+            rxSplit->setSizes({230, 390});
+            auto *rx = window.findChild<QTreeWidget *>("rxTree");
+            auto *fields = window.findChild<QTableWidget *>("inspector");
+            rx->setColumnWidth(2, 96);
+            fields->setColumnWidth(0, 185);
+            QTest::qWait(30);
+            size = window.size();
+            dashboardSizes = dashboards->sizes();
+            inspectorSizes = rxSplit->sizes();
+            QVERIFY(window.close());
+        }
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+            QCOMPARE(window.size(), size);
+            const auto actual = window.findChild<QSplitter *>("dashboards")->sizes();
+            QVERIFY(qAbs(actual[0] - dashboardSizes[0]) <= 2);
+            const auto restored = window.findChild<QSplitter *>("rxSplit")->sizes();
+            QVERIFY(qAbs(restored[0] - inspectorSizes[0]) <= 2);
+            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), 96);
+            QCOMPARE(window.findChild<QTableWidget *>("inspector")->columnWidth(0), 185);
+            QCOMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Connect"));
+            QCOMPARE(window.findChild<QTableWidget *>("txTable")->rowCount(), 0);
+            QVERIFY(window.findChild<QTableWidget *>("inspector")->isColumnHidden(3));
+        }
+        // Invalid or obsolete preferences must fall back to a usable default layout.
+        QSettings settings("MAVLinkSimulator", "Layout");
+        settings.setValue("geometry", QByteArray("invalid"));
+        settings.setValue("dashboards", QByteArray("invalid"));
+        MainWindow window;
+        window.show();
+        QTest::qWait(20);
+        QVERIFY(window.width() >= 1000);
+        QVERIFY(window.findChild<QSplitter *>("dashboards")->sizes().first() >= 340);
+    }
+
     /** @brief Exercise card selection, scheduling and a populated modern dashboard through real widgets. */
     void modernDashboard()
     {
@@ -678,9 +748,10 @@ private slots:
         rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
-        auto *fieldTitle = inspector->parentWidget()->findChild<QLabel *>("dataPaneTitle");
+        auto *fieldTitle = window.findChild<QLabel *>("inspectorMessageTitle");
         QVERIFY(fieldTitle);
-        QTRY_VERIFY(fieldTitle->text().contains("SYS 1 / COMP 1"));
+        QTRY_COMPARE(fieldTitle->text(), QString("[30] ATTITUDE"));
+        QCOMPARE(window.findChild<QLabel *>("inspectorSource")->text(), QString("System 1 · Component 1"));
         const QPoint valuePosition = inspector->visualItemRect(inspector->item(0, 2)).center();
         const QString expectedValue = inspector->item(0, 2)->text();
         QVERIFY(QMetaObject::invokeMethod(inspector, "customContextMenuRequested", Qt::DirectConnection,
@@ -692,13 +763,21 @@ private slots:
         QCOMPARE(QApplication::clipboard()->text(), expectedValue);
         valueMenu->hide();
         rx->setCurrentItem(rx->topLevelItem(0)->child(1)->child(0));
-        QTRY_VERIFY(fieldTitle->text().contains("ID 33 · SYS 1 / COMP 42"));
+        QTRY_COMPARE(fieldTitle->text(), QString("[33] GLOBAL_POSITION_INT"));
+        QCOMPARE(window.findChild<QLabel *>("inspectorSource")->text(), QString("System 1 · Component 42"));
         rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         tx->setCurrentCell(0, 1);
         window.findChild<QAction *>("startTx")->trigger();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
         QVERIFY(window.findChild<QAction *>("stopTx")->isVisible());
         QVERIFY(!window.findChild<QAction *>("startTx")->isVisible());
+        auto *filter = window.findChild<QLineEdit *>("rxFilter");
+        QVERIFY(filter && filter->isClearButtonEnabled());
+        filter->setText("ATTITUDE");
+        QCOMPARE(window.findChild<QLabel *>("summaryBadge")->text(), QString("1 / 3 streams"));
+        filter->setText("no_such_message");
+        QCOMPARE(window.findChild<QLabel *>("summaryBadge")->text(), QString("0 / 3 streams"));
+        filter->clear();
         QDir().mkpath("qa");
         for (int mode : {1, 2})
         {
@@ -720,6 +799,13 @@ private slots:
             menu->hide();
             tx->setCurrentCell(0, 1);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-small-light.png" : "qa/modern-small-dark.png"));
+            QVERIFY(tx->rowHeight(2) > tx->rowHeight(0));
+            auto *pause = window.findChild<QPushButton *>("pauseDisplay");
+            pause->click();
+            QVERIFY(window.findChild<QLabel *>("displayPaused")->isVisible());
+            QVERIFY(window.grab().save(mode == 1 ? "qa/paused-light.png" : "qa/paused-dark.png"));
+            pause->click();
+            QVERIFY(window.findChild<QLabel *>("displayPaused")->isHidden());
             window.resize(1440, 900);
             QTest::qWait(30);
         }
