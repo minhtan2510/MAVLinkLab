@@ -890,7 +890,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settingsDialog->setObjectName("settingsDialog");
     settingsDialog->setWindowTitle("Settings");
     settingsDialog->setModal(true);
-    settingsDialog->setMinimumWidth(380);
+    settingsDialog->setMinimumWidth(420);
     auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
     settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
     settingsDialogLayout->setSpacing(16);
@@ -922,6 +922,51 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     appearanceLayout->addLayout(themeRow);
 
     settingsDialogLayout->addWidget(appearanceCard);
+
+    auto *mavlinkCard = new QFrame(settingsDialog);
+    mavlinkCard->setObjectName("settingsCard");
+    auto *mavlinkLayout = new QVBoxLayout(mavlinkCard);
+    mavlinkLayout->setContentsMargins(14, 12, 14, 12);
+    mavlinkLayout->setSpacing(8);
+
+    auto *mavlinkHeader = new QLabel("MAVLink Defaults", mavlinkCard);
+    mavlinkHeader->setObjectName("settingsGroupTitle");
+    mavlinkLayout->addWidget(mavlinkHeader);
+
+    const auto addSettingsRow = [mavlinkCard](QVBoxLayout *cardLayout, const QString &label, QWidget *control)
+    {
+        auto *row = new QHBoxLayout;
+        row->setContentsMargins(0, 4, 0, 0);
+        auto *caption = new QLabel(label, mavlinkCard);
+        caption->setObjectName("secondaryText");
+        row->addWidget(caption);
+        row->addStretch();
+        control->setFixedWidth(130);
+        row->addWidget(control);
+        cardLayout->addLayout(row);
+    };
+
+    defaultSysIdBox = new WorkbenchSpinBox<QSpinBox>(mavlinkCard);
+    defaultSysIdBox->setObjectName("defaultSysId");
+    defaultSysIdBox->setAccessibleName("Default System ID");
+    defaultSysIdBox->setRange(1, 255);
+    defaultSysIdBox->setValue(1);
+    addSettingsRow(mavlinkLayout, "Default System ID:", defaultSysIdBox);
+
+    defaultCompIdBox = new WorkbenchSpinBox<QSpinBox>(mavlinkCard);
+    defaultCompIdBox->setObjectName("defaultCompId");
+    defaultCompIdBox->setAccessibleName("Default Component ID");
+    defaultCompIdBox->setRange(0, 255);
+    defaultCompIdBox->setValue(1);
+    addSettingsRow(mavlinkLayout, "Default Component ID:", defaultCompIdBox);
+
+    defaultVersionBox = new WorkbenchComboBox(mavlinkCard);
+    defaultVersionBox->setObjectName("defaultVersion");
+    defaultVersionBox->setAccessibleName("Default MAVLink Version");
+    defaultVersionBox->addItems({"MAVLink 2", "MAVLink 1"});
+    addSettingsRow(mavlinkLayout, "Default Version:", defaultVersionBox);
+
+    settingsDialogLayout->addWidget(mavlinkCard);
     settingsDialogLayout->addStretch();
 
     auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
@@ -1466,7 +1511,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         editMessage(true);
     });
-    connect(themeBox, &QComboBox::currentIndexChanged, this, &MainWindow::applyTheme);
+    connect(themeBox, &QComboBox::currentIndexChanged, this, [this]()
+    {
+        applyTheme();
+        saveSettings();
+    });
+    connect(defaultSysIdBox, &QSpinBox::valueChanged, this, [this]()
+    {
+        saveSettings();
+    });
+    connect(defaultCompIdBox, &QSpinBox::valueChanged, this, [this]()
+    {
+        saveSettings();
+    });
+    connect(defaultVersionBox, &QComboBox::currentIndexChanged, this, [this]()
+    {
+        saveSettings();
+    });
     qApp->installEventFilter(this);
     connect(&refresh, &QTimer::timeout, this, [this]()
     {
@@ -1479,6 +1540,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     thread.start();
     refresh.start(200);
     refreshPorts();
+    restoreSettings();
     applyTheme();
     updateActions();
     connect(txTable->horizontalHeader(), &QHeaderView::sectionResized, this, &MainWindow::updateTxHeights);
@@ -1527,9 +1589,63 @@ void MainWindow::restoreLayout()
     inspector->hideColumn(3);
 }
 
+/** @brief Restore application preferences such as theme and MAVLink defaults from storage. */
+void MainWindow::restoreSettings()
+{
+    QSettings settings("MAVLinkSimulator", "Preferences");
+    const int themeIndex = settings.value("theme", 0).toInt();
+    if (themeBox && themeIndex >= 0 && themeIndex < themeBox->count())
+    {
+        const QSignalBlocker blocker(themeBox);
+        themeBox->setCurrentIndex(themeIndex);
+    }
+    const int sysid = settings.value("mavlink/defaultSysId", 1).toInt();
+    if (defaultSysIdBox)
+    {
+        const QSignalBlocker blocker(defaultSysIdBox);
+        defaultSysIdBox->setValue(qBound(1, sysid, 255));
+    }
+    const int compid = settings.value("mavlink/defaultCompId", 1).toInt();
+    if (defaultCompIdBox)
+    {
+        const QSignalBlocker blocker(defaultCompIdBox);
+        defaultCompIdBox->setValue(qBound(0, compid, 255));
+    }
+    const int version = settings.value("mavlink/defaultVersion", 0).toInt();
+    if (defaultVersionBox && version >= 0 && version < defaultVersionBox->count())
+    {
+        const QSignalBlocker blocker(defaultVersionBox);
+        defaultVersionBox->setCurrentIndex(version);
+    }
+}
+
+/** @brief Save application preferences such as theme and MAVLink defaults to storage. */
+void MainWindow::saveSettings()
+{
+    QSettings settings("MAVLinkSimulator", "Preferences");
+    if (themeBox)
+    {
+        settings.setValue("theme", themeBox->currentIndex());
+    }
+    if (defaultSysIdBox)
+    {
+        settings.setValue("mavlink/defaultSysId", defaultSysIdBox->value());
+    }
+    if (defaultCompIdBox)
+    {
+        settings.setValue("mavlink/defaultCompId", defaultCompIdBox->value());
+    }
+    if (defaultVersionBox)
+    {
+        settings.setValue("mavlink/defaultVersion", defaultVersionBox->currentIndex());
+    }
+    settings.sync();
+}
+
 /** @brief Save only geometry, splitters and column presentation on a normal close. */
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    saveSettings();
     QSettings settings("MAVLinkSimulator", "Layout");
     settings.setValue("version", 1);
     settings.setValue("geometry", saveGeometry());
@@ -1663,8 +1779,9 @@ void MainWindow::editMessage(bool edit)
     else
     {
         entry.key = nextKey++;
-        entry.sysid = 1;
-        entry.compid = 1;
+        entry.sysid = static_cast<uint8_t>(defaultSysIdBox ? defaultSysIdBox->value() : 1);
+        entry.compid = static_cast<uint8_t>(defaultCompIdBox ? defaultCompIdBox->value() : 1);
+        entry.version1 = (defaultVersionBox && defaultVersionBox->currentIndex() == 1);
     }
     QDialog dialog(this);
     dialog.setObjectName("messageDialog");
@@ -1738,12 +1855,15 @@ void MainWindow::editMessage(bool edit)
     editor->addWidget(messageTitle);
     auto *form = new QHBoxLayout;
     auto *sysid = new WorkbenchSpinBox<QSpinBox>;
+    sysid->setObjectName("messageSysId");
     auto *compid = new WorkbenchSpinBox<QSpinBox>;
+    compid->setObjectName("messageCompId");
     sysid->setRange(1, 255);
     compid->setRange(0, 255);
     sysid->setValue(entry.sysid);
     compid->setValue(entry.compid);
     auto *version = new WorkbenchComboBox;
+    version->setObjectName("messageVersion");
     version->addItems({"MAVLink 2", "MAVLink 1"});
     version->setCurrentIndex(entry.version1 ? 1 : 0);
     auto *rate = new WorkbenchSpinBox<QDoubleSpinBox>;

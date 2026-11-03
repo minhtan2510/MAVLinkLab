@@ -13,6 +13,7 @@
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QLabel>
+#include <QSpinBox>
 #include <map>
 
 class MainWindow : public QMainWindow
@@ -55,6 +56,10 @@ private:
     void updateTxHeights();
     /** @brief Restore only presentation geometry and column widths from application settings. */
     void restoreLayout();
+    /** @brief Restore application preferences such as theme and MAVLink defaults. */
+    void restoreSettings();
+    /** @brief Save application preferences such as theme and MAVLink defaults. */
+    void saveSettings();
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -71,6 +76,9 @@ private:
     QComboBox *stopBox = nullptr;
     QComboBox *flowBox = nullptr;
     QComboBox *themeBox = nullptr;
+    QSpinBox *defaultSysIdBox = nullptr;
+    QSpinBox *defaultCompIdBox = nullptr;
+    QComboBox *defaultVersionBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *metrics = nullptr;

@@ -80,6 +80,7 @@ private slots:
     void init()
     {
         QSettings("MAVLinkSimulator", "Layout").clear();
+        QSettings("MAVLinkSimulator", "Preferences").clear();
     }
 
     /** @brief Verify serial RX/TX, silence on connect, stop/reconnect and error state. */
@@ -699,6 +700,63 @@ private slots:
         QTest::qWait(20);
         QVERIFY(window.width() >= 1000);
         QVERIFY(window.findChild<QSplitter *>("dashboards")->sizes().first() >= 340);
+    }
+
+    /** @brief Verify application settings persistence and default MAVLink sender identity in new messages. */
+    void applicationSettingsPreferences()
+    {
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(20);
+            auto *theme = window.findChild<QComboBox *>("theme");
+            auto *sysIdBox = window.findChild<QSpinBox *>("defaultSysId");
+            auto *compIdBox = window.findChild<QSpinBox *>("defaultCompId");
+            auto *versionBox = window.findChild<QComboBox *>("defaultVersion");
+            QVERIFY(theme && sysIdBox && compIdBox && versionBox);
+
+            QCOMPARE(sysIdBox->value(), 1);
+            QCOMPARE(compIdBox->value(), 1);
+            QCOMPARE(versionBox->currentIndex(), 0);
+
+            sysIdBox->setValue(42);
+            compIdBox->setValue(190);
+            versionBox->setCurrentIndex(1);
+            theme->setCurrentIndex(1);
+
+            QTimer::singleShot(50, &window, [&]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *sysid = dialog->findChild<QSpinBox *>("messageSysId");
+                auto *compid = dialog->findChild<QSpinBox *>("messageCompId");
+                auto *version = dialog->findChild<QComboBox *>("messageVersion");
+                QVERIFY(sysid && compid && version);
+                QCOMPARE(sysid->value(), 42);
+                QCOMPARE(compid->value(), 190);
+                QCOMPARE(version->currentIndex(), 1);
+                dialog->reject();
+            });
+            window.findChild<QPushButton *>("addMessage")->click();
+            QTest::qWait(100);
+            QVERIFY(window.close());
+        }
+
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(20);
+            auto *theme = window.findChild<QComboBox *>("theme");
+            auto *sysIdBox = window.findChild<QSpinBox *>("defaultSysId");
+            auto *compIdBox = window.findChild<QSpinBox *>("defaultCompId");
+            auto *versionBox = window.findChild<QComboBox *>("defaultVersion");
+            QVERIFY(theme && sysIdBox && compIdBox && versionBox);
+
+            QCOMPARE(sysIdBox->value(), 42);
+            QCOMPARE(compIdBox->value(), 190);
+            QCOMPARE(versionBox->currentIndex(), 1);
+            QCOMPARE(theme->currentIndex(), 1);
+        }
     }
 
     /** @brief Exercise card selection, scheduling and a populated modern dashboard through real widgets. */

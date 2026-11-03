@@ -60,6 +60,9 @@
 - Giữ **UART bar gọn**, Port/Baud/Connect/status dễ tìm; thông số ít dùng nằm trong **Settings**. Ưu tiên diện tích cho TX/RX dashboards.
 - Dùng semantic theme tokens, hierarchy rõ, keyboard navigation và status text; không truyền đạt trạng thái chỉ bằng màu.
 - Giữ selection, scroll position và field đang xem khi refresh. Giới hạn GUI refresh; Pause Display không dừng parser/counters.
+- Khi đồng bộ hai chiều giữa UI controls và `QSettings`:
+  - Dùng `QSignalBlocker` trong các hàm khôi phục (`restoreSettings`) để tránh phát tín hiệu ngược kích hoạt `saveSettings`.
+  - Luôn gọi `settings.sync()` sau khi cập nhật dữ liệu để đảm bảo cấu hình được ghi tức thì xuống đĩa, tránh sai lệch giữa các tiến trình/test case.
 - Với thay đổi UI, tự kiểm tra rendered consistency ở **Light/Dark**, hover, pressed, focus, enabled/disabled, dropdown popup rows, resize và theme changes trong cùng session. Sửa regression tái hiện được trước khi kết luận.
 - Phân biệt **offscreen render** với native desktop integration. Nếu không có môi trường render, báo rõ giới hạn.
 
@@ -84,6 +87,7 @@ ctest --test-dir build-core --output-on-failure
 ```
 
 - Nếu Qt không nằm trong system prefix, dùng `CMAKE_PREFIX_PATH` phù hợp. Không trộn Qt major/minor versions; không hardcode đường dẫn `/tmp` vào source/build configuration được commit.
+- Khi chạy `ctest` cho desktop tests trong môi trường có Qt nằm ngoài system prefix (như `/tmp/mavlink-qt-prefix`), cần thiết lập `QT_PLUGIN_PATH` và `LD_LIBRARY_PATH` tương ứng với cấu hình trong `CMakeCache.txt` (tương tự `run.sh`) để nạp đúng plugin `offscreen`.
 - Chạy checks phù hợp với thay đổi. Test logic mới/sửa bằng các trường hợp có ý nghĩa, gồm invalid input, bounds và failure paths; tránh tests chỉ lặp lại implementation.
 - Tự kiểm tra syntax/types, API usage, initialization/lifetime, buffer bounds, state machine, concurrency và error handling. Cân nhắc sanitizers/static analysis khi có nguy cơ tương ứng.
 - Báo riêng **build**, **automated tests**, **rendered GUI**, **PTY**, **physical UART** và **DMA**. Test fixture không phải bằng chứng hardware.
