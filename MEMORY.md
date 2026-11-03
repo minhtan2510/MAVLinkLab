@@ -21,6 +21,7 @@
 * **State Persistence & Decoupled Scopes:**
   * Application preferences (`MAVLinkSimulator/Preferences`), layout geometry (`MAVLinkSimulator/Layout`), and workspace TX messages (`MAVLinkSimulator/Workspace`) are kept in separate `QSettings` scopes.
   * `QSignalBlocker` must be used during `restoreSettings()` to prevent widget signals (e.g., `valueChanged`) from triggering premature `saveSettings()`. Always invoke `settings.sync()` immediately after writing.
+  * Serial Port (`serial/port`) and Baudrate (`serial/baud`) of the last successful connection are persisted upon successful connect and restored on launch.
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
   * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
