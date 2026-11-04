@@ -1,4 +1,5 @@
 #include "core.h"
+#include "mavlink_enums.h"
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -106,6 +107,9 @@ int main()
         check(!Mav::setField(payload, integer, "1e100", error), "float overflow");
         check(!Mav::setField(payload, integer, "nan", error), "Non-finite rejected");
         integer.type = MAVLINK_TYPE_UINT16_T;
+        check(Mav::setField(payload, integer, "MAV_PARAM_TYPE_REAL32", error), "Enum symbolic name resolution");
+        check(payload[0] == 9, "Enum resolved to 9 in wire payload");
+        check(Mav::lookupEnumName(22, "param_type", 9) == "MAV_PARAM_TYPE_REAL32", "Reverse enum lookup");
         integer.array_length = 3;
         check(!Mav::setField(payload, integer, "1,2", error), "Array length validation");
         check(!Mav::setField(payload, integer, "1,2,3,", error), "Trailing array delimiter");

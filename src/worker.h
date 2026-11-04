@@ -15,6 +15,7 @@ struct PortConfig
     QSerialPort::StopBits stop = QSerialPort::OneStop;
     QSerialPort::FlowControl flow = QSerialPort::NoFlowControl;
     bool autoReconnect = false;
+    bool deassertControlLines = true;
 };
 Q_DECLARE_METATYPE(PortConfig)
 Q_DECLARE_METATYPE(Mav::TxEntry)
@@ -81,11 +82,18 @@ public slots:
      * @param enabled True to automatically retry connection when link is dropped.
      */
     void setAutoReconnect(bool enabled);
+    /** @brief Set control-line policy for the next open without changing an active link. */
+    void setDeassertControlLines(bool enabled);
 signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);
     void snapshotReady(SnapshotPtr snapshot);
 private:
+    /** @brief Deassert and verify host control lines; return an error or an empty string.
+     * @note Hardware flow control retains driver ownership of RTS. PTYs have no modem lines.
+     * @warning Post-open deassertion cannot prevent a transient pulse during kernel open.
+     */
+    QString prepareControlLines();
     /** @brief Drain a bounded input chunk through the official parser. */
     void readAvailable();
     /** @brief Advance scheduled transmissions and flush accepted bytes. */

@@ -1,4 +1,5 @@
 #include "core.h"
+#include "mavlink_enums.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -98,9 +99,20 @@ static uint64_t parseBits(const std::string &text, mavlink_message_type_t type)
     else if (type == MAVLINK_TYPE_INT8_T || type == MAVLINK_TYPE_INT16_T ||
              type == MAVLINK_TYPE_INT32_T || type == MAVLINK_TYPE_INT64_T)
     {
+        const auto enumVal = lookupEnumValue(text);
+        if (enumVal.has_value())
+        {
+            const auto value = static_cast<int64_t>(*enumVal);
+            if (width < 8 && (value < -(int64_t(1) << (width * 8 - 1)) ||
+                              value > (int64_t(1) << (width * 8 - 1)) - 1))
+            {
+                throw std::out_of_range("Signed integer out of range");
+            }
+            return static_cast<uint64_t>(value);
+        }
         const auto value = std::stoll(text, &used, 10);
         if (width < 8 && (value < -(int64_t(1) << (width * 8 - 1)) ||
-                         value > (int64_t(1) << (width * 8 - 1)) - 1))
+                          value > (int64_t(1) << (width * 8 - 1)) - 1))
         {
             throw std::out_of_range("Signed integer out of range");
         }
@@ -108,6 +120,16 @@ static uint64_t parseBits(const std::string &text, mavlink_message_type_t type)
     }
     else
     {
+        const auto enumVal = lookupEnumValue(text);
+        if (enumVal.has_value())
+        {
+            bits = *enumVal;
+            if (width < 8 && bits >= (uint64_t(1) << (width * 8)))
+            {
+                throw std::out_of_range("Unsigned integer out of range");
+            }
+            return bits;
+        }
         if (text.find('-') != std::string::npos)
         {
             throw std::invalid_argument("Unsigned integer cannot be negative");

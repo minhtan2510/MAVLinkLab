@@ -1,29 +1,69 @@
 # MAVLink Simulator
 
-Ubuntu/Linux desktop serial workbench built with **C++17**, **Qt 6 Widgets**, **Qt SerialPort** and **CMake**. The official [MAVLink C library](https://github.com/mavlink/c_library_v2) is a pinned git submodule at `third_party/mavlink`. The dialect is **ardupilotmega**, including **common**.
+**Send, receive and inspect MAVLink messages over serial UART.**
 
-## Build
+A desktop workbench for **Ubuntu/Linux**, built with C++17 and Qt 6. Supports **MAVLink 1 & 2** using the official MAVLink C library and the **ardupilotmega** dialect, including **common**.
 
-Dependencies: C++17 compiler, CMake ≥3.21, Qt ≥6.2 development files for Widgets, SerialPort and Test. Qt Test is used when `BUILD_TESTING=ON` (the default).
+## What you can do
 
-On Ubuntu releases providing these packages:
+| Area | Features |
+| --- | --- |
+| **Serial** | Configurable port, baud rate, framing and flow control; optional auto-reconnect |
+| **TX Dashboard** | Search messages, edit payloads, send once or periodically at 1–1000 Hz |
+| **RX Dashboard** | Browse streams grouped by System/Component, view rates and counts, inspect decoded fields |
+| **Workspace** | System/Light/Dark themes, saved layout and optional TX message restoration |
+
+## Build & run
+
+**Requirements:** C++17 compiler, CMake ≥3.21 and Qt ≥6.2 with **Widgets**, **SerialPort** and **Test** development components. Qt Test is needed when `BUILD_TESTING=ON` (default).
+
+From the project root:
 
 ```bash
-sudo apt-get install build-essential cmake qt6-base-dev qt6-serialport-dev
 git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build -j
-ctest --test-dir build --output-on-failure
 ./build/mavlink-simulator
 ```
 
-Some Ubuntu releases, including the inspected Jammy package catalog, do not provide `qt6-serialport-dev`. Use a matching Qt installation containing **Qt Serial Port**, and supply its prefix to CMake; do not mix Qt major/minor versions.
+If Qt is installed outside the system prefix, configure with its installation path:
 
 ```bash
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/gcc_64
 ```
 
-Core-only build requires no Qt:
+Replace the example path with your Qt installation. Use matching Qt libraries and plugins; a custom installation may also require `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH` at runtime.
+
+## Quick start
+
+Run `./cli.sh` for the interactive workbench menu. Each menu remembers its last highlighted option after commands and when returning from a submenu, for the current CLI session.
+
+1. **Connect:** select a serial port from the dropdown and choose a baud rate, then click **Connect**. Port does not accept typed paths and has no startup focus or placeholder. Use the UART settings icon for framing and flow control. On startup or Refresh, unavailable previous ports are discarded; Port is empty when no ports are available.
+2. **Create a message:** click **Add message**, search by ID or name, set sender IDs, protocol, rate and payload. **Add & start** immediately starts periodic TX when connected; messages added offline stay stopped.
+3. **Control TX:** use a card's start/stop button or right-click for **Send once**, **Start/Stop**, **Edit message…** and **Remove message**. Batch controls run, stop or delete all entries.
+4. **Inspect RX:** select a message under its System/Component group to view decoded fields. Search filters streams; **Pause display** freezes the view while parsing and counters continue. Right-click a field to **Copy value**.
+5. **Customize:** open **Tool → Settings…** for theme, MAVLink defaults, serial options and workspace restoration.
+
+## Important behavior
+
+- **Connect/reconnect sends nothing automatically**, including HEARTBEAT. Saving an edited message stops it. Payload timestamps and counters stay fixed until edited.
+- **Disconnect stops TX and clears pending output.** Stop/Edit/Remove also discard the shared pending output queue, which can affect other messages' pending frames. Bytes already sent cannot be recalled.
+- **TX restoration is off by default.** When enabled, messages return in the Stopped state. Layout and preferences are saved separately.
+- **TX counts are not delivery acknowledgements.** Rates use a trailing one-second event window; scheduling is best effort, with link-capacity checks and bounded queues.
+- **DTR/RTS deassertion is on by default.** Hardware RTS/CTS leaves RTS driver-controlled. This cannot guarantee that opening a device never produces a reset pulse.
+- **Signed frames are not authenticated.** Physical UART behavior and DMA require separate hardware verification.
+
+## Tests
+
+Run the core, PTY serial integration and Qt offscreen checks:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+For a custom Qt installation, set its matching library/plugin paths before running CTest. Offscreen screenshots are kept in **`build/qa/`**; PTY and offscreen results do not verify physical UART or native desktop integration.
+
+**Core-only build** — no Qt required:
 
 ```bash
 cmake -S . -B build-core -DBUILD_GUI=OFF
@@ -31,57 +71,12 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
-## Quick launch
+## Documentation
 
-After building, open a terminal in the project and run:
-
-```bash
-./run.sh
-```
-
-Open two independent instances:
-
-```bash
-./run.sh --two
-```
-
-The launcher discovers the matching Qt library/plugin paths from `build/CMakeCache.txt`; manual environment exports are unnecessary. It does not create a virtual UART, connect a port or start TX. Keep the terminal open while using the application; Ctrl+C stops the instances it launched. To use another build directory, set `MAVLINK_BUILD_DIR`. If the configured Qt installation was removed (for example, a temporary prefix after reboot), reconfigure and rebuild with an available matching Qt installation.
-
-## Use
-
-1. Select a **Serial port** or enter a device path such as `/dev/ttyUSB0` or a PTY slave; the adjacent refresh icon rescans ports while keeping a typed path. Select **Baud rate** and click **Connect**. Open the **UART settings** sliders icon to change data bits, parity, stop bits or flow control in a popup; Escape or clicking outside closes it without resetting values. The popup summary shows framing and flow control. Configuration is disabled while connected.
-2. Click **Add message**, search by ID/name, select sender (System ID and Component ID default to 1) and protocol, set a whole-number Rate (Hz) from 1 to 1000, then edit payload values. Numeric arrays require the exact comma-separated element count; integer input is decimal. Character arrays accept UTF-8 text within the byte limit. Non-finite floating-point values are rejected. Drag the catalog divider to adjust its width; selected-message identity appears above the editor. The primary action is **Add & start** while connected or **Add message** offline; editing uses **Save changes**. Fixed protocol fields show **Read-only**. Invalid values show their reason below the input after editing. Catalog search prioritizes exact matches and supports a clear action. Payload drafts survive switching between messages within the open dialog. Messages with more than 12 fields offer **Filter parameters…**; select an array and choose **Edit array…** for a multiline editor with validated Apply/Cancel actions.
-3. Select a message card in **TX Dashboard**. Each card shows ID, sender, frame count, state and target/actual Hz. Right-click a card for **Send once**, **Start** or **Stop**, **Edit message…** and **Remove message**. The menu selects the clicked card; Start/Stop follows its running state and transmission actions require a connection. Double-click a card or choose **Edit message…** to change its payload. The bottom row offers **Run all**, **Stop all** and **Delete all**. Run all starts every configured message only if their combined load fits the connected link; Delete all stops TX, cancels pending output and removes all TX entries. **Send once** queues one frame; **Start** enables periodic TX. **Stop**, **Stop all**, saving an edited entry, removing an entry or disconnecting cancels pending output. Stopping/editing/removing any entry discards the shared pending output queue, including other entries' pending frames; other active entries continue at their next deadlines.
-4. Inspect **System → Component → Message** in **RX Dashboard**. Select a message to view fields below the stream list. The field header identifies its message ID and Sys/Comp; right-click a field row and choose **Copy value** to copy the displayed value. Filter by sender ID, message ID or name; the summary shows matched/total streams while filtering. **Pause display** freezes RX presentation while parsing/counting continues, with an explicit **Display paused** label beside the inspector. **Clear** resets RX data and parser state, including any incomplete frame. Both workspace columns and the stream/field regions are resizable.
-
-**New messages start periodic TX when saved while connected**, subject to link-capacity validation. Messages added while disconnected stay stopped. Connecting/reconnecting does not start TX; saving an edited entry stops it. There is no automatic HEARTBEAT. Payload values, including timestamps and counters, stay fixed until edited; they are not synthesized by the scheduler. Inspect protocol-specific constants and semantics before sending.
-
-## Measurement and resource limits
-
-- **Queued frames / measured TX Hz:** complete frames handed to Qt's output buffer. These are not delivery acknowledgements. TX throughput uses `bytesWritten`, which still does not prove reception or physical wire completion.
-- **RX/TX Hz:** count of events in the trailing one-second window. At startup or below 1 Hz this is an event-window count, not an interarrival-period estimate. Idle streams become 0 Hz; **Stale** means no frame for more than two seconds.
-- **Capacity:** conservative maximum payload length, protocol overhead and selected serial framing. Start is rejected if the configured aggregate periodic load exceeds baud capacity. Send Once uses bounded queues. Flow-control pauses can still produce backpressure.
-- **Timing:** best effort on the Linux/Qt event loop using a monotonic clock and a 1 ms precise timer. Missed deadlines are skipped; there is no catch-up burst or hard realtime guarantee.
-- **Bounds:** 128 TX entries, 2048 RX stream identities, 16 KiB application TX queue, approximately 4 KiB Qt TX queue and 64 KiB Qt read buffer. RX overflow counts frames from new stream identities beyond the limit. Queue overflow stops the affected periodic entry and reports an error.
-- **Frames:** official MAVLink 1/2 parser preserves state across reads. Unknown dialect message IDs cannot be reliably CRC-validated/decoded and are not listed as valid RX messages. CRC errors can include unknown-dialect traffic. Sequence gaps are not reported as confirmed packet loss.
-- **Signing:** no key management, outbound signing or authentication verification is configured. Signed frames accepted by the library are explicitly **not authenticated**.
-- **Metadata:** generated field types and **wire offsets** drive payload editing/decoding. Generated C metadata does not include units or enum descriptions; units display **Unavailable**. Missing extension bytes decode as zero. MAVLink 1 drops extension fields and supports IDs ≤255 only.
-- **Control lines:** the application never explicitly toggles DTR/RTS to reset hardware. Opening/closing a port and the OS/backend may still affect these lines; RTS/CTS intentionally delegates RTS control to the driver. No no-reset hardware guarantee is made. Software flow control can interfere with arbitrary binary traffic; use it only when the peer is configured accordingly.
-- **DMA:** asynchronous serial I/O is used. Native UART DMA, if supported, is owned by the kernel driver; USB-to-UART uses the USB stack and bridge hardware. No application DMA switch exists, and DMA has not been verified on physical hardware.
-
-## Architecture and validation
-
-- `src/core.*`: official MAVLink codec/reflection adapter, parser, sender-indexed statistics, scheduler primitives and bounded write queue. No GUI or Qt dependency.
-- `src/worker.*`: QSerialPort and timers created/used in one dedicated QThread. Reads are processed in bounded chunks. Queued commands and immutable snapshots cross the thread boundary.
-- `src/window.*`: UART panel, searchable TX editor, dashboards, theme tokens and bounded GUI refresh. It owns worker shutdown and joins the thread on exit.
-- `tests/core_tests.cpp`: catalog/codec, malformed input, numeric boundaries, queue limits and timing.
-- `tests/desktop_tests.cpp`: PTY serial end-to-end tests plus widget actions and offscreen renders under `build/qa/`.
-
-```bash
-QT_QPA_PLATFORM=offscreen ./build/desktop-tests
-codegraph sync
-```
-
-PTY checks demonstrate host serial processing, not electrical UART behavior or DMA. Offscreen renders demonstrate Qt rendering, not integration with every native desktop theme. No physical UART or DMA validation is implied. See [verification evidence](docs/VERIFICATION.md) for the checks actually completed in this checkout.
-
-For permission/busy/device errors, read the persistent status-bar error and verify the selected device and its ownership in your terminal. The tool does not change permissions or group membership. Serial configuration and payloads are kept in memory for the current session only. On normal window close, window geometry, dashboard/inspector splitters and RX/field column widths are saved using Qt application settings (`MAVLinkSimulator/Layout`) and restored on the next launch. No UART connection, TX activation or payload is restored. When multiple instances close, the last saved presentation layout is used.
+| Guide | Contents |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Core, worker, GUI and threading boundaries |
+| [API reference](docs/API.md) | Codec, parser, scheduling and queue contracts |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Build, serial connection and payload issues |
+| [UI design](docs/DESIGN.md) | Layout, controls and themes |
+| [Verification](docs/VERIFICATION.md) | Recorded checks and validation limits |

@@ -90,7 +90,11 @@ Các giới hạn trên không phải total-memory budget: rate windows chứa t
 
 **Hardware boundary:** ứng dụng dùng asynchronous QSerialPort. DMA thuộc hardware/kernel driver nếu có; project không có firmware, HAL, ISR, DMA configuration hay application DMA switch. Không chủ động toggle DTR/RTS để reset, nhưng open/close và driver có thể tác động control lines.
 
+**Control-line policy (Linux):** sau mỗi open thành công, bao gồm auto-reconnect, worker gọi một `TIOCMBIC` để deassert đồng thời DTR/RTS rồi kiểm tra bằng `TIOCMGET`. Hardware RTS/CTS chỉ clear/verify DTR vì RTS thuộc driver; Gremsy VIO dùng **NoFlowControl** để clear cả hai. Lỗi clear/readback hoặc bits vẫn asserted sẽ đóng port, phát failure và không báo Connected; auto-reconnect tiếp tục retry. Chỉ slave PTY có `ENOTTY` được miễn kiểm tra modem lines. Readback phản ánh driver state, không chứng minh electrical RESET; thao tác sau open không loại trừ pulse lúc kernel mở port.
+
 ## Chỗ sửa khi mở rộng
+
+Checkbox **Deassert DTR/RTS on connect** trong Settings → Serial Management mặc định bật; lưu ở `MAVLinkSimulator/Preferences`, key `serial/deassertControlLines`. GUI restore dùng `QSignalBlocker`, save dùng `sync()`, chuyển bool qua queued slot `setDeassertControlLines()` và `PortConfig`. Worker chỉ áp dụng policy khi open/reopen; tắt checkbox bỏ qua clear/readback, không đổi lines ngay trên link đang mở.
 
 - Codec/field validation/rate/queue: `core.*`, kiểm tra bằng core tests.
 - Serial lifecycle/backpressure/scheduling: `worker.*`, kiểm tra thêm PTY tests.

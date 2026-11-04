@@ -1,5 +1,21 @@
 # Verification evidence
 
+## Settings helper text removal (2026-11-04)
+
+Removed explanatory helper lines from Settings while preserving titles, control labels and behavior. Build passed; targeted preferences, control-line Settings rendering and interaction checks passed (6 Qt test entries, 0 failures). Reviewed regenerated Light/Dark compact Settings plus pressed/disabled offscreen renders in `build/qa/`. CodeGraph is current; git diff --check passed. Native desktop integration was not tested.
+
+## Control-line Settings checkbox (2026-11-04)
+
+Added **Deassert DTR/RTS on connect** under Settings → Serial Management, enabled by default and persisted immediately in Preferences. Changes apply on the next open, including automatic reconnect, without modifying an active port's control lines. Disabling skips the worker's explicit modem clear/readback.
+
+**Verification:** desktop build passed; CTest **3/3 passed in 19.92 s**. Added preference default/off/on persistence checks and worker disabled-policy coverage proving no modem ioctls while disabled, no immediate ioctl on preference change, and changed policy on automatic reconnect. Reviewed 10 retained offscreen Settings screenshots in `build/qa/control-lines-*.png` covering Light/Dark, checked/unchecked, focus/hover/pressed, disabled and resize; no clipping observed. Existing dropdown and live-theme interaction checks passed. CodeGraph is current and git diff --check passed. Physical VIO RESET/UART/DMA and native desktop integration remain untested.
+
+## Linux control-line deassertion (2026-11-04)
+
+After open and automatic reconnect, the worker clears DTR/RTS simultaneously and verifies driver readback. Hardware RTS/CTS retains driver ownership of RTS and clears/verifies DTR only; use Flow control None for the VIO policy. Control-line failure closes the port before Connected; reconnect continues retrying. Only ENOTTY from an identified slave PTY bypasses modem-line setup.
+
+**Verification:** full desktop build passed; CTest **3/3 passed in 17.46 s** (core, desktop, control-lines). The dedicated suite uses a real PTY for QSerialPort I/O and linker-wrapped worker modem ioctls for deterministic success/failure, asserted readback, hardware RTS ownership, EINTR retry, PTY-only ENOTTY exemption, and reconnect recovery after readback failure with no automatic TX. Existing desktop/PTY checks passed and their screenshots remain in `build/qa/`; no new visual review was performed for this transport-only change. CodeGraph sync/status and git diff --check passed. No Gimbal was connected: physical RESET, USB bridge behavior, UART, DMA and native desktop integration were not verified. Driver bit readback is not an electrical measurement, and a pulse during kernel open/close remains possible.
+
 **Date:** 2026-11-02. **Host:** Ubuntu 22.04, GCC 11.4.0, CMake 4.3.1.
 
 ## Dependencies used
@@ -422,3 +438,43 @@ Removed the minimum badge width and reduced horizontal padding to 8 px per side.
 New GUI messages initialize System ID and Component ID to 1; editing retains the saved IDs. Moved the rate unit from the numeric input suffix to the visible/accessibility label `Rate (Hz)`.
 
 **Verification:** build and full CTest 2/2 passed in 12.62 s. Editor checks assert sender defaults, rate accessible name and numeric-only input text. Reviewed regenerated minimum-size Light/Dark offscreen editors. Existing PTY and interaction checks passed. CodeGraph is current; git diff --check passed. Native desktop and physical UART were not retested.
+
+## Locked RX columns
+
+RX columns use a fixed layout controlled by the application. Header drag, reorder and double-click auto-fit are disabled; custom resize grips, hover feedback and resize cursors are removed. The three-column layout automatically fills the viewport without horizontal scrolling, giving Message approximately half of the viewport and distributing the remaining space among Rate and Count. Legacy RX header preferences are ignored; decoded-field header preferences are retained.
+
+Checks cover drag attempts in both directions on all column edges, double-clicks, fixed resize modes, legacy layouts, window resizing, vertical scrollbars, a 300 px tree, Reset Layout and Light/Dark renders. Images are retained in `build/qa/`, including `rx-columns-locked-*.png`.
+
+**Verification:** full build and CTest **3/3 passed in 20.55 s**. Drag/double-click attempts leave every column unchanged; fixed modes, ignored legacy RX header state, no horizontal scrollbar and viewport fitting are asserted. Reviewed populated Light/Dark offscreen dashboards at 1000 and 1440 px. Native desktop and physical UART were not retested.
+
+**Wider Message distribution:** Message now takes approximately half the viewport (bounded by the metric minima) and remains wider than each metric column. Build and targeted `rxColumnResizing`, `layoutPreferences` and `modernDashboard` checks passed (5 Qt entries, 0 failures). Reviewed regenerated Light/Dark offscreen dashboards at narrow and wide sizes; locking and no-scroll behavior remain covered.
+
+## Inline RX status dots
+
+Removed the separate Status column and age countdown. A scalable vector dot before Message indicates Active, Stale or Inactive for leaf streams. Tooltips/accessibility name the state without elapsed time. The three locked columns continue to fill the viewport without horizontal scrolling.
+
+**Verification:** full build and CTest **3/3 passed in 24.08 s**. A PTY check receives a frame and verifies transitions through Active/Stale/Inactive, the original freshness thresholds, tooltips and accessible text. Reviewed Light/Dark renders for all three states (`build/qa/rx-inline-*.png`) plus selected/populated narrow and wide dashboards. Native desktop and physical UART were not retested.
+
+## Identity-only RX group headings
+
+System/Component rows now display only their identity, spanning the table. Removed aggregate Rate/Count, group status dot and auxiliary tooltip; leaf metrics/status remain. Bold 13 px text alone distinguishes group headings; there is no custom background or foreground color.
+
+**Verification:** build and targeted `rxInlineStatus`, `modernDashboard`, `interactionStates` checks passed (5 Qt entries, 0 failures). Checks assert empty group metrics/tooltip/status role, a spanned bold heading and preserved message status transitions. Reviewed regenerated Light/Dark populated dashboards at narrow/wide sizes. Native desktop was not retested.
+
+**Final commit validation:** build and full CTest **3/3 passed in 24.27 s**, including the bold-only group heading with no custom background. Physical UART and native desktop integration were not retested.
+
+## TX context-menu click regression
+
+The application event filter previously interpreted mouse presses addressed to the popup's `QWindow` as outside clicks. This cleared TX selection and disabled actions before the menu received widget input. Deselection now classifies only `QWidget` receivers.
+
+**Verification:** build and full CTest **3/3 passed in 24.65 s**. The dashboard test opens the context menu with a context-menu event, clicks Start/Stop through its `QWindow`, and verifies the selected stream changes while the other stream retains its state. Existing outside-click deselection and Light/Dark checks pass. The failure was reproduced before the fix using a temporary popup-window input probe. These are offscreen/PTY results; native desktop integration was not verified because display `:1` was inaccessible.
+
+## Unavailable serial-port display
+
+Port is now a selection-only dropdown with no text editor, placeholder or startup focus. Startup enumerates ports before restoring a saved selection; Refresh retains a previous selection only when still listed. An empty port list no longer displays a missing saved device.
+
+The Port popup keeps the active-row highlight without a checkmark. Other dropdowns retain their existing checkmarks.
+
+**Verification:** build and full CTest **3/3 passed in 24.78 s**. Regression coverage includes unavailable saved/removed selections, rejecting text outside the dropdown, preserving an enumerated selection on Refresh, neutral startup focus and Tab access. PTY GUI tests inject fixture paths into the model without enabling manual input in production. Reviewed Light/Dark offscreen controls and popup rows (`build/qa/serial-port-*.png`); the current run enumerated `/dev/ttyUSB0`. Empty-list behavior was also verified in the earlier no-device run. Physical USB hotplug and native desktop integration were not verified.
+
+**Final validation:** full CTest **3/3 passed in 24.55 s** after the Port checkmark change. CLI syntax and a PTY harness with stub commands passed checks for repeated commands, Main Menu return, submenu re-entry and retaining highlights when cancelling; the Enter-to-continue prompt remains enabled.

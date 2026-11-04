@@ -6,6 +6,7 @@
 #include <QMenuBar>
 #include <QAction>
 #include <QDir>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QScrollBar>
@@ -18,6 +19,10 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QHeaderView>
+#include <QMouseEvent>
+#include <QContextMenuEvent>
+#include <QWindow>
+#include <array>
 #include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
@@ -291,8 +296,10 @@ private slots:
         QTRY_VERIFY(!advanced->isVisible());
         QCOMPARE(controls[2]->currentText(), QString("2"));
         qInfo() << "Compact UART height:" << collapsedHeight << "px";
-        port->setCurrentText(pty.name);
         QTest::mouseClick(window.findChild<QPushButton *>("refreshPorts"), Qt::LeftButton);
+        // PTYs are injected into the dropdown only by the test fixture.
+        port->addItem(pty.name);
+        port->setCurrentText(pty.name);
         QCOMPARE(port->currentText(), QString::fromLocal8Bit(pty.name));
         connectButton->click();
         QTRY_COMPARE(connectButton->text(), QString("Disconnect"));
@@ -311,15 +318,17 @@ private slots:
             auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
             auto *buttons = dialog->findChild<QDialogButtonBox *>();
             QVERIFY(fields && buttons);
-            QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add && start"));
-            const auto senderControls = dialog->findChildren<QSpinBox *>();
-            QCOMPARE(senderControls.size(), 2);
-            auto *component = senderControls[1];
-            const int originalComponent = component->value();
-            QTest::mouseClick(component, Qt::LeftButton, Qt::NoModifier, QPoint(component->width() - 10, 7));
-            QCOMPARE(component->value(), originalComponent + 1);
-            QTest::mouseClick(component, Qt::LeftButton, Qt::NoModifier, QPoint(component->width() - 10, component->height() - 7));
-            QCOMPARE(component->value(), originalComponent);
+            QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
+            auto *sysidControl = dialog->findChild<QSpinBox *>("messageSysId");
+            auto *compidControl = dialog->findChild<QComboBox *>("messageCompId");
+            QVERIFY(sysidControl && compidControl);
+            const int originalSysId = sysidControl->value();
+            QTest::mouseClick(sysidControl, Qt::LeftButton, Qt::NoModifier, QPoint(sysidControl->width() - 10, 7));
+            QCOMPARE(sysidControl->value(), originalSysId + 1);
+            QTest::mouseClick(sysidControl, Qt::LeftButton, Qt::NoModifier, QPoint(sysidControl->width() - 10, sysidControl->height() - 7));
+            QCOMPARE(sysidControl->value(), originalSysId);
+            QCOMPARE(compidControl->currentText(), QString("MAV_COMP_ID_AUTOPILOT1"));
+            QVERIFY(compidControl->toolTip().contains("MAV_COMP_ID_AUTOPILOT1"));
             int uint8Row = -1;
             for (int i = 0; i < fields->rowCount(); ++i)
             {
@@ -339,6 +348,13 @@ private slots:
             fields->item(uint8Row, 2)->setText("0");
             QVERIFY(!fields->item(uint8Row, 2)->data(Qt::UserRole + 1).toBool());
             QVERIFY(dialog->findChild<QLabel *>("validationError")->isHidden());
+            for (int i = 0; i < fields->rowCount(); ++i)
+            {
+                if (fields->item(i, 2)->text().isEmpty())
+                {
+                    fields->item(i, 2)->setText("0");
+                }
+            }
             buttons->button(QDialogButtonBox::Save)->click();
         });
         add->click();
@@ -361,7 +377,7 @@ private slots:
         const auto frame = Mav::encode(0, 1, 42, false, payload, status);
         QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         QTRY_COMPARE(rx->topLevelItemCount(), 1);
-        auto *message = rx->topLevelItem(0)->child(0)->child(0);
+        auto *message = rx->topLevelItem(0)->child(0);
         rx->setCurrentItem(message);
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
@@ -447,6 +463,7 @@ private slots:
                 auto *splitter = dialog->findChild<QSplitter *>("messageSplitter");
                 QVERIFY(catalog && search && fields && title && hint && buttons && splitter);
                 QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
+                QVERIFY(buttons->button(QDialogButtonBox::Save)->toolTip().contains("Ctrl"));
                 QCOMPARE(title->text(), QString("[0] HEARTBEAT"));
                 auto *rate = dialog->findChild<QDoubleSpinBox *>();
                 QVERIFY(rate);
@@ -465,6 +482,15 @@ private slots:
                 rate->stepUp();
                 QCOMPARE(rate->value(), 11.0);
                 rate->setValue(1);
+                QVERIFY(fields->item(0, 2)->text().isEmpty());
+
+                // Verify that initially NO field has an error flag or expanded error height
+                for (int r = 0; r < fields->rowCount(); ++r)
+                {
+                    QVERIFY(!fields->item(r, 2)->data(Qt::UserRole + 1).toBool());
+                    QCOMPARE(fields->rowHeight(r), 40);
+                }
+
                 fields->editItem(fields->item(0, 2));
                 auto *valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
                 QVERIFY(valueEditor);
@@ -472,7 +498,9 @@ private slots:
                 valueEditor->selectAll();
                 QTest::keyClicks(valueEditor, "1");
                 QTest::keyClick(valueEditor, Qt::Key_Return);
-                QTRY_COMPARE(fields->item(0, 2)->text(), QString("1"));
+                QTRY_COMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
+                QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                QCOMPARE(fields->rowHeight(0), 40);
 
                 search->setText("no_such_message");
                 QVERIFY(dialog->findChild<QLabel *>("catalogEmpty")->isVisible());
@@ -480,7 +508,7 @@ private slots:
                 search->setText("heartbeat");
                 QVERIFY(catalog->isVisible());
                 QVERIFY(!catalog->item(0)->isHidden());
-                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
                 search->setText("1");
                 QCOMPARE(catalog->item(0)->data(Qt::UserRole).toUInt(), 1U);
                 QVERIFY(search->isClearButtonEnabled());
@@ -502,6 +530,7 @@ private slots:
                 QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                 fields->item(0, 2)->setText("1");
                 QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
                 // Switching messages commits an active native editor into that message's draft.
                 fields->editItem(fields->item(0, 2));
                 valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
@@ -509,7 +538,7 @@ private slots:
                 valueEditor->setText("2");
                 catalog->setCurrentRow(1);
                 catalog->setCurrentRow(0);
-                QCOMPARE(fields->item(0, 2)->text(), QString("2"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_QUADROTOR"));
                 fields->item(0, 2)->setText("1");
                 for (int row = 0; row < fields->rowCount(); ++row)
                 {
@@ -612,7 +641,10 @@ private slots:
                         }
                         parameterSearch->setText(fields->item(0, 0)->text());
                         QVERIFY(!fields->isRowHidden(0));
-                        const QString originalValue = fields->item(0, 2)->text();
+                        const auto suggestions = fields->item(0, 2)->data(Qt::UserRole + 7).toStringList();
+                        const QString validValue = !suggestions.isEmpty() ? suggestions.front() : "0";
+                        fields->item(0, 2)->setText(validValue);
+                        QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         fields->item(0, 2)->setText("invalid");
                         QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         parameterSearch->setText("no_such_field");
@@ -620,7 +652,7 @@ private slots:
                         QVERIFY(dialog->isVisible());
                         QVERIFY(!fields->isRowHidden(0));
                         QVERIFY(parameterSearch->text().isEmpty());
-                        fields->item(0, 2)->setText(originalValue);
+                        fields->item(0, 2)->setText(validValue);
                         QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-many-light.png" : "qa/editor-many-dark.png"));
                         manyFields = true;
@@ -630,7 +662,92 @@ private slots:
                 QVERIFY(manyFields);
                 catalog->setCurrentRow(0);
                 QVERIFY(parameterSearch->isHidden());
-                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
+
+                // Verify enum dropdown, keyboard entry, hint, and tooltip for PARAM_VALUE (msgid 22).
+                for (int i = 0; i < catalog->count(); ++i)
+                {
+                    if (catalog->item(i)->data(Qt::UserRole).toUInt() == 22U)
+                    {
+                        catalog->setCurrentRow(i);
+                        break;
+                    }
+                }
+                QTest::qWait(50);
+                QCOMPARE(catalog->currentItem()->data(Qt::UserRole).toUInt(), 22U);
+                int paramTypeRow = -1;
+                for (int row = 0; row < fields->rowCount(); ++row)
+                {
+                    if (fields->item(row, 0)->text() == "param_type")
+                    {
+                        paramTypeRow = row;
+                        break;
+                    }
+                }
+                QVERIFY(paramTypeRow >= 0);
+                QVERIFY(fields->item(paramTypeRow, 2)->text().isEmpty());
+
+                // Verify non-enum fields are also initially empty and not flagged as error
+                for (int row = 0; row < fields->rowCount(); ++row)
+                {
+                    const QString fieldName = fields->item(row, 0)->text();
+                    if (fieldName == "param_value" || fieldName == "param_count" || fieldName == "param_index")
+                    {
+                        QVERIFY(fields->item(row, 2)->text().isEmpty());
+                        QVERIFY(!fields->item(row, 2)->data(Qt::UserRole + 1).toBool());
+                    }
+                }
+
+                const QStringList suggestions = fields->item(paramTypeRow, 2)->data(Qt::UserRole + 7).toStringList();
+                QVERIFY(!suggestions.isEmpty());
+                bool foundReal32 = false;
+                for (const auto &itemText : suggestions)
+                {
+                    if (itemText.startsWith("MAV_PARAM_TYPE_REAL32"))
+                    {
+                        foundReal32 = true;
+                        break;
+                    }
+                }
+                QVERIFY(foundReal32);
+                fields->setCurrentCell(paramTypeRow, 2);
+                QVERIFY(hint->isVisible());
+                QVERIFY(hint->text().contains("Enum MAV_PARAM_TYPE"));
+
+                // Test symbolic enum string input
+                fields->editItem(fields->item(paramTypeRow, 2));
+                auto *enumEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                auto *enumCombo = fields->findChild<QComboBox *>("payloadValueCombo");
+                auto *compIdCombo = dialog->findChild<QComboBox *>("messageCompId");
+                QVERIFY(enumEditor);
+                QVERIFY(enumCombo);
+                QVERIFY(compIdCombo);
+                QCOMPARE(enumCombo->font().family(), compIdCombo->font().family());
+                QCOMPARE(enumEditor->font().family(), compIdCombo->font().family());
+                const int real32Row = enumCombo->findText("MAV_PARAM_TYPE_REAL32");
+                QVERIFY(real32Row >= 0);
+                QCOMPARE(enumCombo->itemData(real32Row, Qt::ToolTipRole).toString(), QString("9"));
+                enumEditor->selectAll();
+                QTest::keyClicks(enumEditor, "MAV_PARAM_TYPE_REAL32");
+                QTest::keyClick(enumEditor, Qt::Key_Return);
+                QTRY_COMPARE(fields->item(paramTypeRow, 2)->text(), QString("MAV_PARAM_TYPE_REAL32"));
+                QVERIFY(!fields->item(paramTypeRow, 2)->data(Qt::UserRole + 1).toBool());
+                QVERIFY(fields->item(paramTypeRow, 2)->toolTip().contains("MAV_PARAM_TYPE_REAL32 = 9"));
+
+                // Test numeric value input with auto-conversion to enum symbol in table cell
+                QTest::qWait(30);
+                fields->editItem(fields->item(paramTypeRow, 2));
+                enumEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                QVERIFY(enumEditor);
+                enumEditor->selectAll();
+                QTest::keyClicks(enumEditor, "9");
+                QTest::keyClick(enumEditor, Qt::Key_Return);
+                QTRY_COMPARE(fields->item(paramTypeRow, 2)->text(), QString("MAV_PARAM_TYPE_REAL32"));
+                QVERIFY(!fields->item(paramTypeRow, 2)->data(Qt::UserRole + 1).toBool());
+                QVERIFY(fields->item(paramTypeRow, 2)->toolTip().contains("MAV_PARAM_TYPE_REAL32 = 9"));
+                catalog->setCurrentRow(0);
+                QTest::qWait(30);
+
                 dialog->resize(880, 600);
                 splitter->setSizes({320, 540});
                 QTest::qWait(30);
@@ -659,6 +776,7 @@ private slots:
         QSize size;
         QList<int> dashboardSizes;
         QList<int> inspectorSizes;
+        int rxCountWidth = 0;
         {
             MainWindow window;
             window.show();
@@ -669,9 +787,10 @@ private slots:
             rxSplit->setSizes({230, 390});
             auto *rx = window.findChild<QTreeWidget *>("rxTree");
             auto *fields = window.findChild<QTableWidget *>("inspector");
-            rx->setColumnWidth(2, 96);
+
             fields->setColumnWidth(0, 185);
             QTest::qWait(30);
+            rxCountWidth = rx->columnWidth(2);
             size = window.size();
             dashboardSizes = dashboards->sizes();
             inspectorSizes = rxSplit->sizes();
@@ -686,7 +805,7 @@ private slots:
             QVERIFY(qAbs(actual[0] - dashboardSizes[0]) <= 2);
             const auto restored = window.findChild<QSplitter *>("rxSplit")->sizes();
             QVERIFY(qAbs(restored[0] - inspectorSizes[0]) <= 2);
-            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), 96);
+            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), rxCountWidth);
             QCOMPARE(window.findChild<QTableWidget *>("inspector")->columnWidth(0), 185);
             QCOMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Connect"));
             QCOMPARE(window.findChild<QTableWidget *>("txTable")->rowCount(), 0);
@@ -701,6 +820,152 @@ private slots:
         QTest::qWait(20);
         QVERIFY(window.width() >= 1000);
         QVERIFY(window.findChild<QSplitter *>("dashboards")->sizes().first() >= 340);
+    }
+
+    /** @brief Verify locked columns ignore resizing gestures and obsolete widths while always fitting. */
+    void rxColumnResizing()
+    {
+        // Obsolete interactive header preferences must not unlock or resize the new layout.
+        QTreeWidget legacy;
+        legacy.setColumnCount(4);
+        legacy.header()->setSectionsMovable(true);
+        legacy.header()->moveSection(0, 3);
+        legacy.setColumnWidth(0, 950);
+        legacy.hideColumn(2);
+        QSettings layout("MAVLinkSimulator", "Layout");
+        layout.setValue("version", 1);
+        layout.setValue("rxColumns", legacy.header()->saveState());
+        layout.sync();
+        MainWindow window;
+        window.show();
+        auto *rx = window.findChild<QTreeWidget *>("rxTree");
+        auto *header = rx->header();
+        const auto widths = [header]()
+        {
+            return std::array<int, 3>{header->sectionSize(0), header->sectionSize(1), header->sectionSize(2)};
+        };
+        const auto verifyFit = [&]()
+        {
+            QCOMPARE(rx->columnCount(), 3);
+            QCOMPARE(header->length(), rx->viewport()->width());
+            for (int column = 1; column < 3; ++column)
+            {
+                QVERIFY(header->sectionSize(0) > header->sectionSize(column));
+            }
+            QVERIFY(!header->sectionsMovable());
+            QCOMPARE(rx->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+            QVERIFY(!rx->horizontalScrollBar()->isVisible());
+            QCOMPARE(rx->horizontalScrollBar()->maximum(), 0);
+            for (int column = 0; column < 3; ++column)
+            {
+                QCOMPARE(header->sectionResizeMode(column), QHeaderView::Fixed);
+                QCOMPARE(header->visualIndex(column), column);
+                QVERIFY(!rx->isColumnHidden(column));
+                QVERIFY(header->sectionSize(column) > 0);
+            }
+        };
+        for (int width : {1000, 1440, 1920})
+        {
+            window.resize(width, 900);
+            QTest::qWait(30);
+            verifyFit();
+        }
+        auto *target = header->viewport();
+        for (int column = 0; column < 3; ++column)
+        {
+            const auto before = widths();
+            const QPoint edge(header->sectionViewportPosition(column) + header->sectionSize(column) - 1,
+                              target->height() / 2);
+            for (int delta : {-50, 50})
+            {
+                QMouseEvent press(QEvent::MouseButtonPress, edge, target->mapToGlobal(edge),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &press);
+                const QPoint end = edge + QPoint(delta, 0);
+                QMouseEvent move(QEvent::MouseMove, end, target->mapToGlobal(end),
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &move);
+                QMouseEvent release(QEvent::MouseButtonRelease, end, target->mapToGlobal(end),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &release);
+                QTest::mouseDClick(target, Qt::LeftButton, Qt::NoModifier, edge);
+                QCoreApplication::processEvents();
+                QVERIFY(widths() == before);
+                QVERIFY(target->cursor().shape() != Qt::SplitHCursor);
+            }
+        }
+        for (int row = 0; row < 80; ++row)
+        {
+            new QTreeWidgetItem(rx, {QString("Fixture message %1").arg(row)});
+        }
+        QTRY_VERIFY(rx->verticalScrollBar()->isVisible());
+        verifyFit();
+        rx->clear();
+        QTRY_VERIFY(!rx->verticalScrollBar()->isVisible());
+        verifyFit();
+        rx->setFixedWidth(300);
+        QTest::qWait(30);
+        verifyFit();
+        rx->setMinimumWidth(0);
+        rx->setMaximumWidth(QWIDGETSIZE_MAX);
+        window.findChild<QPushButton *>("resetLayout")->click();
+        QTest::qWait(30);
+        verifyFit();
+        QCOMPARE(header->sectionSize(0), rx->viewport()->width() / 2);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (int mode : {1, 2})
+        {
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+            verifyFit();
+            QVERIFY(window.grab().save(QString("qa/rx-columns-locked-%1.png").arg(mode == 1 ? "light" : "dark")));
+        }
+    }
+
+    /** @brief Verify inline status dots track real PTY receive freshness without a countdown. */
+    void rxInlineStatus()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+        MainWindow window;
+        window.show();
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
+        window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
+        auto *connection = window.findChild<QPushButton *>("connect");
+        connection->click();
+        QTRY_COMPARE(connection->text(), QString("Disconnect"));
+        mavlink_status_t status{};
+        Mav::Bytes payload(mavlink_get_msg_entry(0)->max_msg_len);
+        const auto frame = Mav::encode(0, 1, 154, false, payload, status);
+        QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
+        auto *rx = window.findChild<QTreeWidget *>("rxTree");
+        QTRY_COMPARE(rx->topLevelItemCount(), 1);
+        auto *device = rx->topLevelItem(0);
+        QTRY_COMPARE(device->childCount(), 1);
+        auto *item = device->child(0);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (const QString &state : {QString("Active"), QString("Stale"), QString("Inactive")})
+        {
+            QTRY_COMPARE(item->toolTip(0), state);
+            QCOMPARE(rx->columnCount(), 3);
+            QVERIFY(item->data(0, Qt::AccessibleTextRole).toString().endsWith(state));
+            QVERIFY(device->toolTip(0).isEmpty());
+            QVERIFY(device->text(1).isEmpty());
+            QVERIFY(device->text(2).isEmpty());
+            QVERIFY(!device->data(0, Qt::UserRole + 2).isValid());
+            QVERIFY(device->isFirstColumnSpanned());
+            QVERIFY(device->font(0).bold());
+            QVERIFY(!device->data(0, Qt::BackgroundRole).isValid());
+            const double age = item->data(0, Qt::UserRole + 2).toDouble();
+            QVERIFY(state == "Active" ? age <= 1.2 : state == "Stale" ? age > 1.2 && age <= 3.0 : age > 3.0);
+            for (int mode : {1, 2})
+            {
+                theme->setCurrentIndex(mode);
+                QVERIFY(window.grab().save(QString("qa/rx-inline-%1-%2.png")
+                    .arg(state.toLower(), mode == 1 ? "light" : "dark")));
+            }
+        }
+        connection->click();
     }
 
     /** @brief Verify application settings persistence and default MAVLink sender identity in new messages. */
@@ -733,11 +998,11 @@ private slots:
                 auto *dialog = window.findChild<QDialog *>("messageDialog");
                 QVERIFY(dialog);
                 auto *sysid = dialog->findChild<QSpinBox *>("messageSysId");
-                auto *compid = dialog->findChild<QSpinBox *>("messageCompId");
+                auto *compid = dialog->findChild<QComboBox *>("messageCompId");
                 auto *version = dialog->findChild<QComboBox *>("messageVersion");
                 QVERIFY(sysid && compid && version);
                 QCOMPARE(sysid->value(), 42);
-                QCOMPARE(compid->value(), 190);
+                QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_MISSIONPLANNER"));
                 QCOMPARE(version->currentIndex(), 1);
                 dialog->reject();
             });
@@ -763,6 +1028,89 @@ private slots:
             QCOMPARE(theme->currentIndex(), 1);
             QCOMPARE(restoreTx->isChecked(), true);
         }
+    }
+
+    /** @brief Verify the control-line preference defaults on and persists both checkbox states. */
+    void controlLinePreferences()
+    {
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QCOMPARE(control->text(), QString("Deassert DTR/RTS on connect"));
+            QVERIFY(control->isChecked());
+            control->setChecked(false);
+            settings.sync();
+            QCOMPARE(settings.value("serial/deassertControlLines").toBool(), false);
+        }
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QVERIFY(!control->isChecked());
+            control->setChecked(true);
+            settings.sync();
+            QCOMPARE(settings.value("serial/deassertControlLines").toBool(), true);
+        }
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QVERIFY(control->isChecked());
+        }
+    }
+
+    /** @brief Render the control-line checkbox in both live themes and interactive states. */
+    void controlLineSettingsRendering()
+    {
+        MainWindow window;
+        window.show();
+        auto *theme = window.findChild<QComboBox *>("theme");
+        auto *dialog = window.findChild<QDialog *>("settingsDialog");
+        auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+        QVERIFY(theme && dialog && control);
+        QDir().mkpath("qa");
+        dialog->show();
+        dialog->activateWindow();
+        QTest::qWait(30);
+        for (int index : {1, 2})
+        {
+            const QString mode = index == 1 ? "light" : "dark";
+            theme->setCurrentIndex(index);
+            QTest::qWait(20);
+            QCOMPARE(control->property("darkTheme").toBool(), index == 2);
+            QVERIFY(control->isVisible());
+            const QRect bounds(control->mapTo(dialog, QPoint(0, 0)), control->size());
+            QVERIFY(dialog->rect().contains(bounds));
+            control->setFocus(Qt::TabFocusReason);
+            QTRY_VERIFY(control->hasFocus());
+            QTest::mouseMove(control, control->rect().center());
+            QTest::qWait(20);
+            QVERIFY(dialog->grab().save("qa/control-lines-focus-hover-" + mode + ".png"));
+            QTest::mousePress(control, Qt::LeftButton);
+            QVERIFY(control->isDown());
+            QCOMPARE(QRect(control->mapTo(dialog, QPoint(0, 0)), control->size()), bounds);
+            QVERIFY(dialog->grab().save("qa/control-lines-pressed-" + mode + ".png"));
+            QTest::mouseRelease(control, Qt::LeftButton);
+            QVERIFY(!control->isChecked());
+            QVERIFY(dialog->grab().save("qa/control-lines-unchecked-" + mode + ".png"));
+            QTest::keyClick(control, Qt::Key_Space);
+            QVERIFY(control->isChecked());
+            control->setEnabled(false);
+            QTest::keyClick(control, Qt::Key_Space);
+            QVERIFY(control->isChecked());
+            QVERIFY(dialog->grab().save("qa/control-lines-disabled-" + mode + ".png"));
+            control->setEnabled(true);
+            dialog->resize(dialog->minimumSizeHint());
+            QTest::qWait(20);
+            QVERIFY(dialog->rect().contains(QRect(control->mapTo(dialog, QPoint(0, 0)), control->size())));
+            QVERIFY(dialog->grab().save("qa/control-lines-small-" + mode + ".png"));
+        }
+        dialog->close();
     }
 
     /** @brief Verify TX message list persistence across sessions and stopped initial state. */
@@ -793,6 +1141,17 @@ private slots:
                     }
                 }
                 dialog->findChild<QDoubleSpinBox *>()->setValue(5.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
                 dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
             });
             add->click();
@@ -885,6 +1244,17 @@ private slots:
                 }
                 QVERIFY(selected);
                 dialog->findChild<QDoubleSpinBox *>()->setValue(id == 0 ? 1.0 : 10.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
                 dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
             });
             add->click();
@@ -900,6 +1270,25 @@ private slots:
         QCOMPARE(tx->currentRow(), 2);
         QVERIFY(tx->item(2, 1)->toolTip().isEmpty());
         QVERIFY(tx->item(2, 1)->data(Qt::AccessibleTextRole).toString().contains("Target 10 Hz"));
+
+        // Verify clicking empty space in txTable deselects the active card
+        const QPoint emptySpace(10, tx->viewport()->height() - 10);
+        if (!tx->indexAt(emptySpace).isValid())
+        {
+            QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, emptySpace);
+            QCOMPARE(tx->currentRow(), -1);
+            QVERIFY(tx->selectedItems().isEmpty());
+        }
+
+        // Re-select card and verify clicking another widget (like txTitle) deselects it
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, card.center());
+        QCOMPARE(tx->currentRow(), 1);
+        auto *txTitle = window.findChild<QLabel *>("panelTitle");
+        QVERIFY(txTitle);
+        QTest::mouseClick(txTitle, Qt::LeftButton);
+        QCOMPARE(tx->currentRow(), -1);
+        QVERIFY(tx->selectedItems().isEmpty());
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
@@ -912,11 +1301,34 @@ private slots:
             QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         }
         auto *rx = window.findChild<QTreeWidget *>("rxTree");
-        QTRY_COMPARE(rx->topLevelItemCount(), 1);
-        QTRY_COMPARE(rx->topLevelItem(0)->childCount(), 2);
-        rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
+        QTRY_COMPARE(rx->topLevelItemCount(), 2);
+        QCOMPARE(rx->topLevelItem(0)->childCount(), 2);
+        QCOMPARE(rx->topLevelItem(1)->childCount(), 1);
+        rx->setCurrentItem(rx->topLevelItem(0)->child(1));
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
+        QCOMPARE(rx->headerItem()->text(0), QString("Message"));
+        QCOMPARE(rx->headerItem()->text(1), QString("Rate (Hz)"));
+        QCOMPARE(rx->headerItem()->text(2), QString("Count"));
+        QCOMPARE(rx->columnCount(), 3);
+        QCOMPARE(rx->topLevelItem(0)->child(1)->text(0), QString("[30] ATTITUDE"));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->toolTip(0), QString("Active"));
+        QVERIFY(!rx->header()->sectionsMovable());
+        QCOMPARE(rx->header()->sectionResizeMode(0), QHeaderView::Fixed);
+        QCOMPARE(rx->headerItem()->textAlignment(1), int(Qt::AlignCenter));
+        QCOMPARE(rx->headerItem()->textAlignment(2), int(Qt::AlignCenter));
+        QVERIFY(rx->topLevelItem(0)->isFirstColumnSpanned());
+        QVERIFY(rx->topLevelItem(0)->text(1).isEmpty());
+        QVERIFY(rx->topLevelItem(0)->text(2).isEmpty());
+        QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(1), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(2), int(Qt::AlignCenter));
+        QCOMPARE(inspector->horizontalHeaderItem(0)->text(), QString("Parameter"));
+        QCOMPARE(inspector->horizontalHeaderItem(1)->text(), QString("Type"));
+        QCOMPARE(inspector->horizontalHeaderItem(2)->text(), QString("Value"));
+        QCOMPARE(inspector->verticalHeader()->defaultSectionSize(), 40);
+        QCOMPARE(inspector->editTriggers(), QAbstractItemView::NoEditTriggers);
+        QCOMPARE(inspector->selectionMode(), QAbstractItemView::NoSelection);
+        QCOMPARE(inspector->focusPolicy(), Qt::NoFocus);
         auto *fieldTitle = window.findChild<QLabel *>("inspectorMessageTitle");
         QVERIFY(fieldTitle);
         QTRY_COMPARE(fieldTitle->text(), QString("[30] ATTITUDE"));
@@ -931,10 +1343,10 @@ private slots:
         copyValue->trigger();
         QCOMPARE(QApplication::clipboard()->text(), expectedValue);
         valueMenu->hide();
-        rx->setCurrentItem(rx->topLevelItem(0)->child(1)->child(0));
+        rx->setCurrentItem(rx->topLevelItem(1)->child(0));
         QTRY_COMPARE(fieldTitle->text(), QString("[33] GLOBAL_POSITION_INT"));
         QCOMPARE(window.findChild<QLabel *>("inspectorSource")->text(), QString("System 1 · Component 42"));
-        rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
+        rx->setCurrentItem(rx->topLevelItem(0)->child(1));
         tx->setCurrentCell(0, 1);
         window.findChild<QAction *>("startTx")->trigger();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
@@ -954,6 +1366,17 @@ private slots:
             QTest::mouseMove(tx->viewport(), tx->visualItemRect(tx->item(1, 1)).center());
             QTest::qWait(30);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
+            for (int width : {1000, 1440, 1920})
+            {
+                window.resize(width, 900);
+                QTest::qWait(30);
+                QCOMPARE(rx->header()->length(), rx->viewport()->width());
+                for (int column = 1; column < rx->columnCount(); ++column)
+                {
+                    QVERIFY(rx->columnWidth(0) > rx->columnWidth(column));
+                }
+                QVERIFY(window.grab().save(QString("qa/rx-columns-%1-%2.png").arg(mode == 1 ? "light" : "dark").arg(width)));
+            }
             window.resize(1000, 720);
             QTest::qWait(30);
             QVERIFY(!window.findChild<QPushButton *>("sendOnce"));
@@ -980,12 +1403,25 @@ private slots:
             QTest::qWait(30);
         }
         const QPoint secondCard = tx->visualItemRect(tx->item(1, 1)).center();
-        QVERIFY(QMetaObject::invokeMethod(tx, "customContextMenuRequested", Q_ARG(QPoint, secondCard)));
-        window.findChild<QAction *>("startTx")->trigger();
-        window.findChild<QMenu *>("txMessageMenu")->hide();
+        // Deliver through the popup's QWindow, as native input does, rather than triggering QAction directly.
+        const auto clickTxMenu = [&](const char *actionName)
+        {
+            QContextMenuEvent context(QContextMenuEvent::Mouse, secondCard,
+                                      tx->viewport()->mapToGlobal(secondCard));
+            QApplication::sendEvent(tx->viewport(), &context);
+            auto *menu = window.findChild<QMenu *>("txMessageMenu");
+            auto *action = window.findChild<QAction *>(actionName);
+            QVERIFY(menu && menu->isVisible());
+            QVERIFY(action && action->isEnabled() && action->isVisible());
+            QVERIFY(menu->windowHandle());
+            QTest::mouseClick(menu->windowHandle(), Qt::LeftButton, Qt::NoModifier,
+                              menu->actionGeometry(action).center());
+            QCOMPARE(tx->currentRow(), 1);
+        };
+        clickTxMenu("startTx");
         QTRY_COMPARE(tx->item(1, 6)->text(), QString("Running"));
         QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
-        window.findChild<QAction *>("stopTx")->trigger();
+        clickTxMenu("stopTx");
         QTRY_COMPARE(tx->item(1, 6)->text(), QString("Stopped"));
         QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
         tx->setCurrentCell(0, 1);
@@ -1230,11 +1666,11 @@ private slots:
             QCOMPARE(baudEdit->cursorPosition(), 0);
         }
 
-        // 2. Verify portBox and baudBox child QLineEdit do not render square focus borders
+        // 2. Verify editable baudBox does not render square focus borders
         const QColor focusBorder("#4f46e5");
         const QColor focusOutline("#818cf8");
 
-        for (const auto &name : {"port", "baudRate"})
+        for (const auto &name : {"baudRate"})
         {
             auto *combo = window.findChild<QComboBox *>(name);
             QVERIFY(combo && combo->lineEdit());
@@ -1311,6 +1747,65 @@ private slots:
             QVERIFY2(hasTranslucent || hasMask,
                      qPrintable(QString("ComboBox '%1' popup window lacks WA_TranslucentBackground or mask")
                                 .arg(name)));
+        }
+    }
+
+    /** @brief Keep unavailable ports out of the selection-only dropdown without stealing startup focus. */
+    void unavailableSerialPort()
+    {
+        const QString missing = settingsDirectory.path() + "/missing-serial-device";
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        settings.setValue("serial/port", missing);
+        settings.sync();
+        MainWindow window;
+        window.show();
+        auto *port = window.findChild<QComboBox *>("port");
+        auto *refresh = window.findChild<QPushButton *>("refreshPorts");
+        QVERIFY(port && refresh);
+        QVERIFY(!port->isEditable());
+        QVERIFY(!port->lineEdit());
+        QTest::qWait(30);
+        QVERIFY(!port->hasFocus());
+        QTest::keyClick(&window, Qt::Key_Tab);
+        QTRY_VERIFY(port->hasFocus());
+        window.setFocus();
+        QVERIFY(port->currentText() != missing);
+        if (port->count() == 0)
+        {
+            QVERIFY(port->currentText().isEmpty());
+        }
+        const QString previous = port->currentText();
+        port->setCurrentText(missing);
+        QCOMPARE(port->currentText(), previous);
+        // Simulate a selected device that disappears from enumeration on Refresh.
+        port->addItem(missing);
+        port->setCurrentText(missing);
+        QCOMPARE(port->currentText(), missing);
+        refresh->click();
+        QCOMPARE(port->findText(missing), -1);
+        QVERIFY(port->currentText() != missing);
+        if (port->count() == 0)
+        {
+            QVERIFY(port->currentText().isEmpty());
+        }
+        const QString selected = port->currentText();
+        refresh->click();
+        QCOMPARE(port->currentText(), selected);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (int mode : {1, 2})
+        {
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+            QVERIFY(window.grab().save(QString("qa/serial-port-unavailable-%1.png")
+                                      .arg(mode == 1 ? "light" : "dark")));
+            if (port->count() > 0)
+            {
+                port->showPopup();
+                QTest::qWait(30);
+                QVERIFY(port->view()->window()->grab().save(QString("qa/serial-port-dropdown-%1.png")
+                                      .arg(mode == 1 ? "light" : "dark")));
+                port->hidePopup();
+            }
         }
     }
 
@@ -1435,6 +1930,157 @@ private slots:
                 QCOMPARE(connectButton->property("reconnecting").toBool(), false);
             }
         }
+    }
+
+    /** @brief Verify holding Ctrl while clicking Add message forces empty fields to 0. */
+    void addMessageCtrlForceZero()
+    {
+        MainWindow window;
+        window.show();
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(tx && add);
+
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            QVERIFY(catalog && buttons && fields);
+
+            auto *saveButton = buttons->button(QDialogButtonBox::Save);
+            QVERIFY(saveButton);
+            QVERIFY(saveButton->toolTip().contains("Ctrl"));
+
+            // Select PARAM_VALUE (msgid 22) which has empty fields
+            for (int i = 0; i < catalog->count(); ++i)
+            {
+                if (catalog->item(i)->data(Qt::UserRole).toUInt() == 22U)
+                {
+                    catalog->setCurrentRow(i);
+                    break;
+                }
+            }
+            QTest::qWait(20);
+
+            // Verify initial fields are empty
+            bool hasEmpty = false;
+            for (int r = 0; r < fields->rowCount(); ++r)
+            {
+                if (fields->item(r, 2) && fields->item(r, 2)->text().isEmpty())
+                {
+                    hasEmpty = true;
+                    break;
+                }
+            }
+            QVERIFY(hasEmpty);
+
+            // Hold Ctrl while clicking Add message
+            QTest::mouseClick(saveButton, Qt::LeftButton, Qt::ControlModifier);
+        });
+
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+        QCOMPARE(tx->item(0, 1)->text(), QString("PARAM_VALUE"));
+    }
+
+    /** @brief Verify Component ID enum dropdown suggestions, auto-conversion, tooltip and validation. */
+    void componentIdDropdownEnum()
+    {
+        MainWindow window;
+        window.show();
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(add);
+
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *sysid = dialog->findChild<QSpinBox *>("messageSysId");
+            auto *compid = dialog->findChild<QComboBox *>("messageCompId");
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            auto *saveButton = buttons ? buttons->button(QDialogButtonBox::Save) : nullptr;
+            auto *errorLabel = dialog->findChild<QLabel *>("validationError");
+            QVERIFY(compid && saveButton && errorLabel && sysid);
+
+            // Default is 1 -> MAV_COMP_ID_AUTOPILOT1
+            QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_AUTOPILOT1"));
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_AUTOPILOT1 = 1"));
+
+            if (auto *compLineEdit = compid->lineEdit())
+            {
+                if (auto *sysLineEdit = sysid->findChild<QLineEdit *>())
+                {
+                    QCOMPARE(compLineEdit->geometry().x(), sysLineEdit->geometry().x());
+                }
+            }
+
+            // Typing a numeric component ID like 100 auto-converts to MAV_COMP_ID_CAMERA on editingFinished
+            compid->setEditText("100");
+            if (compid->lineEdit())
+            {
+                emit compid->lineEdit()->editingFinished();
+            }
+            QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_CAMERA"));
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_CAMERA = 100"));
+
+            // Typing an arbitrary non-enum numeric ID like 215
+            compid->setEditText("215");
+            if (compid->lineEdit())
+            {
+                emit compid->lineEdit()->editingFinished();
+            }
+            QCOMPARE(compid->currentText(), QString("215"));
+            QVERIFY(compid->toolTip().contains("Component ID 215"));
+
+            // Typing an invalid value like "invalid_id" shows error on save
+            compid->setEditText("invalid_id");
+            saveButton->click();
+            QVERIFY(dialog->isVisible());
+            QVERIFY(errorLabel->text().contains("Component ID"));
+
+            // Set to MAV_COMP_ID_GIMBAL
+            compid->setEditText("MAV_COMP_ID_GIMBAL");
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_GIMBAL = 154"));
+
+            // Verify popup active highlight persistence across scrolling
+            compid->showPopup();
+            QVERIFY(compid->view());
+            const int gimbalRow = compid->findText("MAV_COMP_ID_GIMBAL");
+            QVERIFY(gimbalRow >= 0);
+            QCOMPARE(compid->itemData(gimbalRow, Qt::ToolTipRole).toString(), QString("154"));
+            QCOMPARE(compid->currentIndex(), gimbalRow);
+
+            if (auto *scrollBar = compid->view()->verticalScrollBar())
+            {
+                // Scroll to top
+                scrollBar->setValue(0);
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+
+                // Scroll to bottom
+                scrollBar->setValue(scrollBar->maximum());
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+
+                // Simulate mouse move over another item in viewport
+                const QModelIndex firstVisible = compid->view()->indexAt(QPoint(10, 10));
+                if (firstVisible.isValid())
+                {
+                    QMouseEvent moveEvent(QEvent::MouseMove, QPoint(10, 10), QPoint(10, 10),
+                                          Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(compid->view()->viewport(), &moveEvent);
+                }
+
+                // Active index remains MAV_COMP_ID_GIMBAL
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+            }
+            compid->hidePopup();
+
+            dialog->reject();
+        });
+
+        add->click();
     }
 };
 

@@ -22,6 +22,7 @@
   * Application preferences (`MAVLinkSimulator/Preferences`), layout geometry (`MAVLinkSimulator/Layout`), and workspace TX messages (`MAVLinkSimulator/Workspace`) are kept in separate `QSettings` scopes.
   * `QSignalBlocker` must be used during `restoreSettings()` to prevent widget signals (e.g., `valueChanged`) from triggering premature `saveSettings()`. Always invoke `settings.sync()` immediately after writing.
   * Serial Port (`serial/port`) and Baudrate (`serial/baud`) of the last successful connection are persisted upon successful connect and restored on launch.
+  * Port is selection-only, with no text editor, placeholder or startup focus. Startup/Refresh retains the previous port only if enumerated. With no available ports, Port is empty. PTY UI tests inject their fixture path into the dropdown model; production does not offer manual paths.
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
   * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
@@ -52,12 +53,41 @@
   * Do not toggle DTR/RTS aggressively to avoid unintended device resets.
   * DMA depends on hardware kernel drivers; never infer DMA support from PTY or asynchronous I/O.
 * **Multi-Agent Collaboration:**
-  * Divide complex or multi-step tasks among specialized Subagents (Research, Developer, Review, QA) for parallel execution and cross-verification.
+  * Proactively distribute multi-step or technically involved tasks across specialized **Subagents** (Research, Developer, Review, QA) for parallel execution, cross-checking, and time optimization.
+* **QA Artifacts Retention:**
+  * Do NOT clean up or delete generated verification images/screenshots in `qa/` or `build/qa/`; retain them for user inspection and visual regression review.
 * **Linux X11 Popups & Rounded Window Masks:**
   * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
-* **Editable ComboBox Text Clipping & Inner Focus Outlines:**
+* **Editable ComboBox Text Clipping, Alignment & Inner Padding:**
   * Child `QLineEdit` inside editable `QComboBox` inherits generic `QLineEdit:focus` styling; avoid QSS `outline` which ignores border-radius, and explicitly clear child line-edit borders/outlines (`QComboBox QLineEdit { border: none; outline: none; }`).
-  * Child text width is reduced by drop-down width and padding; maintain sufficient fixed width (≥140px for baud rates) and zero text margins to prevent horizontal scroll clipping on high rates.
+  * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
+  * Set `QComboBox:editable { padding: 4px 28px 4px 7px; }` with `QComboBox QLineEdit { padding: 0; margin: 0; border: 0; }` and zero left text margins (`setTextMargins(0, 0, 18, 0)`). This aligns the embedded `QLineEdit` geometry (`x = 8`) and its initial text rendering pixel (`X = 12`) pixel-perfect with `QSpinBox` (`padding: 7px; x = 8; X = 12`) without text clipping or chevron overlap.
+* **Enum Autocomplete in Dialog Inputs:**
+  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE (DESC)`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * Hold `Ctrl` while clicking Save/Add message forces all empty payload fields to zero.
+* **Dropdown Popup Selection Persistence & Active Highlight:**
+  * In Qt6, editable `QComboBox` does not automatically update `currentIndex()` from typed text, causing popup views to highlight index 0 and lose current selection during mouse hover or scroll.
+  * `WorkbenchComboBox` synchronizes `currentIndex()`, `view()->selectionModel()`, and auto-centers the view with `scrollTo()` upon `showPopup()`.
+  * `WorkbenchComboDelegate` persists the active item's highlight independently of mouse hover states, rendering a theme-aware background (`#4f46e5` / `#4338ca`), bold text, and a crisp vector checkmark (`✓`) so the selected item remains clearly distinguishable while scrolling.
+  * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
+* **TX Card Deselection on Clicking Elsewhere:**
+  * Only classify mouse presses delivered to `QWidget` receivers. Application event filters also see the popup's `QWindow` event before widget delivery; treating that non-widget receiver as an outside click clears the TX selection and disables context-menu actions before activation.
+  * In `QTableWidget` (`txTable`), clicking empty space in the viewport does not deselect items by default.
+  * Handled via `MainWindow::eventFilter()` on `QEvent::MouseButtonPress`: clicking invalid indices in `txTable->viewport()` or clicking outside `txTable` (e.g. headers, other dashboard panels, or toolbar, excluding scrollbars, modal dialogs, and `txMenu`) calls `txTable->clearSelection()`, `txTable->setCurrentCell(-1, -1)`, and `updateActions()` to dismiss active card focus.
+* **Decoded Fields Table (`inspector`) Styling & Consistency:**
+  * Synchronized with `payloadFields`: column headers (`Parameter`, `Type`, `Value`, with hidden `Unit`), row height (40px), header height (36px), column widths (190px, 105px, stretch), and QSS borders.
+  * Rendered via `ValueDelegate::paint()` as a clean view-only rounded pill (`drawRoundedRect(input, 5, 5)`) with monospace font and dynamic changed highlight (`#58a6ff` / `#0969da`), while strictly enforcing view-only semantics (`createEditor()` returns `nullptr`).
+  * Non-interactive display: `setSelectionMode(NoSelection)` and `setFocusPolicy(NoFocus)` prevent cells from being clicked, focused or highlighted with selection borders, while retaining right-click "Copy value" context menu and enum tooltips.
+* **RX Dashboard Smart Grouped Tree Architecture:**
+  * Clean 2-level hierarchy replacing obsolete 3-level tree: Level 1 is the Device group (`System X · Component Y`), and Level 2 contains the leaf message streams with a compact 16px indentation.
+  * Device Group Banner (Level 1): identity-only `System X · Component Y`, spanning the full row. No Rate, Count, status dot, age or auxiliary tooltip on the group. Bold 13 px text distinguishes it from message rows; there is no custom background or text color.
+  * Leaf Message Row (Level 2): Displays an inline status dot and `[ID] NAME` (Col 0), stream rate in Hz (Col 1), and frame count (Col 2). Status tooltips/accessibility use Active/Stale/Inactive without an age countdown.
+  * RX Column Layout: `RxHeader` uses Fixed resize mode with no dragging, reordering, double-click auto-fit, resize grips or hover indicators. The application alone computes widths: give Message approximately half of the viewport, distribute remaining space across Rate/Count, and fit every viewport without horizontal scrolling (scale normal minima180/90/80 below350 px). Ignore legacy `rxColumns` preferences and remove that key on save. Reset uses the same distribution; decoded-field header preferences remain independent.
+  * Centered Metrics & Distinct Headers: `Rate (Hz)` and `Count` values (along with their column headers) are cleanly centered (`Qt::AlignCenter`) on leaf items. Header sections retain subtle `border-right: 1px solid` to separate column labels, while keeping table rows unfragmented by vertical gridlines.
+  * Seamless Layout without Jarring Vertical Gridlines: Eliminated rigid vertical separator lines from intermediate columns, relying on horizontal separators (`border-bottom: 1px solid`) and cohesive group banners to maintain modern desktop ergonomics and avoid fragmented visual clutter.
+  * Focus Rect & Outline Suppression: `RxItemDelegate` strips `State_HasFocus` while QSS enforces `outline: none; border: none;` on selected and focused items, providing clean full-row solid highlight without distracting dotted frames.
+  * Inline Status Dots: `RxItemDelegate` uses `RxStatusIcon` vector decorations before Message text on leaf rows only. Freshness is stored in column0 at `Qt::UserRole + 2`, leaving identity roles untouched. Green Active at age<=1.2s, amber Stale through3.0s, muted Inactive afterward; no visible age or separate Status column. Device groups are identity-only.
+  * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
 
 ---
 

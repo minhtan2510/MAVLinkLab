@@ -88,12 +88,14 @@ private:
     QSpinBox *defaultCompIdBox = nullptr;
     QComboBox *defaultVersionBox = nullptr;
     QCheckBox *autoReconnectBox = nullptr;
+    QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;
     QTableWidget *txTable = nullptr;
+    QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
