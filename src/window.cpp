@@ -37,8 +37,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFocusEvent>
+#include <QHelpEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QToolTip>
 #include <QWindow>
 #include <algorithm>
 #include <limits>
@@ -271,6 +273,29 @@ public:
         return size;
     }
 
+    /**
+     * @brief Render tooltip displaying item value upon hovering popup entries.
+     * @param event Help event from Qt.
+     * @param view Parent abstract item view.
+     * @param option Style options for the item.
+     * @param index Model index being hovered.
+     * @return True if tooltip was displayed, false otherwise.
+     */
+    bool helpEvent(QHelpEvent *event, QAbstractItemView *view,
+                   const QStyleOptionViewItem &option, const QModelIndex &index) override
+    {
+        if (event && event->type() == QEvent::ToolTip && index.isValid())
+        {
+            const QString tip = index.data(Qt::ToolTipRole).toString();
+            if (!tip.isEmpty())
+            {
+                QToolTip::showText(event->globalPos(), tip, view, option.rect);
+                return true;
+            }
+        }
+        return QStyledItemDelegate::helpEvent(event, view, option, index);
+    }
+
 private:
     WorkbenchComboBox *m_combo = nullptr;
 };
@@ -291,6 +316,11 @@ public:
         if (view())
         {
             view()->installEventFilter(this);
+            view()->setAttribute(Qt::WA_AlwaysShowToolTips, true);
+            if (view()->viewport())
+            {
+                view()->viewport()->setAttribute(Qt::WA_AlwaysShowToolTips, true);
+            }
             if (QWidget *container = view()->window())
             {
                 container->setAttribute(Qt::WA_TranslucentBackground, true);
@@ -1155,29 +1185,56 @@ public:
     {
         if (option.widget && option.widget->objectName() == "payloadFields")
         {
-            QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-            font.setPixelSize(13);
-
             const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
             if (!suggestions.isEmpty())
             {
                 auto *combo = new WorkbenchComboBox(parent);
                 combo->setObjectName("payloadValueCombo");
                 combo->setAccessibleName(index.sibling(index.row(), 0).data().toString());
-                combo->setFont(font);
+
+                QFont comboFont = parent ? parent->window()->font() : QApplication::font();
+                if (parent && parent->window())
+                {
+                    if (const auto *compid = parent->window()->findChild<QComboBox *>("messageCompId"))
+                    {
+                        comboFont = compid->font();
+                    }
+                }
+                combo->setFont(comboFont);
                 combo->setEditable(true);
-                combo->addItems(suggestions);
+                const QVariantList tooltips = index.data(Qt::UserRole + 8).toList();
+                for (int sIdx = 0; sIdx < suggestions.size(); ++sIdx)
+                {
+                    const QString &sName = suggestions[sIdx];
+                    combo->addItem(sName);
+                    if (sIdx < tooltips.size())
+                    {
+                        combo->setItemData(sIdx, tooltips[sIdx].toString(), Qt::ToolTipRole);
+                    }
+                    else
+                    {
+                        const auto valOpt = Mav::lookupEnumValue(sName.toStdString());
+                        if (valOpt.has_value())
+                        {
+                            combo->setItemData(sIdx, QString::number(*valOpt), Qt::ToolTipRole);
+                        }
+                    }
+                }
                 if (auto *line = combo->lineEdit())
                 {
                     line->setObjectName("payloadValueEditor");
                     line->setAccessibleName(index.sibling(index.row(), 0).data().toString());
-                    line->setFont(font);
+                    line->setFont(comboFont);
                     line->setTextMargins(0, 0, 18, 0);
                     auto *completer = new QCompleter(suggestions, line);
                     completer->setCaseSensitivity(Qt::CaseInsensitive);
                     completer->setFilterMode(Qt::MatchContains);
                     line->setCompleter(completer);
                     line->installEventFilter(const_cast<ValueDelegate *>(this));
+                }
+                if (combo->view())
+                {
+                    combo->view()->setFont(comboFont);
                 }
                 QObject::connect(combo, QOverload<int>::of(&QComboBox::activated), combo, [this, combo](int)
                 {
@@ -1187,6 +1244,8 @@ public:
                 return combo;
             }
 
+            QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            font.setPixelSize(13);
             auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
             if (editor)
             {
@@ -2821,8 +2880,10 @@ void MainWindow::editMessage(bool edit)
     compSuggestions.reserve(int(compEntries.size()));
     for (const auto &entryItem : compEntries)
     {
-        compSuggestions << QString::fromLatin1(entryItem.name);
-        compid->addItem(QString::fromLatin1(entryItem.name), QVariant::fromValue<qulonglong>(entryItem.value));
+        const QString name = QString::fromLatin1(entryItem.name);
+        compSuggestions << name;
+        compid->addItem(name, QVariant::fromValue<qulonglong>(entryItem.value));
+        compid->setItemData(compid->count() - 1, QString::number(entryItem.value), Qt::ToolTipRole);
     }
 
     if (auto *line = compid->lineEdit())
@@ -3393,11 +3454,16 @@ void MainWindow::editMessage(bool edit)
             if (!enumEntries.empty())
             {
                 QStringList suggestions;
+                QVariantList tooltips;
+                suggestions.reserve(int(enumEntries.size()));
+                tooltips.reserve(int(enumEntries.size()));
                 for (const auto &e : enumEntries)
                 {
                     suggestions << QString::fromLatin1(e.name);
+                    tooltips << QString::number(e.value);
                 }
                 fields->item(int(i), 2)->setData(Qt::UserRole + 7, suggestions);
+                fields->item(int(i), 2)->setData(Qt::UserRole + 8, tooltips);
             }
             if (selectedInfo->msgid == MAVLINK_MSG_ID_HEARTBEAT && qstrcmp(field.name, "mavlink_version") == 0)
             {
@@ -4058,6 +4124,7 @@ void MainWindow::applyTheme()
         "QTableWidget#payloadFields::item { padding:0 10px; border-bottom:1px solid %4; }"
         "QTableWidget#payloadFields QHeaderView::section { background:%6; color:%3; padding:8px 10px; border-bottom:1px solid %4; }"
         "QLineEdit#payloadValueEditor { padding:0 8px; border-radius:5px; font-size:13px; selection-background-color:#4f46e5; selection-color:white; }"
+        "QComboBox QLineEdit#payloadValueEditor { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QSplitter::handle { background:transparent; }"
         "QStatusBar { color:%5; background:transparent; border:0; }"
         "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"

@@ -710,7 +710,16 @@ private slots:
                 // Test symbolic enum string input
                 fields->editItem(fields->item(paramTypeRow, 2));
                 auto *enumEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                auto *enumCombo = fields->findChild<QComboBox *>("payloadValueCombo");
+                auto *compIdCombo = dialog->findChild<QComboBox *>("messageCompId");
                 QVERIFY(enumEditor);
+                QVERIFY(enumCombo);
+                QVERIFY(compIdCombo);
+                QCOMPARE(enumCombo->font().family(), compIdCombo->font().family());
+                QCOMPARE(enumEditor->font().family(), compIdCombo->font().family());
+                const int real32Row = enumCombo->findText("MAV_PARAM_TYPE_REAL32");
+                QVERIFY(real32Row >= 0);
+                QCOMPARE(enumCombo->itemData(real32Row, Qt::ToolTipRole).toString(), QString("9"));
                 enumEditor->selectAll();
                 QTest::keyClicks(enumEditor, "MAV_PARAM_TYPE_REAL32");
                 QTest::keyClick(enumEditor, Qt::Key_Return);
@@ -1678,6 +1687,7 @@ private slots:
             QVERIFY(compid->view());
             const int gimbalRow = compid->findText("MAV_COMP_ID_GIMBAL");
             QVERIFY(gimbalRow >= 0);
+            QCOMPARE(compid->itemData(gimbalRow, Qt::ToolTipRole).toString(), QString("154"));
             QCOMPARE(compid->currentIndex(), gimbalRow);
 
             if (auto *scrollBar = compid->view()->verticalScrollBar())

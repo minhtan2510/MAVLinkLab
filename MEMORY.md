@@ -68,6 +68,7 @@
   * In Qt6, editable `QComboBox` does not automatically update `currentIndex()` from typed text, causing popup views to highlight index 0 and lose current selection during mouse hover or scroll.
   * `WorkbenchComboBox` synchronizes `currentIndex()`, `view()->selectionModel()`, and auto-centers the view with `scrollTo()` upon `showPopup()`.
   * `WorkbenchComboDelegate` persists the active item's highlight independently of mouse hover states, rendering a theme-aware background (`#4f46e5` / `#4338ca`), bold text, and a crisp vector checkmark (`✓`) so the selected item remains clearly distinguishable while scrolling.
+  * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
 
 ---
 
