@@ -1067,6 +1067,13 @@ private slots:
         rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
+        QCOMPARE(inspector->horizontalHeaderItem(0)->text(), QString("Parameter"));
+        QCOMPARE(inspector->horizontalHeaderItem(1)->text(), QString("Type"));
+        QCOMPARE(inspector->horizontalHeaderItem(2)->text(), QString("Value"));
+        QCOMPARE(inspector->verticalHeader()->defaultSectionSize(), 40);
+        QCOMPARE(inspector->editTriggers(), QAbstractItemView::NoEditTriggers);
+        QCOMPARE(inspector->selectionMode(), QAbstractItemView::NoSelection);
+        QCOMPARE(inspector->focusPolicy(), Qt::NoFocus);
         auto *fieldTitle = window.findChild<QLabel *>("inspectorMessageTitle");
         QVERIFY(fieldTitle);
         QTRY_COMPARE(fieldTitle->text(), QString("[30] ATTITUDE"));

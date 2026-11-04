@@ -1062,8 +1062,9 @@ public:
     {
         QStyleOptionViewItem styled(option);
         initStyleOption(&styled, index);
+        const bool isInspector = option.widget && option.widget->objectName() == "inspector";
         const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
-        const bool selected = option.state & QStyle::State_Selected;
+        const bool selected = !isInspector && (option.state & QStyle::State_Selected);
         painter->save();
         painter->fillRect(option.rect, selected ? styled.palette.color(QPalette::Highlight) :
                           styled.palette.color(QPalette::Base));
@@ -1075,7 +1076,7 @@ public:
         const QRect textRect = option.rect.adjusted(10, 0, -10, 0);
         painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
-        if (option.state & QStyle::State_HasFocus)
+        if (!isInspector && (option.state & QStyle::State_HasFocus))
         {
             painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
             painter->setBrush(Qt::NoBrush);
@@ -1090,10 +1091,12 @@ class ValueDelegate : public QStyledItemDelegate
 {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
-    /** @brief Keep editable payload values and invalid cells visible under the application stylesheet. */
+    /** @brief Keep editable payload values and decoded view-only cells visible and cleanly styled. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
-        if (!option.widget || option.widget->objectName() != "payloadFields")
+        const bool isPayload = option.widget && option.widget->objectName() == "payloadFields";
+        const bool isInspector = option.widget && option.widget->objectName() == "inspector";
+        if (!isPayload && !isInspector)
         {
             QStyledItemDelegate::paint(painter, option, index);
             return;
@@ -1101,10 +1104,11 @@ public:
         QStyleOptionViewItem styled(option);
         initStyleOption(&styled, index);
         const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
-        const bool invalid = index.data(Qt::UserRole + 1).toBool();
-        const bool selected = option.state & QStyle::State_Selected;
-        const bool editable = index.flags() & Qt::ItemIsEditable;
-        const bool hovered = option.state & QStyle::State_MouseOver;
+        const bool invalid = isPayload && index.data(Qt::UserRole + 1).toBool();
+        const bool selected = isPayload && (option.state & QStyle::State_Selected);
+        const bool editable = isPayload && (index.flags() & Qt::ItemIsEditable);
+        const bool hovered = isPayload && (option.state & QStyle::State_MouseOver);
+        const bool changed = isInspector && index.data(Qt::UserRole + 5).toBool();
         const QColor rowSurface = styled.palette.color(QPalette::Base);
         const QColor border(dark ? "#2d3a4e" : "#e5eaf2");
         const QRect input(option.rect.left() + 8, option.rect.top() + 6, option.rect.width() - 16, 28);
@@ -1113,20 +1117,28 @@ public:
         painter->fillRect(option.rect, rowSurface);
         painter->setPen(QPen(QColor(dark ? "#2d384b" : "#e8ecf3"), 1));
         painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
-        if (editable)
-        {
-            const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
-                                   selected || hovered ? QColor("#939bf0") : border;
-            painter->setPen(QPen(outline, selected || invalid ? 1.5 : 1));
-            painter->setBrush(invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
-                              selected ? QColor(dark ? "#293451" : "#f2f1ff") : QColor(dark ? "#1e293b" : "#fafbfd"));
-            painter->drawRoundedRect(input, 5, 5);
-        }
+
+        // Draw input box (either editable for payload or clean view-only pill for inspector/readonly)
+        const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
+                               changed ? QColor(dark ? "#388bfd" : "#0969da") :
+                               selected || hovered ? QColor("#939bf0") : border;
+        painter->setPen(QPen(outline, selected || invalid || changed ? 1.5 : 1.0));
+        const QColor boxBg = invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                             selected ? QColor(dark ? "#293451" : "#f2f1ff") :
+                             editable ? QColor(dark ? "#1e293b" : "#fafbfd") :
+                             QColor(dark ? "#1b283d" : "#f4f7fb");
+        painter->setBrush(boxBg);
+        painter->drawRoundedRect(input, 5, 5);
+
         painter->setFont(styled.font);
-        painter->setPen(styled.palette.color(QPalette::Text));
+        const QColor textColor = changed ? QColor(dark ? "#58a6ff" : "#0969da") :
+                                 isInspector ? QColor(dark ? "#c9d8eb" : "#24324a") :
+                                 styled.palette.color(QPalette::Text);
+        painter->setPen(textColor);
         const QRect textRect = input.adjusted(8, 0, -8, 0);
         painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
+
         if (invalid)
         {
             QFont errorFont = styled.font;
@@ -1136,7 +1148,7 @@ public:
                               QFontMetrics(errorFont).elidedText(index.data(Qt::UserRole + 4).toString(), Qt::ElideRight,
                                                                 option.rect.width() - 26));
         }
-        if (!editable && (option.state & QStyle::State_HasFocus))
+        if (!editable && !isInspector && (option.state & QStyle::State_HasFocus))
         {
             painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
             painter->setBrush(Qt::NoBrush);
@@ -1183,6 +1195,10 @@ public:
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override
     {
+        if (option.widget && option.widget->objectName() == "inspector")
+        {
+            return nullptr;
+        }
         if (option.widget && option.widget->objectName() == "payloadFields")
         {
             const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
@@ -2147,12 +2163,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setColumnWidth(2, 75);
     rxTree->setColumnWidth(3, 58);
     rxTree->setColumnWidth(4, 115);
-    inspector = table({"Field", "Type", "Value", "Unit"});
+    inspector = table({"Parameter", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));
     inspector->setItemDelegateForColumn(1, new PayloadIdentityDelegate(inspector));
     inspector->setAlternatingRowColors(false);
-    inspector->verticalHeader()->setDefaultSectionSize(36);
+    inspector->setSelectionMode(QAbstractItemView::NoSelection);
+    inspector->setFocusPolicy(Qt::NoFocus);
+    inspector->setMouseTracking(true);
+    inspector->verticalHeader()->setDefaultSectionSize(40);
+    inspector->horizontalHeader()->setFixedHeight(36);
+    inspector->horizontalHeader()->setMinimumSectionSize(90);
     inspector->setContextMenuPolicy(Qt::CustomContextMenu);
     auto *valueMenu = new QMenu(inspector);
     valueMenu->setObjectName("inspectorMenu");
@@ -2173,14 +2194,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         {
             return;
         }
-        inspector->setCurrentCell(row, 2);
         copyValue->setData(value->text());
         const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
         valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
     });
-    inspector->setColumnWidth(0, 150);
-    inspector->setColumnWidth(1, 90);
-    inspector->setColumnWidth(2, 220);
+    inspector->setColumnWidth(0, 190);
+    inspector->setColumnWidth(1, 105);
     inspector->horizontalHeader()->setStretchLastSection(false);
     inspector->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     inspector->hideColumn(3);
@@ -2481,9 +2500,8 @@ void MainWindow::resetLayout()
     }
     if (inspector)
     {
-        inspector->setColumnWidth(0, 150);
-        inspector->setColumnWidth(1, 90);
-        inspector->setColumnWidth(2, 220);
+        inspector->setColumnWidth(0, 190);
+        inspector->setColumnWidth(1, 105);
         inspector->hideColumn(3);
     }
     if (lastError)
@@ -4160,9 +4178,9 @@ void MainWindow::applyTheme()
         "QTableWidget#txTable::item,QTableWidget#txTable::item:selected,QTableWidget#txTable::item:hover { padding:0; background:transparent; border:0; }"
         "QTreeView::item { padding:5px 4px; border:0; }"
         "QHeaderView::section { background:%6; color:%5; padding:9px 8px; border:0; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
-        "QTableWidget#payloadFields { border:1px solid %4; border-radius:6px; }"
-        "QTableWidget#payloadFields::item { padding:0 10px; border-bottom:1px solid %4; }"
-        "QTableWidget#payloadFields QHeaderView::section { background:%6; color:%3; padding:8px 10px; border-bottom:1px solid %4; }"
+        "QTableWidget#payloadFields,QTableWidget#inspector { border:0; border-radius:0; }"
+        "QTableWidget#payloadFields::item,QTableWidget#inspector::item { padding:0 10px; border-bottom:1px solid %4; }"
+        "QTableWidget#payloadFields QHeaderView::section,QTableWidget#inspector QHeaderView::section { background:%6; color:%3; padding:8px 10px; border-bottom:1px solid %4; font-weight:600; font-size:12px; }"
         "QLineEdit#payloadValueEditor { padding:0 8px; border-radius:5px; font-size:13px; selection-background-color:#4f46e5; selection-color:white; }"
         "QComboBox QLineEdit#payloadValueEditor { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QSplitter::handle { background:transparent; }"
@@ -4206,7 +4224,8 @@ void MainWindow::applyTheme()
         "QLabel#inspectorMessageTitle { background:transparent; color:%4; font-size:12px; font-weight:600; }"
         "QLabel#inspectorSource { color:%4; font-size:12px; }"
         "QLabel#displayPaused { color:%7; background:%1; padding:2px 6px; border-radius:4px; font-size:11px; }"
-        "QTreeWidget#rxTree,QTableWidget#inspector { background:%1; alternate-background-color:%5; }"
+        "QTreeWidget#rxTree { background:%1; alternate-background-color:%5; }"
+        "QTableWidget#inspector { background:%1; border:0; }"
         "QTableWidget#txTable { background:transparent; }"
         "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
