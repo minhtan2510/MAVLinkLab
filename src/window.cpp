@@ -802,7 +802,7 @@ public:
             painter->setPen(badgeFg);
             QFont badgeFont = option.font;
             badgeFont.setPixelSize(11);
-            badgeFont.setBold(true);
+            badgeFont.setWeight(QFont::Medium);
             painter->setFont(badgeFont);
             painter->drawText(badge, Qt::AlignCenter, "Error");
         }
@@ -812,7 +812,7 @@ public:
             painter->setPen(badgeFg);
             QFont badgeFont = option.font;
             badgeFont.setPixelSize(11);
-            badgeFont.setBold(true);
+            badgeFont.setWeight(QFont::Medium);
             painter->setFont(badgeFont);
             painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Running");
         }
@@ -837,7 +837,7 @@ public:
         const int textLeft = card.left() + 24;
         QFont titleFont = option.font;
         titleFont.setPixelSize(13);
-        titleFont.setBold(true);
+        titleFont.setWeight(QFont::Normal);
         painter->setFont(titleFont);
         painter->setPen(foreground);
         const int maxTitleWidth = badge.left() - textLeft - 8;
@@ -859,7 +859,7 @@ public:
             const QString rateText = value(3) + " Hz";
             QFont pillFont = option.font;
             pillFont.setPixelSize(11);
-            pillFont.setBold(true);
+            pillFont.setWeight(QFont::Medium);
             const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
             const int pillWidth = rateAdvance + 12;
             const int pillLeft = textLeft + titleAdvance + 8;
@@ -882,12 +882,12 @@ public:
         QFont metaFont = option.font;
         metaFont.setPixelSize(12);
         metaFont.setBold(false);
-        QFont boldFont = metaFont;
-        boldFont.setBold(true);
+        QFont emphasisFont = metaFont;
+        emphasisFont.setWeight(QFont::Medium);
 
-        const auto drawPart = [&](const QString &txt, const QColor &col, bool isBold)
+        const auto drawPart = [&](const QString &txt, const QColor &col, bool emphasized)
         {
-            painter->setFont(isBold ? boldFont : metaFont);
+            painter->setFont(emphasized ? emphasisFont : metaFont);
             painter->setPen(col);
             const int adv = QFontMetrics(painter->font()).horizontalAdvance(txt);
             if (curX + adv <= card.right() - 8)
@@ -2585,7 +2585,7 @@ void MainWindow::updateTxHeights()
     const int scroll = txTable->verticalScrollBar()->value();
     QFont font = txTable->font();
     font.setPixelSize(13);
-    font.setBold(true);
+    font.setWeight(QFont::Normal);
     for (int row = 0; row < txTable->rowCount(); ++row)
     {
         if (!txTable->item(row, 0) || !txTable->item(row, 1))
@@ -3847,6 +3847,8 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         cell(txTable, row, 0, QString::number(entry.id));
         txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
         cell(txTable, row, 1, messageName(entry.id));
+        // Cards use the interface font rather than the numeric cell font.
+        txTable->item(row, 1)->setFont(txTable->font());
         cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
         cell(txTable, row, 3, QString::number(entry.hz, 'f', 0));
         cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
