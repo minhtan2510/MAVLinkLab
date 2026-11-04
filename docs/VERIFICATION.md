@@ -1,5 +1,11 @@
 # Verification evidence
 
+## Linux control-line deassertion (2026-11-04)
+
+After open and automatic reconnect, the worker clears DTR/RTS simultaneously and verifies driver readback. Hardware RTS/CTS retains driver ownership of RTS and clears/verifies DTR only; use Flow control None for the VIO policy. Control-line failure closes the port before Connected; reconnect continues retrying. Only ENOTTY from an identified slave PTY bypasses modem-line setup.
+
+**Verification:** full desktop build passed; CTest **3/3 passed in 17.46 s** (core, desktop, control-lines). The dedicated suite uses a real PTY for QSerialPort I/O and linker-wrapped worker modem ioctls for deterministic success/failure, asserted readback, hardware RTS ownership, EINTR retry, PTY-only ENOTTY exemption, and reconnect recovery after readback failure with no automatic TX. Existing desktop/PTY checks passed and their screenshots remain in `build/qa/`; no new visual review was performed for this transport-only change. CodeGraph sync/status and git diff --check passed. No Gimbal was connected: physical RESET, USB bridge behavior, UART, DMA and native desktop integration were not verified. Driver bit readback is not an electrical measurement, and a pulse during kernel open/close remains possible.
+
 **Date:** 2026-11-02. **Host:** Ubuntu 22.04, GCC 11.4.0, CMake 4.3.1.
 
 ## Dependencies used

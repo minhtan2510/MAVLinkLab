@@ -2,6 +2,58 @@
 #include <QFile>
 #include <QSerialPortInfo>
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+/** @brief Retry an interrupted modem-control ioctl without changing its mask. */
+static int modemIoctl(int fd, unsigned long request, int *bits)
+{
+    int result;
+    do
+    {
+        result = ::ioctl(fd, request, bits);
+    }
+    while (result < 0 && errno == EINTR);
+    return result;
+}
+
+QString SerialWorker::prepareControlLines()
+{
+    const int fd = port->handle();
+    int mask = TIOCM_DTR;
+    if (config.flow != QSerialPort::HardwareControl)
+    {
+        mask |= TIOCM_RTS;
+    }
+
+    // Clear both lines in one operation; separate transitions may reset the peer.
+    if (modemIoctl(fd, TIOCMBIC, &mask) < 0)
+    {
+        const int error = errno;
+        char path[256]{};
+        if (error == ENOTTY && ::ttyname_r(fd, path, sizeof(path)) == 0 &&
+            QByteArray(path).startsWith("/dev/pts/"))
+        {
+            return {};
+        }
+        return QString("Cannot deassert serial control lines: %1")
+            .arg(QString::fromLocal8Bit(std::strerror(error)));
+    }
+    int bits = 0;
+    if (modemIoctl(fd, TIOCMGET, &bits) < 0)
+    {
+        const int error = errno;
+        return QString("Cannot verify serial control lines: %1")
+            .arg(QString::fromLocal8Bit(std::strerror(error)));
+    }
+    if ((bits & mask) != 0)
+    {
+        return "Serial control lines remain asserted after deassertion";
+    }
+    return {};
+}
 
 SerialWorker::SerialWorker(QObject *parent) : QObject(parent)
 {
@@ -42,6 +94,7 @@ void SerialWorker::initialize()
     timer->start();
 }
 
+/** @brief Open the configured port and verify control lines before reporting Connected. */
 void SerialWorker::openPort(PortConfig requested)
 {
     closePort();
@@ -55,6 +108,14 @@ void SerialWorker::openPort(PortConfig requested)
     {
         emit stateChanged("Error", false);
         fail(port->errorString());
+        return;
+    }
+    const QString controlError = prepareControlLines();
+    if (!controlError.isEmpty())
+    {
+        closePort();
+        emit stateChanged("Error", false);
+        fail(controlError);
         return;
     }
     parser = {};
@@ -404,6 +465,7 @@ void SerialWorker::handleUnexpectedDisconnect(const QString &reason)
     }
 }
 
+/** @brief Retry opening the port and reapply control-line policy before reconnecting. */
 void SerialWorker::attemptReconnect()
 {
     if (!reconnecting || (port && port->isOpen()))
@@ -441,6 +503,14 @@ void SerialWorker::attemptReconnect()
                             port->setFlowControl(config.flow);
     if (!configured || !port->open(QIODevice::ReadWrite))
     {
+        return;
+    }
+
+    const QString controlError = prepareControlLines();
+    if (!controlError.isEmpty())
+    {
+        port->close();
+        fail(controlError);
         return;
     }
 

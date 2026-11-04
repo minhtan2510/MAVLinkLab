@@ -86,6 +86,11 @@ signals:
     void failure(QString message);
     void snapshotReady(SnapshotPtr snapshot);
 private:
+    /** @brief Deassert and verify host control lines; return an error or an empty string.
+     * @note Hardware flow control retains driver ownership of RTS. PTYs have no modem lines.
+     * @warning Post-open deassertion cannot prevent a transient pulse during kernel open.
+     */
+    QString prepareControlLines();
     /** @brief Drain a bounded input chunk through the official parser. */
     void readAvailable();
     /** @brief Advance scheduled transmissions and flush accepted bytes. */
