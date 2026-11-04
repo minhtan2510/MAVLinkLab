@@ -473,6 +473,14 @@ private slots:
                 QCOMPARE(rate->value(), 11.0);
                 rate->setValue(1);
                 QVERIFY(fields->item(0, 2)->text().isEmpty());
+
+                // Verify that initially NO field has an error flag or expanded error height
+                for (int r = 0; r < fields->rowCount(); ++r)
+                {
+                    QVERIFY(!fields->item(r, 2)->data(Qt::UserRole + 1).toBool());
+                    QCOMPARE(fields->rowHeight(r), 40);
+                }
+
                 fields->editItem(fields->item(0, 2));
                 auto *valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
                 QVERIFY(valueEditor);
@@ -481,6 +489,8 @@ private slots:
                 QTest::keyClicks(valueEditor, "1");
                 QTest::keyClick(valueEditor, Qt::Key_Return);
                 QTRY_COMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
+                QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                QCOMPARE(fields->rowHeight(0), 40);
 
                 search->setText("no_such_message");
                 QVERIFY(dialog->findChild<QLabel *>("catalogEmpty")->isVisible());
@@ -666,6 +676,18 @@ private slots:
                 }
                 QVERIFY(paramTypeRow >= 0);
                 QVERIFY(fields->item(paramTypeRow, 2)->text().isEmpty());
+
+                // Verify non-enum fields are also initially empty and not flagged as error
+                for (int row = 0; row < fields->rowCount(); ++row)
+                {
+                    const QString fieldName = fields->item(row, 0)->text();
+                    if (fieldName == "param_value" || fieldName == "param_count" || fieldName == "param_index")
+                    {
+                        QVERIFY(fields->item(row, 2)->text().isEmpty());
+                        QVERIFY(!fields->item(row, 2)->data(Qt::UserRole + 1).toBool());
+                    }
+                }
+
                 const QStringList suggestions = fields->item(paramTypeRow, 2)->data(Qt::UserRole + 7).toStringList();
                 QVERIFY(!suggestions.isEmpty());
                 bool foundReal32 = false;

@@ -986,7 +986,6 @@ public:
                     line->setAccessibleName(index.sibling(index.row(), 0).data().toString());
                     line->setFont(font);
                     line->setTextMargins(4, 0, 18, 0);
-                    line->setPlaceholderText("Select from dropdown or enter value…");
                     auto *completer = new QCompleter(suggestions, line);
                     completer->setCaseSensitivity(Qt::CaseInsensitive);
                     completer->setFilterMode(Qt::MatchContains);
@@ -1128,7 +1127,6 @@ protected:
             }
             if (index.data(Qt::UserRole + 1).toBool())
             {
-                option->text = "! " + option->text;
                 option->palette.setColor(QPalette::Text, QColor(dark ? "#ffb3bd" : "#b42340"));
                 option->palette.setColor(QPalette::HighlightedText, QColor(dark ? "#ffb3bd" : "#b42340"));
                 option->backgroundBrush = QColor(dark ? "#482e3f" : "#fff0f1");
@@ -2736,6 +2734,7 @@ void MainWindow::editMessage(bool edit)
     const mavlink_message_info_t *selectedInfo = nullptr;
     std::map<uint32_t, QStringList> drafts;
     bool loadingFields = false;
+    bool submissionAttempted = false;
     // Commit an active native editor before saving a draft or opening another editor.
     const auto commitEditor = [&]()
     {
@@ -2760,20 +2759,27 @@ void MainWindow::editMessage(bool edit)
             return true;
         }
         const auto &enumEntries = Mav::fieldEnumEntries(selectedInfo->msgid, selectedInfo->fields[row].name);
+        const QString currentText = item->text().trimmed();
+        const auto &field = selectedInfo->fields[row];
+        const bool isCharArray = (field.type == MAVLINK_TYPE_CHAR && field.array_length);
+
+        if (currentText.isEmpty() && !isCharArray)
+        {
+            const QSignalBlocker blocker(fields);
+            const bool showError = submissionAttempted;
+            item->setData(Qt::UserRole + 1, showError);
+            const QString emptyReason = !enumEntries.empty() ?
+                "Value required: please select or enter an enum name" :
+                "Value required: please enter a value";
+            item->setData(Qt::UserRole + 4, showError ? emptyReason : QString());
+            item->setData(Qt::AccessibleDescriptionRole, showError ? emptyReason : QString());
+            item->setToolTip(emptyReason);
+            fields->setRowHeight(row, showError ? 60 : 40);
+            return false;
+        }
+
         if (!enumEntries.empty())
         {
-            const QString currentText = item->text().trimmed();
-            if (currentText.isEmpty())
-            {
-                const QSignalBlocker blocker(fields);
-                item->setData(Qt::UserRole + 1, !loadingFields);
-                const QString emptyReason = "Value required: please select or enter an enum name";
-                item->setData(Qt::UserRole + 4, loadingFields ? QString() : emptyReason);
-                item->setData(Qt::AccessibleDescriptionRole, loadingFields ? QString() : emptyReason);
-                item->setToolTip(emptyReason);
-                fields->setRowHeight(row, loadingFields ? 40 : 60);
-                return false;
-            }
             bool ok = false;
             const qulonglong numVal = currentText.toULongLong(&ok, 0);
             if (ok)
@@ -2988,6 +2994,7 @@ void MainWindow::editMessage(bool edit)
     connect(catalogList, &QListWidget::currentItemChanged, &dialog, [&](QListWidgetItem *item)
     {
         commitEditor();
+        submissionAttempted = false;
         if (selectedInfo)
         {
             QStringList values;
@@ -3061,14 +3068,7 @@ void MainWindow::editMessage(bool edit)
             }
             else
             {
-                if (!enumEntries.empty())
-                {
-                    initialValue = QString();
-                }
-                else
-                {
-                    initialValue = QString::fromStdString(Mav::readField(source, field));
-                }
+                initialValue = QString();
             }
             cell(fields, int(i), 2, initialValue);
             if (!enumEntries.empty())
@@ -3127,6 +3127,7 @@ void MainWindow::editMessage(bool edit)
     {
         // Commit an active table editor before reading its value.
         commitEditor();
+        submissionAttempted = true;
         buttons->setFocus();
         error->clear();
         error->hide();
@@ -3153,6 +3154,14 @@ void MainWindow::editMessage(bool edit)
             if (!Mav::setField(entry.payload, selectedInfo->fields[i],
                               fields->item(int(i), 2)->text().toUtf8().toStdString(), reason))
             {
+                const QString val = fields->item(int(i), 2)->text().trimmed();
+                if (val.isEmpty())
+                {
+                    const auto &enumEntries = Mav::fieldEnumEntries(selectedInfo->msgid, selectedInfo->fields[i].name);
+                    reason = !enumEntries.empty() ?
+                        "Value required: please select or enter an enum name" :
+                        "Value required: please enter a value";
+                }
                 error->setText(QString("%1: %2").arg(selectedInfo->fields[i].name, QString::fromStdString(reason)));
                 error->show();
                 parameterSearch->clear();
