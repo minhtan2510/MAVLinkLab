@@ -454,6 +454,7 @@ private slots:
                 auto *splitter = dialog->findChild<QSplitter *>("messageSplitter");
                 QVERIFY(catalog && search && fields && title && hint && buttons && splitter);
                 QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
+                QVERIFY(buttons->button(QDialogButtonBox::Save)->toolTip().contains("Ctrl"));
                 QCOMPARE(title->text(), QString("[0] HEARTBEAT"));
                 auto *rate = dialog->findChild<QDoubleSpinBox *>();
                 QVERIFY(rate);
@@ -1555,6 +1556,60 @@ private slots:
                 QCOMPARE(connectButton->property("reconnecting").toBool(), false);
             }
         }
+    }
+
+    /** @brief Verify holding Ctrl while clicking Add message forces empty fields to 0. */
+    void addMessageCtrlForceZero()
+    {
+        MainWindow window;
+        window.show();
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(tx && add);
+
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            QVERIFY(catalog && buttons && fields);
+
+            auto *saveButton = buttons->button(QDialogButtonBox::Save);
+            QVERIFY(saveButton);
+            QVERIFY(saveButton->toolTip().contains("Ctrl"));
+
+            // Select PARAM_VALUE (msgid 22) which has empty fields
+            for (int i = 0; i < catalog->count(); ++i)
+            {
+                if (catalog->item(i)->data(Qt::UserRole).toUInt() == 22U)
+                {
+                    catalog->setCurrentRow(i);
+                    break;
+                }
+            }
+            QTest::qWait(20);
+
+            // Verify initial fields are empty
+            bool hasEmpty = false;
+            for (int r = 0; r < fields->rowCount(); ++r)
+            {
+                if (fields->item(r, 2) && fields->item(r, 2)->text().isEmpty())
+                {
+                    hasEmpty = true;
+                    break;
+                }
+            }
+            QVERIFY(hasEmpty);
+
+            // Hold Ctrl while clicking Add message
+            QTest::mouseClick(saveButton, Qt::LeftButton, Qt::ControlModifier);
+        });
+
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+        QCOMPARE(tx->item(0, 1)->text(), QString("PARAM_VALUE"));
     }
 };
 

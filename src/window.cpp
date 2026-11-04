@@ -2707,9 +2707,11 @@ void MainWindow::editMessage(bool edit)
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
     buttons->setLayoutDirection(Qt::RightToLeft);
     QWidget::setTabOrder(buttons->button(QDialogButtonBox::Cancel), buttons->button(QDialogButtonBox::Save));
-    buttons->button(QDialogButtonBox::Save)->setProperty("role", "primary");
-    buttons->button(QDialogButtonBox::Save)->setMinimumWidth(120);
-    buttons->button(QDialogButtonBox::Save)->setText(edit ? "Save changes" : "Add message");
+    auto *saveButton = buttons->button(QDialogButtonBox::Save);
+    saveButton->setProperty("role", "primary");
+    saveButton->setMinimumWidth(120);
+    saveButton->setText(edit ? "Save changes" : "Add message");
+    saveButton->setToolTip("Ctrl+Click to fill empty fields with 0");
     auto *footerRow = new QHBoxLayout;
     footerRow->setContentsMargins(0, 0, 0, 0);
     footerRow->setSpacing(12);
@@ -3127,6 +3129,34 @@ void MainWindow::editMessage(bool edit)
     {
         // Commit an active table editor before reading its value.
         commitEditor();
+
+        // Hold Ctrl while clicking to automatically populate remaining empty fields with 0
+        if (QApplication::keyboardModifiers() & Qt::ControlModifier)
+        {
+            for (int row = 0; row < fields->rowCount(); ++row)
+            {
+                auto *item = fields->item(row, 2);
+                if (item && (item->flags() & Qt::ItemIsEditable) && item->text().trimmed().isEmpty())
+                {
+                    QString zeroValue = "0";
+                    if (selectedInfo && row < int(selectedInfo->num_fields))
+                    {
+                        const auto &field = selectedInfo->fields[row];
+                        if (field.array_length > 1 && field.type != MAVLINK_TYPE_CHAR)
+                        {
+                            QStringList zeros;
+                            for (unsigned n = 0; n < field.array_length; ++n)
+                            {
+                                zeros.append("0");
+                            }
+                            zeroValue = zeros.join(", ");
+                        }
+                    }
+                    item->setText(zeroValue);
+                }
+            }
+        }
+
         submissionAttempted = true;
         buttons->setFocus();
         error->clear();
