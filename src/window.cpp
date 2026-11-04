@@ -1334,7 +1334,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settingsDialog->setObjectName("settingsDialog");
     settingsDialog->setWindowTitle("Settings");
     settingsDialog->setModal(true);
-    settingsDialog->setMinimumWidth(420);
+    settingsDialog->setMinimumWidth(440);
     auto *settingsDialogLayout = new QVBoxLayout(settingsDialog);
     settingsDialogLayout->setContentsMargins(20, 20, 20, 16);
     settingsDialogLayout->setSpacing(16);
@@ -1361,7 +1361,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     themeBox->setObjectName("theme");
     themeBox->addItems({"System", "Light", "Dark"});
     themeBox->setAccessibleName("Application theme");
-    themeBox->setFixedWidth(130);
+    themeBox->setFixedWidth(160);
     themeBox->setFixedHeight(32);
     themeRow->addWidget(themeBox);
     appearanceLayout->addLayout(themeRow);
@@ -1386,7 +1386,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         caption->setObjectName("secondaryText");
         row->addWidget(caption);
         row->addStretch();
-        control->setFixedWidth(130);
+        control->setFixedWidth(160);
         row->addWidget(control);
         cardLayout->addLayout(row);
     };
