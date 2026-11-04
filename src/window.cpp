@@ -38,11 +38,13 @@
 #include <QFileInfo>
 #include <QFocusEvent>
 #include <QHelpEvent>
+#include <QIconEngine>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QToolTip>
 #include <QWindow>
 #include <algorithm>
+#include <array>
 #include <limits>
 
 /** @brief Provide a themeable dialog title bar with native system dragging where available. */
@@ -1366,96 +1368,46 @@ protected:
     }
 };
 
-/**
- * @brief Custom delegate rendering stream status badges in the RX dashboard.
- */
-class RxStatusDelegate : public QStyledItemDelegate
+/** @brief Map receive age to a readable status without exposing a countdown. */
+static QString rxStatus(double age)
+{
+    return age <= 1.2 ? QString("Active") : age <= 3.0 ? QString("Stale") : QString("Inactive");
+}
+
+/** @brief Paint a status dot as a scalable vector decoration. */
+class RxStatusIcon : public QIconEngine
 {
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Retain the theme-aware dot color. */
+    explicit RxStatusIcon(const QColor &color) : color(color)
+    {
+    }
 
-    /**
-     * @brief Render the status pill reflecting message stream age and health.
-     * @param painter Active painter.
-     * @param option Style options for the cell.
-     * @param index Model index containing stream age data.
-     */
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    /** @brief Clone the icon engine for Qt icon ownership. */
+    QIconEngine *clone() const override
+    {
+        return new RxStatusIcon(color);
+    }
+
+    /** @brief Draw a small antialiased dot at the requested icon size. */
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State) override
     {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing);
-
-        if (option.state & QStyle::State_Selected)
+        QColor fill = color;
+        if (mode == QIcon::Disabled)
         {
-            painter->fillRect(option.rect, option.palette.highlight());
+            fill.setAlpha(100);
         }
-
-        const double age = index.data(Qt::UserRole).toDouble();
-        const bool dark = (option.palette.window().color().lightness() < 128);
-
-        QColor pillColor;
-        QColor pillBg;
-        QColor pillBorder;
-        QString label;
-
-        if (age <= 1.2)
-        {
-            pillColor = dark ? QColor("#3fb950") : QColor("#1a7f37");
-            pillBg = dark ? QColor(63, 185, 80, 28) : QColor(26, 127, 55, 24);
-            pillBorder = dark ? QColor(63, 185, 80, 80) : QColor(26, 127, 55, 60);
-            label = QString("● %1s").arg(age, 0, 'f', 1);
-        }
-        else if (age <= 3.0)
-        {
-            pillColor = dark ? QColor("#d29922") : QColor("#9a6700");
-            pillBg = dark ? QColor(210, 153, 34, 28) : QColor(154, 103, 0, 24);
-            pillBorder = dark ? QColor(210, 153, 34, 80) : QColor(154, 103, 0, 60);
-            label = QString("▲ %1s").arg(age, 0, 'f', 1);
-        }
-        else
-        {
-            pillColor = dark ? QColor("#8b949e") : QColor("#6e7781");
-            pillBg = dark ? QColor(139, 148, 158, 24) : QColor(110, 119, 129, 20);
-            pillBorder = dark ? QColor(139, 148, 158, 65) : QColor(110, 119, 129, 50);
-            label = (age > 99.0) ? QString("Inactive") : QString("✖ %1s").arg(age, 0, 'f', 0);
-        }
-
-        if (option.state & QStyle::State_Selected)
-        {
-            pillBg.setAlpha(dark ? 55 : 45);
-        }
-
-        const int pillWidth = qMin(option.rect.width() - 16, 88);
-        const int pillHeight = 22;
-        const QRect pillRect(option.rect.x() + (option.rect.width() - pillWidth) / 2,
-                            option.rect.y() + (option.rect.height() - pillHeight) / 2,
-                            pillWidth, pillHeight);
-
-        painter->setPen(QPen(pillBorder, 1));
-        painter->setBrush(pillBg);
-        painter->drawRoundedRect(pillRect, 11, 11);
-
-        QFont font = option.font;
-        font.setPixelSize(11);
-        font.setWeight(QFont::DemiBold);
-        painter->setFont(font);
-        painter->setPen(pillColor);
-        painter->drawText(pillRect, Qt::AlignCenter, label);
-
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(fill);
+        const qreal radius = qMin(rect.width(), rect.height()) / 3.0;
+        painter->drawEllipse(QPointF(rect.center()), radius, radius);
         painter->restore();
     }
 
-    /**
-     * @brief Size hint for the cell to maintain consistent row height.
-     * @param option Style options.
-     * @param index Model index.
-     * @return Ideal cell size.
-     */
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        Q_UNUSED(index);
-        return QSize(option.rect.width(), 34);
-    }
+private:
+    QColor color;
 };
 
 /**
@@ -1467,7 +1419,7 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
     /**
-     * @brief Paint cell content while suppressing dotted focus rectangle.
+     * @brief Paint cells while suppressing dotted focus outlines.
      * @param painter Active painter.
      * @param option Style options.
      * @param index Model index.
@@ -1478,6 +1430,108 @@ public:
         opt.state &= ~QStyle::State_HasFocus;
         QStyledItemDelegate::paint(painter, opt, index);
     }
+
+protected:
+    /** @brief Decorate Message with a theme-aware status dot while retaining native text layout. */
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        if (index.column() != 0 || !index.data(Qt::UserRole + 2).isValid())
+        {
+            return;
+        }
+        static const QIcon icons[] =
+        {
+            QIcon(new RxStatusIcon(QColor("#1a7f37"))),
+            QIcon(new RxStatusIcon(QColor("#9a6700"))),
+            QIcon(new RxStatusIcon(QColor("#6e7781"))),
+            QIcon(new RxStatusIcon(QColor("#3fb950"))),
+            QIcon(new RxStatusIcon(QColor("#d29922"))),
+            QIcon(new RxStatusIcon(QColor("#8b949e")))
+        };
+        const double age = index.data(Qt::UserRole + 2).toDouble();
+        const int status = age <= 1.2 ? 0 : age <= 3.0 ? 1 : 2;
+        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        option->icon = icons[(dark ? 3 : 0) + status];
+        option->decorationSize = QSize(12, 12);
+        option->features |= QStyleOptionViewItem::HasDecoration;
+    }
+};
+
+/** @brief Keep a locked RX column layout fitted to the viewport. */
+class RxHeader : public QHeaderView
+{
+public:
+    /** @brief Disable user resizing and keep all width changes under layout control. */
+    explicit RxHeader(QWidget *parent) : QHeaderView(Qt::Horizontal, parent)
+    {
+        setSectionsMovable(false);
+        setSectionsClickable(false);
+        setHighlightSections(false);
+        setSectionResizeMode(QHeaderView::Fixed);
+        setStretchLastSection(false);
+        setMinimumSectionSize(1);
+        setFixedHeight(36);
+        connect(this, &QHeaderView::sectionResized, this, [this]()
+        {
+            resetColumns();
+        });
+    }
+
+    /** @brief Apply the fixed column distribution at the current viewport width. */
+    void resetColumns()
+    {
+        if (adjusting || count() != 3 || !isVisible())
+        {
+            return;
+        }
+        adjusting = true;
+        const int available = qMax(viewport()->width(), 3);
+        const std::array<int, 3> minima{180, 90, 80};
+        std::array<int, 3> widths{};
+        if (available >= 350)
+        {
+            widths[0] = qBound(180, available / 2, available - 170);
+            const int surplus = available - widths[0] - 170;
+            for (int column = 1; column < 3; ++column)
+            {
+                widths[column] = minima[column] + surplus / 2 + (column <= surplus % 2 ? 1 : 0);
+            }
+        }
+        else
+        {
+            int remaining = available;
+            for (int column = 0; column < 2; ++column)
+            {
+                widths[column] = qMax(1, minima[column] * available / 350);
+                remaining -= widths[column];
+            }
+            widths[2] = remaining;
+        }
+        for (int column = 0; column < 3; ++column)
+        {
+            resizeSection(column, widths[column]);
+        }
+        adjusting = false;
+    }
+
+protected:
+    /** @brief Fit the locked layout after visible geometry is available. */
+    void showEvent(QShowEvent *event) override
+    {
+        QHeaderView::showEvent(event);
+        resetColumns();
+    }
+
+    /** @brief Keep the locked layout fitted when the viewport changes width. */
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QHeaderView::resizeEvent(event);
+        resetColumns();
+    }
+
+private:
+    bool adjusting = false;
 };
 
 /**
@@ -2234,29 +2288,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setHandleWidth(16);
     rxTree = new QTreeWidget;
     rxTree->setObjectName("rxTree");
-    rxTree->setHeaderLabels({"Message", "Rate (Hz)", "Count", "Status"});
+    rxTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    rxTree->setHeader(new RxHeader(rxTree));
+    rxTree->setHeaderLabels({"Message", "Rate (Hz)", "Count"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(1, Qt::AlignCenter);
     rxTree->headerItem()->setTextAlignment(2, Qt::AlignCenter);
-    rxTree->headerItem()->setTextAlignment(3, Qt::AlignCenter);
     rxTree->setRootIsDecorated(true);
     rxTree->setIndentation(16);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
-    rxTree->header()->setSectionsMovable(false);
-    rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
-    rxTree->header()->setCascadingSectionResizes(false);
-    rxTree->header()->setStretchLastSection(false);
-    rxTree->header()->setFixedHeight(36);
-    rxTree->header()->setMinimumSectionSize(65);
-    rxTree->setColumnWidth(0, 250);
-    rxTree->setColumnWidth(1, 85);
-    rxTree->setColumnWidth(2, 70);
-    rxTree->setColumnWidth(3, 95);
+    static_cast<RxHeader *>(rxTree->header())->resetColumns();
     rxTree->setItemDelegate(new RxItemDelegate(rxTree));
-    rxTree->setItemDelegateForColumn(3, new RxStatusDelegate(rxTree));
     inspector = table({"Parameter", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));
@@ -2570,26 +2615,7 @@ void MainWindow::restoreLayout()
     {
         findChild<QSplitter *>(name)->restoreState(settings.value(name).toByteArray());
     }
-    rxTree->header()->restoreState(settings.value("rxColumns").toByteArray());
-    rxTree->header()->setSectionsMovable(false);
-    rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
-    rxTree->header()->setCascadingSectionResizes(false);
-    rxTree->header()->setStretchLastSection(false);
-    for (int i = 0; i < rxTree->header()->count(); ++i)
-    {
-        const int visual = rxTree->header()->visualIndex(i);
-        if (visual != i)
-        {
-            rxTree->header()->moveSection(visual, i);
-        }
-    }
-    if (rxTree->columnWidth(0) < 150)
-    {
-        rxTree->setColumnWidth(0, 250);
-        rxTree->setColumnWidth(1, 85);
-        rxTree->setColumnWidth(2, 70);
-        rxTree->setColumnWidth(3, 95);
-    }
+    static_cast<RxHeader *>(rxTree->header())->resetColumns();
     inspector->horizontalHeader()->restoreState(settings.value("fieldColumns").toByteArray());
     // Hidden metadata is not part of the user-configurable table presentation.
     inspector->hideColumn(3);
@@ -2615,22 +2641,7 @@ void MainWindow::resetLayout()
     }
     if (rxTree)
     {
-        rxTree->header()->setSectionsMovable(false);
-        rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
-        rxTree->header()->setCascadingSectionResizes(false);
-        rxTree->header()->setStretchLastSection(false);
-        for (int i = 0; i < rxTree->header()->count(); ++i)
-        {
-            const int visual = rxTree->header()->visualIndex(i);
-            if (visual != i)
-            {
-                rxTree->header()->moveSection(visual, i);
-            }
-        }
-        rxTree->setColumnWidth(0, 250);
-        rxTree->setColumnWidth(1, 85);
-        rxTree->setColumnWidth(2, 70);
-        rxTree->setColumnWidth(3, 95);
+        static_cast<RxHeader *>(rxTree->header())->resetColumns();
     }
     if (inspector)
     {
@@ -2831,7 +2842,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     {
         settings.setValue(name, findChild<QSplitter *>(name)->saveState());
     }
-    settings.setValue("rxColumns", rxTree->header()->saveState());
+    settings.remove("rxColumns");
     settings.setValue("fieldColumns", inspector->horizontalHeader()->saveState());
     QMainWindow::closeEvent(event);
 }
@@ -3875,23 +3886,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     {
         const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
 
-        struct DeviceSummary
-        {
-            double totalHz = 0.0;
-            uint64_t totalCount = 0;
-            double minAge = 9999.0;
-            int streamCount = 0;
-        };
-        std::map<std::pair<uint32_t, uint8_t>, DeviceSummary> summaries;
-        for (const auto &entry : latest->rx)
-        {
-            auto &st = summaries[{entry.message.sysid, entry.message.compid}];
-            st.totalHz += entry.hz;
-            st.totalCount += entry.count;
-            st.minAge = qMin(st.minAge, entry.age);
-            st.streamCount++;
-        }
-
         for (const auto &entry : latest->rx)
         {
             const auto &message = entry.message;
@@ -3915,34 +3909,17 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 device->setData(0, Qt::UserRole, sysid);
                 device->setData(0, Qt::UserRole + 1, compid);
                 device->setExpanded(true);
+                device->setFirstColumnSpanned(true);
 
                 QFont groupFont = rxTree->font();
-                groupFont.setPixelSize(12);
-                groupFont.setWeight(QFont::DemiBold);
+                groupFont.setPixelSize(13);
+                groupFont.setWeight(QFont::Bold);
                 device->setFont(0, groupFont);
-                device->setFont(1, fixedFont);
-                device->setFont(2, fixedFont);
 
                 device->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
-                device->setTextAlignment(1, Qt::AlignCenter);
-                device->setTextAlignment(2, Qt::AlignCenter);
-                device->setTextAlignment(3, Qt::AlignCenter);
             }
 
-            const auto &st = summaries[{sysid, compid}];
             device->setText(0, QString("System %1 · Component %2").arg(sysid).arg(compid));
-            device->setForeground(0, QColor(dark ? "#c9d1d9" : "#24292f"));
-            const QColor groupBg = dark ? QColor("#1c273c") : QColor("#edf2f9");
-            for (int c = 0; c < 4; ++c)
-            {
-                device->setBackground(c, groupBg);
-            }
-            device->setText(1, QString::number(st.totalHz, 'f', st.totalHz < 10.0 && st.totalHz > 0 ? 1 : 0));
-            device->setText(2, QString::number(qulonglong(st.totalCount)));
-            device->setData(3, Qt::UserRole, st.minAge);
-            device->setText(3, QString("%1 s").arg(st.minAge, 0, 'f', 1));
-            device->setToolTip(0, QString("System %1, Component %2 (%3 active streams)")
-                                      .arg(sysid).arg(compid).arg(st.streamCount));
 
             QTreeWidgetItem *item = nullptr;
             for (int i = 0; i < device->childCount(); ++i)
@@ -3967,7 +3944,6 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 item->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
                 item->setTextAlignment(1, Qt::AlignCenter);
                 item->setTextAlignment(2, Qt::AlignCenter);
-                item->setTextAlignment(3, Qt::AlignCenter);
             }
 
             item->setText(0, QString("[%1] %2").arg(message.msgid).arg(messageName(message.msgid)));
@@ -3975,9 +3951,9 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             item->setData(1, Qt::UserRole, entry.hz);
             item->setText(2, QString::number(qulonglong(entry.count)));
             item->setData(2, Qt::UserRole, qulonglong(entry.count));
-            item->setData(3, Qt::UserRole, entry.age);
-            item->setText(3, QString("%1 s").arg(entry.age, 0, 'f', 1));
-            item->setToolTip(3, QString("Age: %1 s · %2").arg(entry.age, 0, 'f', 1).arg(entry.age > 1.2 ? "Stale" : "Active"));
+            item->setData(0, Qt::UserRole + 2, entry.age);
+            item->setToolTip(0, rxStatus(entry.age));
+            item->setData(0, Qt::AccessibleTextRole, item->text(0) + ", " + rxStatus(entry.age));
         }
         filterRx();
         updateInspector();
@@ -4410,16 +4386,6 @@ void MainWindow::applyTheme()
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
     setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
-    const QColor groupBg = dark ? QColor("#1c273c") : QColor("#edf2f9");
-    for (int row = 0; row < rxTree->topLevelItemCount(); ++row)
-    {
-        auto *device = rxTree->topLevelItem(row);
-        device->setForeground(0, QColor(dark ? "#c9d1d9" : "#24292f"));
-        for (int c = 0; c < 4; ++c)
-        {
-            device->setBackground(c, groupBg);
-        }
-    }
     for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})
     {
         auto *control = findChild<QPushButton *>(name);

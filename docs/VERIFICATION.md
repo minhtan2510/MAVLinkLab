@@ -438,3 +438,27 @@ Removed the minimum badge width and reduced horizontal padding to 8 px per side.
 New GUI messages initialize System ID and Component ID to 1; editing retains the saved IDs. Moved the rate unit from the numeric input suffix to the visible/accessibility label `Rate (Hz)`.
 
 **Verification:** build and full CTest 2/2 passed in 12.62 s. Editor checks assert sender defaults, rate accessible name and numeric-only input text. Reviewed regenerated minimum-size Light/Dark offscreen editors. Existing PTY and interaction checks passed. CodeGraph is current; git diff --check passed. Native desktop and physical UART were not retested.
+
+## Locked RX columns
+
+RX columns use a fixed layout controlled by the application. Header drag, reorder and double-click auto-fit are disabled; custom resize grips, hover feedback and resize cursors are removed. The three-column layout automatically fills the viewport without horizontal scrolling, giving Message approximately half of the viewport and distributing the remaining space among Rate and Count. Legacy RX header preferences are ignored; decoded-field header preferences are retained.
+
+Checks cover drag attempts in both directions on all column edges, double-clicks, fixed resize modes, legacy layouts, window resizing, vertical scrollbars, a 300 px tree, Reset Layout and Light/Dark renders. Images are retained in `build/qa/`, including `rx-columns-locked-*.png`.
+
+**Verification:** full build and CTest **3/3 passed in 20.55 s**. Drag/double-click attempts leave every column unchanged; fixed modes, ignored legacy RX header state, no horizontal scrollbar and viewport fitting are asserted. Reviewed populated Light/Dark offscreen dashboards at 1000 and 1440 px. Native desktop and physical UART were not retested.
+
+**Wider Message distribution:** Message now takes approximately half the viewport (bounded by the metric minima) and remains wider than each metric column. Build and targeted `rxColumnResizing`, `layoutPreferences` and `modernDashboard` checks passed (5 Qt entries, 0 failures). Reviewed regenerated Light/Dark offscreen dashboards at narrow and wide sizes; locking and no-scroll behavior remain covered.
+
+## Inline RX status dots
+
+Removed the separate Status column and age countdown. A scalable vector dot before Message indicates Active, Stale or Inactive for leaf streams. Tooltips/accessibility name the state without elapsed time. The three locked columns continue to fill the viewport without horizontal scrolling.
+
+**Verification:** full build and CTest **3/3 passed in 24.08 s**. A PTY check receives a frame and verifies transitions through Active/Stale/Inactive, the original freshness thresholds, tooltips and accessible text. Reviewed Light/Dark renders for all three states (`build/qa/rx-inline-*.png`) plus selected/populated narrow and wide dashboards. Native desktop and physical UART were not retested.
+
+## Identity-only RX group headings
+
+System/Component rows now display only their identity, spanning the table. Removed aggregate Rate/Count, group status dot and auxiliary tooltip; leaf metrics/status remain. Bold 13 px text alone distinguishes group headings; there is no custom background or foreground color.
+
+**Verification:** build and targeted `rxInlineStatus`, `modernDashboard`, `interactionStates` checks passed (5 Qt entries, 0 failures). Checks assert empty group metrics/tooltip/status role, a spanned bold heading and preserved message status transitions. Reviewed regenerated Light/Dark populated dashboards at narrow/wide sizes. Native desktop was not retested.
+
+**Final commit validation:** build and full CTest **3/3 passed in 24.27 s**, including the bold-only group heading with no custom background. Physical UART and native desktop integration were not retested.

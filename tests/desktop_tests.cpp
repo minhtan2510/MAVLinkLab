@@ -18,6 +18,8 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QHeaderView>
+#include <QMouseEvent>
+#include <array>
 #include <fcntl.h>
 #include <pty.h>
 #include <unistd.h>
@@ -769,6 +771,7 @@ private slots:
         QSize size;
         QList<int> dashboardSizes;
         QList<int> inspectorSizes;
+        int rxCountWidth = 0;
         {
             MainWindow window;
             window.show();
@@ -779,9 +782,10 @@ private slots:
             rxSplit->setSizes({230, 390});
             auto *rx = window.findChild<QTreeWidget *>("rxTree");
             auto *fields = window.findChild<QTableWidget *>("inspector");
-            rx->setColumnWidth(2, 96);
+
             fields->setColumnWidth(0, 185);
             QTest::qWait(30);
+            rxCountWidth = rx->columnWidth(2);
             size = window.size();
             dashboardSizes = dashboards->sizes();
             inspectorSizes = rxSplit->sizes();
@@ -796,7 +800,7 @@ private slots:
             QVERIFY(qAbs(actual[0] - dashboardSizes[0]) <= 2);
             const auto restored = window.findChild<QSplitter *>("rxSplit")->sizes();
             QVERIFY(qAbs(restored[0] - inspectorSizes[0]) <= 2);
-            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), 96);
+            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), rxCountWidth);
             QCOMPARE(window.findChild<QTableWidget *>("inspector")->columnWidth(0), 185);
             QCOMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Connect"));
             QCOMPARE(window.findChild<QTableWidget *>("txTable")->rowCount(), 0);
@@ -811,6 +815,151 @@ private slots:
         QTest::qWait(20);
         QVERIFY(window.width() >= 1000);
         QVERIFY(window.findChild<QSplitter *>("dashboards")->sizes().first() >= 340);
+    }
+
+    /** @brief Verify locked columns ignore resizing gestures and obsolete widths while always fitting. */
+    void rxColumnResizing()
+    {
+        // Obsolete interactive header preferences must not unlock or resize the new layout.
+        QTreeWidget legacy;
+        legacy.setColumnCount(4);
+        legacy.header()->setSectionsMovable(true);
+        legacy.header()->moveSection(0, 3);
+        legacy.setColumnWidth(0, 950);
+        legacy.hideColumn(2);
+        QSettings layout("MAVLinkSimulator", "Layout");
+        layout.setValue("version", 1);
+        layout.setValue("rxColumns", legacy.header()->saveState());
+        layout.sync();
+        MainWindow window;
+        window.show();
+        auto *rx = window.findChild<QTreeWidget *>("rxTree");
+        auto *header = rx->header();
+        const auto widths = [header]()
+        {
+            return std::array<int, 3>{header->sectionSize(0), header->sectionSize(1), header->sectionSize(2)};
+        };
+        const auto verifyFit = [&]()
+        {
+            QCOMPARE(rx->columnCount(), 3);
+            QCOMPARE(header->length(), rx->viewport()->width());
+            for (int column = 1; column < 3; ++column)
+            {
+                QVERIFY(header->sectionSize(0) > header->sectionSize(column));
+            }
+            QVERIFY(!header->sectionsMovable());
+            QCOMPARE(rx->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+            QVERIFY(!rx->horizontalScrollBar()->isVisible());
+            QCOMPARE(rx->horizontalScrollBar()->maximum(), 0);
+            for (int column = 0; column < 3; ++column)
+            {
+                QCOMPARE(header->sectionResizeMode(column), QHeaderView::Fixed);
+                QCOMPARE(header->visualIndex(column), column);
+                QVERIFY(!rx->isColumnHidden(column));
+                QVERIFY(header->sectionSize(column) > 0);
+            }
+        };
+        for (int width : {1000, 1440, 1920})
+        {
+            window.resize(width, 900);
+            QTest::qWait(30);
+            verifyFit();
+        }
+        auto *target = header->viewport();
+        for (int column = 0; column < 3; ++column)
+        {
+            const auto before = widths();
+            const QPoint edge(header->sectionViewportPosition(column) + header->sectionSize(column) - 1,
+                              target->height() / 2);
+            for (int delta : {-50, 50})
+            {
+                QMouseEvent press(QEvent::MouseButtonPress, edge, target->mapToGlobal(edge),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &press);
+                const QPoint end = edge + QPoint(delta, 0);
+                QMouseEvent move(QEvent::MouseMove, end, target->mapToGlobal(end),
+                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &move);
+                QMouseEvent release(QEvent::MouseButtonRelease, end, target->mapToGlobal(end),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &release);
+                QTest::mouseDClick(target, Qt::LeftButton, Qt::NoModifier, edge);
+                QCoreApplication::processEvents();
+                QVERIFY(widths() == before);
+                QVERIFY(target->cursor().shape() != Qt::SplitHCursor);
+            }
+        }
+        for (int row = 0; row < 80; ++row)
+        {
+            new QTreeWidgetItem(rx, {QString("Fixture message %1").arg(row)});
+        }
+        QTRY_VERIFY(rx->verticalScrollBar()->isVisible());
+        verifyFit();
+        rx->clear();
+        QTRY_VERIFY(!rx->verticalScrollBar()->isVisible());
+        verifyFit();
+        rx->setFixedWidth(300);
+        QTest::qWait(30);
+        verifyFit();
+        rx->setMinimumWidth(0);
+        rx->setMaximumWidth(QWIDGETSIZE_MAX);
+        window.findChild<QPushButton *>("resetLayout")->click();
+        QTest::qWait(30);
+        verifyFit();
+        QCOMPARE(header->sectionSize(0), rx->viewport()->width() / 2);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (int mode : {1, 2})
+        {
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+            verifyFit();
+            QVERIFY(window.grab().save(QString("qa/rx-columns-locked-%1.png").arg(mode == 1 ? "light" : "dark")));
+        }
+    }
+
+    /** @brief Verify inline status dots track real PTY receive freshness without a countdown. */
+    void rxInlineStatus()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+        MainWindow window;
+        window.show();
+        window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
+        auto *connection = window.findChild<QPushButton *>("connect");
+        connection->click();
+        QTRY_COMPARE(connection->text(), QString("Disconnect"));
+        mavlink_status_t status{};
+        Mav::Bytes payload(mavlink_get_msg_entry(0)->max_msg_len);
+        const auto frame = Mav::encode(0, 1, 154, false, payload, status);
+        QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
+        auto *rx = window.findChild<QTreeWidget *>("rxTree");
+        QTRY_COMPARE(rx->topLevelItemCount(), 1);
+        auto *device = rx->topLevelItem(0);
+        QTRY_COMPARE(device->childCount(), 1);
+        auto *item = device->child(0);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (const QString &state : {QString("Active"), QString("Stale"), QString("Inactive")})
+        {
+            QTRY_COMPARE(item->toolTip(0), state);
+            QCOMPARE(rx->columnCount(), 3);
+            QVERIFY(item->data(0, Qt::AccessibleTextRole).toString().endsWith(state));
+            QVERIFY(device->toolTip(0).isEmpty());
+            QVERIFY(device->text(1).isEmpty());
+            QVERIFY(device->text(2).isEmpty());
+            QVERIFY(!device->data(0, Qt::UserRole + 2).isValid());
+            QVERIFY(device->isFirstColumnSpanned());
+            QVERIFY(device->font(0).bold());
+            QVERIFY(!device->data(0, Qt::BackgroundRole).isValid());
+            const double age = item->data(0, Qt::UserRole + 2).toDouble();
+            QVERIFY(state == "Active" ? age <= 1.2 : state == "Stale" ? age > 1.2 && age <= 3.0 : age > 3.0);
+            for (int mode : {1, 2})
+            {
+                theme->setCurrentIndex(mode);
+                QVERIFY(window.grab().save(QString("qa/rx-inline-%1-%2.png")
+                    .arg(state.toLower(), mode == 1 ? "light" : "dark")));
+            }
+        }
+        connection->click();
     }
 
     /** @brief Verify application settings persistence and default MAVLink sender identity in new messages. */
@@ -1154,15 +1303,16 @@ private slots:
         QCOMPARE(rx->headerItem()->text(0), QString("Message"));
         QCOMPARE(rx->headerItem()->text(1), QString("Rate (Hz)"));
         QCOMPARE(rx->headerItem()->text(2), QString("Count"));
-        QCOMPARE(rx->headerItem()->text(3), QString("Status"));
+        QCOMPARE(rx->columnCount(), 3);
         QCOMPARE(rx->topLevelItem(0)->child(1)->text(0), QString("[30] ATTITUDE"));
-        QVERIFY(rx->topLevelItem(0)->child(1)->toolTip(0).isEmpty());
+        QCOMPARE(rx->topLevelItem(0)->child(1)->toolTip(0), QString("Active"));
         QVERIFY(!rx->header()->sectionsMovable());
-        QCOMPARE(rx->header()->sectionResizeMode(0), QHeaderView::Interactive);
+        QCOMPARE(rx->header()->sectionResizeMode(0), QHeaderView::Fixed);
         QCOMPARE(rx->headerItem()->textAlignment(1), int(Qt::AlignCenter));
         QCOMPARE(rx->headerItem()->textAlignment(2), int(Qt::AlignCenter));
-        QCOMPARE(rx->topLevelItem(0)->textAlignment(1), int(Qt::AlignCenter));
-        QCOMPARE(rx->topLevelItem(0)->textAlignment(2), int(Qt::AlignCenter));
+        QVERIFY(rx->topLevelItem(0)->isFirstColumnSpanned());
+        QVERIFY(rx->topLevelItem(0)->text(1).isEmpty());
+        QVERIFY(rx->topLevelItem(0)->text(2).isEmpty());
         QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(1), int(Qt::AlignCenter));
         QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(2), int(Qt::AlignCenter));
         QCOMPARE(inspector->horizontalHeaderItem(0)->text(), QString("Parameter"));
@@ -1209,6 +1359,17 @@ private slots:
             QTest::mouseMove(tx->viewport(), tx->visualItemRect(tx->item(1, 1)).center());
             QTest::qWait(30);
             QVERIFY(window.grab().save(mode == 1 ? "qa/modern-populated-light.png" : "qa/modern-populated-dark.png"));
+            for (int width : {1000, 1440, 1920})
+            {
+                window.resize(width, 900);
+                QTest::qWait(30);
+                QCOMPARE(rx->header()->length(), rx->viewport()->width());
+                for (int column = 1; column < rx->columnCount(); ++column)
+                {
+                    QVERIFY(rx->columnWidth(0) > rx->columnWidth(column));
+                }
+                QVERIFY(window.grab().save(QString("qa/rx-columns-%1-%2.png").arg(mode == 1 ? "light" : "dark").arg(width)));
+            }
             window.resize(1000, 720);
             QTest::qWait(30);
             QVERIFY(!window.findChild<QPushButton *>("sendOnce"));
