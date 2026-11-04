@@ -19,6 +19,8 @@
 #include <QTemporaryDir>
 #include <QHeaderView>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
+#include <QWindow>
 #include <array>
 #include <fcntl.h>
 #include <pty.h>
@@ -1396,12 +1398,25 @@ private slots:
             QTest::qWait(30);
         }
         const QPoint secondCard = tx->visualItemRect(tx->item(1, 1)).center();
-        QVERIFY(QMetaObject::invokeMethod(tx, "customContextMenuRequested", Q_ARG(QPoint, secondCard)));
-        window.findChild<QAction *>("startTx")->trigger();
-        window.findChild<QMenu *>("txMessageMenu")->hide();
+        // Deliver through the popup's QWindow, as native input does, rather than triggering QAction directly.
+        const auto clickTxMenu = [&](const char *actionName)
+        {
+            QContextMenuEvent context(QContextMenuEvent::Mouse, secondCard,
+                                      tx->viewport()->mapToGlobal(secondCard));
+            QApplication::sendEvent(tx->viewport(), &context);
+            auto *menu = window.findChild<QMenu *>("txMessageMenu");
+            auto *action = window.findChild<QAction *>(actionName);
+            QVERIFY(menu && menu->isVisible());
+            QVERIFY(action && action->isEnabled() && action->isVisible());
+            QVERIFY(menu->windowHandle());
+            QTest::mouseClick(menu->windowHandle(), Qt::LeftButton, Qt::NoModifier,
+                              menu->actionGeometry(action).center());
+            QCOMPARE(tx->currentRow(), 1);
+        };
+        clickTxMenu("startTx");
         QTRY_COMPARE(tx->item(1, 6)->text(), QString("Running"));
         QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
-        window.findChild<QAction *>("stopTx")->trigger();
+        clickTxMenu("stopTx");
         QTRY_COMPARE(tx->item(1, 6)->text(), QString("Stopped"));
         QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
         tx->setCurrentCell(0, 1);

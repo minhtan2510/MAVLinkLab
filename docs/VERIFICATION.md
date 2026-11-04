@@ -462,3 +462,9 @@ System/Component rows now display only their identity, spanning the table. Remov
 **Verification:** build and targeted `rxInlineStatus`, `modernDashboard`, `interactionStates` checks passed (5 Qt entries, 0 failures). Checks assert empty group metrics/tooltip/status role, a spanned bold heading and preserved message status transitions. Reviewed regenerated Light/Dark populated dashboards at narrow/wide sizes. Native desktop was not retested.
 
 **Final commit validation:** build and full CTest **3/3 passed in 24.27 s**, including the bold-only group heading with no custom background. Physical UART and native desktop integration were not retested.
+
+## TX context-menu click regression
+
+The application event filter previously interpreted mouse presses addressed to the popup's `QWindow` as outside clicks. This cleared TX selection and disabled actions before the menu received widget input. Deselection now classifies only `QWidget` receivers.
+
+**Verification:** build and full CTest **3/3 passed in 24.65 s**. The dashboard test opens the context menu with a context-menu event, clicks Start/Stop through its `QWindow`, and verifies the selected stream changes while the other stream retains its state. Existing outside-click deselection and Light/Dark checks pass. The failure was reproduced before the fix using a temporary popup-window input probe. These are offscreen/PTY results; native desktop integration was not verified because display `:1` was inaccessible.

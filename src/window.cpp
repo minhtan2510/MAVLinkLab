@@ -4114,7 +4114,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 const bool isMenu = qobject_cast<const QMenu *>(watched) || qobject_cast<const QMenuBar *>(watched);
                 const bool hasModal = QApplication::activeModalWidget() != nullptr;
 
-                if (!isScroll && !isTxMenu && !isMenu && !hasModal)
+                // Native QWindow events precede QWidget delivery; classify only widget clicks.
+                if (widget && !isScroll && !isTxMenu && !isMenu && !hasModal)
                 {
                     if (txTable->currentRow() >= 0 || !txTable->selectedItems().isEmpty())
                     {
