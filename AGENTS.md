@@ -15,7 +15,7 @@
 
 ## Project và architecture
 
-**MAVLinkSimulator** là desktop serial workbench cho **Ubuntu/Linux**.
+**MAVLinkLab** là desktop serial workbench cho **Ubuntu/Linux**.
 
 | Thành phần | Công nghệ / trách nhiệm |
 | --- | --- |
@@ -80,7 +80,7 @@ git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-./build/mavlink-simulator
+./build/mavlink-lab
 ```
 
 **Core-only** khi không có Qt:

@@ -1,7 +1,8 @@
 # Project Memory & Architecture Context
 
 ## 1. Project Overview & Core Stack
-* **Project Name:** MAVLinkSimulator (Ubuntu/Linux desktop serial workbench).
+* **Project Name:** MAVLinkLab (Ubuntu/Linux desktop serial workbench).
+* **Rename compatibility:** UI/application identity and CMake project are `MAVLinkLab`; executable is `mavlink-lab`. Explicit QSettings namespaces intentionally remain `MAVLinkSimulator` to retain existing user data.
 * **Language & Standard:** C++17, CMake ≥ 3.21.
 * **GUI & I/O:** Qt ≥ 6.2 Widgets, Qt SerialPort (asynchronous buffered I/O), Qt Test.
 * **MAVLink:** Official C library submodule pinned at `third_party/mavlink` (dialect: `ardupilotmega` including `common`).

@@ -1716,7 +1716,7 @@ static QString messageName(uint32_t id)
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
-    setWindowTitle("MAVLink Simulator");
+    setWindowTitle("MAVLinkLab");
     setMinimumSize(1000, 720);
     resize(1440, 900);
     auto *central = new QWidget;
@@ -1725,7 +1725,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     root->setContentsMargins(20, 10, 20, 8);
     root->setSpacing(16);
     auto *heading = new QHBoxLayout;
-    auto *title = new QLabel("MAVLink Simulator");
+    auto *title = new QLabel("MAVLinkLab");
     title->setObjectName("heading");
     title->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     title->setFixedHeight(40);
@@ -1914,17 +1914,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     auto *helpMenu = appMenuBar->addMenu("Help");
     helpMenu->setObjectName("helpMenu");
-    auto *aboutAction = helpMenu->addAction("About MAVLink Simulator", this, [this]()
+    auto *aboutAction = helpMenu->addAction("About MAVLinkLab", this, [this]()
     {
         QDialog dialog(this);
         dialog.setObjectName("aboutDialog");
-        dialog.setWindowTitle("About MAVLink Simulator");
+        dialog.setWindowTitle("About MAVLinkLab");
         auto *layout = new QVBoxLayout(&dialog);
         layout->setContentsMargins(20, 16, 20, 16);
         layout->setSpacing(12);
         layout = addDialogTitleBar(&dialog, layout);
         dialog.setMinimumWidth(480);
-        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_SIMULATOR_VERSION), &dialog);
+        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_LAB_VERSION), &dialog);
         version->setObjectName("secondaryText");
         layout->addWidget(version);
 

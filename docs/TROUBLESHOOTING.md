@@ -23,16 +23,16 @@ ctest --test-dir build --output-on-failure
 
 **Triệu chứng:** `Application not found`, `Configured Qt installation is missing`, `Qt runtime not found`, hoặc cửa sổ không phản ánh source mới.
 
-**Chẩn đoán:** [run.sh](../run.sh) không build; nó chạy executable có sẵn trong `build/` hoặc `MAVLINK_BUILD_DIR`. Qt path lấy từ `Qt6Core_DIR:PATH` trong CMake cache. Temporary prefix bị xóa khiến build đã link không còn runtime.
+**Chẩn đoán:** [cli.sh](../cli.sh) chạy executable `mavlink-lab` trong `build/` hoặc `MAVLINK_BUILD_DIR`; nếu executable chưa có, nó sẽ build trước khi chạy. Qt path lấy từ `Qt6Core_DIR:PATH` trong CMake cache. Temporary prefix bị xóa khiến build đã link không còn runtime.
 
 **Xử lý:** configure/build lại với Qt đang tồn tại, đóng rồi mở lại instance để dùng executable mới. Chọn build khác bằng:
 
 ```bash
-MAVLINK_BUILD_DIR=build-debug ./run.sh
-./run.sh --help
+MAVLINK_BUILD_DIR=build-debug ./cli.sh run
+./cli.sh help
 ```
 
-`build-debug` phải chứa build GUI hoàn chỉnh trước khi chạy. Relative build directory được tính từ project root, không từ terminal working directory. `--two` chỉ mở hai process độc lập; không tạo UART pair hay connect tự động.
+`build-debug` phải chứa build GUI hoàn chỉnh trước khi chạy. Relative build directory được tính từ project root, không từ terminal working directory. `run --two` chỉ mở hai process độc lập; không tạo UART pair hay connect tự động.
 
 **Platform plugin/display:** CTest đặt offscreen platform để chạy không cần desktop. Chạy GUI bình thường cần desktop session và Qt platform plugins phù hợp. Nếu chạy executable trực tiếp thiếu library/plugin paths, dùng launcher với CMake cache đúng installation. Offscreen test pass không xác nhận native desktop integration.
 

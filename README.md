@@ -1,8 +1,10 @@
-# MAVLink Simulator
+# MAVLinkLab
 
 **Send, receive and inspect MAVLink messages over serial UART.**
 
 A desktop workbench for **Ubuntu/Linux**, built with C++17 and Qt 6. Supports **MAVLink 1 & 2** using the official MAVLink C library and the **ardupilotmega** dialect, including **common**.
+
+Previously named MAVLinkSimulator. Existing preferences, layouts and optional TX workspaces remain compatible through the legacy `MAVLinkSimulator` settings namespace.
 
 ## What you can do
 
@@ -23,7 +25,7 @@ From the project root:
 git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build -j
-./build/mavlink-simulator
+./build/mavlink-lab
 ```
 
 If Qt is installed outside the system prefix, configure with its installation path:

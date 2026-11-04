@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLI workbench management tool for MAVLinkSimulator.
+# CLI workbench management tool for MAVLinkLab.
 # Supports both interactive menu mode and direct command arguments.
 
 set -eo pipefail
@@ -214,7 +214,7 @@ launch_instances()
         return 1
     fi
 
-    local app="$build_dir/mavlink-simulator"
+    local app="$build_dir/mavlink-lab"
 
     if [[ ! -x "$app" ]]; then
         printf "%bApplication not built yet. Building first...%b\n" "$YELLOW" "$NC"
@@ -229,12 +229,12 @@ launch_instances()
     setup_qt_env
 
     if [[ "$count" -eq 1 ]]; then
-        printf "\n%b=== Launching MAVLink Simulator (Single Window) ===%b\n" "$GREEN" "$NC"
+        printf "\n%b=== Launching MAVLinkLab (Single Window) ===%b\n" "$GREEN" "$NC"
         "$app" "$@"
         return $?
     fi
 
-    printf "\n%b=== Launching %d MAVLink Simulator Windows ===%b\n" "$GREEN" "$count" "$NC"
+    printf "\n%b=== Launching %d MAVLinkLab Windows ===%b\n" "$GREEN" "$count" "$NC"
     local pids=()
     for ((i = 1; i <= count; i++)); do
         "$app" "$@" &
@@ -263,7 +263,7 @@ launch_instances()
 }
 
 ##
-# @brief Launch single instance of MAVLinkSimulator.
+# @brief Launch single instance of MAVLinkLab.
 #
 run_single()
 {
@@ -275,7 +275,7 @@ run_single()
 #
 run_n_interactive()
 {
-    printf "\n%b=== Launch Multiple Simulator Instances ===%b\n" "$CYAN" "$NC"
+    printf "\n%b=== Launch Multiple MAVLinkLab Instances ===%b\n" "$CYAN" "$NC"
     local n_input
     read -rp "Enter number of windows to launch [default: 2]: " n_input
     n_input="${n_input:-2}"
@@ -393,11 +393,11 @@ show_help()
     printf "    build rebuild       Clean and rebuild full project\n"
     printf "    build clean         Delete build directories\n\n"
     printf "  Run:\n"
-    printf "    run                 Launch single MAVLink Simulator window\n"
-    printf "    run <N>             Launch N simulator windows (e.g. ./cli.sh run 3)\n"
-    printf "    run -n <N>          Launch N simulator windows\n"
-    printf "    run --two           Launch two simulator windows\n"
-    printf "    run-two             Alias for 2 simulator windows\n\n"
+    printf "    run                 Launch single MAVLinkLab window\n"
+    printf "    run <N>             Launch N MAVLinkLab windows (e.g. ./cli.sh run 3)\n"
+    printf "    run -n <N>          Launch N MAVLinkLab windows\n"
+    printf "    run --two           Launch two MAVLinkLab windows\n"
+    printf "    run-two             Alias for 2 MAVLinkLab windows\n\n"
     printf "  Test:\n"
     printf "    test [all]          Run all tests (Core & Desktop offscreen)\n"
     printf "    test core           Run core tests only\n\n"
@@ -568,7 +568,7 @@ menu_run()
 {
     while true; do
         local choice
-        prompt_menu "Run Simulator" choice \
+        prompt_menu "Run MAVLinkLab" choice \
             "Run single window" \
             "Run multi windows" \
             "← Back to Main Menu"
@@ -668,7 +668,7 @@ interactive_menu()
     safe_clear
     while true; do
         local choice
-        prompt_menu "MAVLink Simulator CLI Workbench" choice \
+        prompt_menu "MAVLinkLab CLI Workbench" choice \
             "[Build]  Build all, rebuild, or clean project" \
             "[Run]    Run project" \
             "[Test]   Run all tests or core tests" \
@@ -694,7 +694,7 @@ interactive_menu()
                 ;;
             4|-1)
                 printf "\033[?25h"
-                printf "\nExiting MAVLink Simulator CLI. Goodbye!\n"
+                printf "\nExiting MAVLinkLab CLI. Goodbye!\n"
                 exit 0
                 ;;
         esac

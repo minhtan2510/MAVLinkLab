@@ -156,7 +156,7 @@ private slots:
         QVERIFY(!qvariant_cast<SnapshotPtr>(snapshots.last()[0])->tx[0].entry.active);
         QVERIFY(!errors.empty());
         worker.closePort();
-        config.port = "/dev/mavlink-simulator-nonexistent";
+        config.port = "/dev/mavlink-lab-nonexistent";
         worker.openPort(config);
         QVERIFY(!states.last()[1].toBool());
         worker.closePort();

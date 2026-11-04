@@ -54,7 +54,7 @@ export QT_PLUGIN_PATH=/tmp/mavlink-qt-prefix/usr/lib/x86_64-linux-gnu/qt6/plugin
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/tmp/mavlink-qt-prefix/usr
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-./build/mavlink-simulator
+./build/mavlink-lab
 ```
 
 The CTest desktop test selects `QT_QPA_PLATFORM=offscreen`; the regular application uses the available native platform unless the environment overrides it. The temporary prefix may be removed by system cleanup/reboot. For a persistent build, use a complete matching Qt installation and reconfigure CMake.
@@ -478,3 +478,9 @@ The Port popup keeps the active-row highlight without a checkmark. Other dropdow
 **Verification:** build and full CTest **3/3 passed in 24.78 s**. Regression coverage includes unavailable saved/removed selections, rejecting text outside the dropdown, preserving an enumerated selection on Refresh, neutral startup focus and Tab access. PTY GUI tests inject fixture paths into the model without enabling manual input in production. Reviewed Light/Dark offscreen controls and popup rows (`build/qa/serial-port-*.png`); the current run enumerated `/dev/ttyUSB0`. Empty-list behavior was also verified in the earlier no-device run. Physical USB hotplug and native desktop integration were not verified.
 
 **Final validation:** full CTest **3/3 passed in 24.55 s** after the Port checkmark change. CLI syntax and a PTY harness with stub commands passed checks for repeated commands, Main Menu return, submenu re-entry and retaining highlights when cancelling; the Enter-to-continue prompt remains enabled.
+
+## MAVLinkLab project rename
+
+CMake project, application metadata, main heading/window title, About and CLI branding now use `MAVLinkLab`. The build/install executable is `mavlink-lab`; the launcher and documented commands use that name. Explicit `MAVLinkSimulator` QSettings scopes remain for compatibility with existing preferences, layouts and optional TX workspaces.
+
+**Verification:** configure/build passed; full CTest **3/3 passed in 24.37 s**, including existing settings/workspace checks. Install to `/tmp/mavlinklab-install` produced `bin/mavlink-lab`. CLI syntax/help, interactive selection retention, and single/two-instance launches using a stub executable passed. Reviewed regenerated populated Light/Dark offscreen dashboards with the new heading. Native desktop and physical UART were not retested.

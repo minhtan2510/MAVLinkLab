@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(MAVLinkSimulator VERSION 0.1.0 LANGUAGES CXX)
+project(MAVLinkLab VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -45,14 +45,14 @@ if(BUILD_GUI)
     endif()
     add_library(mavdesktop src/worker.cpp src/window.cpp)
     target_compile_definitions(mavdesktop PRIVATE
-        MAVLINK_SIMULATOR_VERSION="${PROJECT_VERSION}"
+        MAVLINK_LAB_VERSION="${PROJECT_VERSION}"
         MAVLINK_LIB_GIT_HASH="${MAVLINK_LIB_GIT_HASH}"
     )
     target_link_libraries(mavdesktop PUBLIC mavcore Qt6::Widgets Qt6::SerialPort)
     target_compile_options(mavdesktop PRIVATE -Wall -Wextra -Wpedantic)
-    add_executable(mavlink-simulator src/main.cpp)
-    target_link_libraries(mavlink-simulator PRIVATE mavdesktop)
-    install(TARGETS mavlink-simulator RUNTIME DESTINATION bin)
+    add_executable(mavlink-lab src/main.cpp)
+    target_link_libraries(mavlink-lab PRIVATE mavdesktop)
+    install(TARGETS mavlink-lab RUNTIME DESTINATION bin)
 endif()
 if(BUILD_TESTING)
     add_executable(core-tests tests/core_tests.cpp)

@@ -12,9 +12,9 @@
 | Protocol/core | [core.h](../src/core.h), [core.cpp](../src/core.cpp) | Official metadata adapter, codec, persistent parser, rates, capacity và bounded queue; không phụ thuộc Qt |
 | MAVLink | `third_party/mavlink` | Official generated C library, dialect `ardupilotmega` gồm `common` |
 | Tests | [core_tests.cpp](../tests/core_tests.cpp), [desktop_tests.cpp](../tests/desktop_tests.cpp) | Core boundaries, PTY integration, widget actions và offscreen screenshots |
-| Launcher | [run.sh](../run.sh) | Chạy build có sẵn với Qt runtime/plugin paths lấy từ CMake cache |
+| Launcher | [cli.sh](../cli.sh) | Chạy build có sẵn với Qt runtime/plugin paths lấy từ CMake cache |
 
-[CMakeLists.txt](../CMakeLists.txt) tạo `mavcore`, `mavdesktop`, executable `mavlink-simulator` và hai test targets. `BUILD_GUI=OFF` chỉ build core; `BUILD_TESTING=OFF` bỏ tests. Full build cần Qt ≥6.2 Widgets/SerialPort và Qt Test khi bật tests. Desktop tests dùng Linux PTY API và link `util`. Repository hiện không có CI workflow được theo dõi trong Git.
+[CMakeLists.txt](../CMakeLists.txt) tạo `mavcore`, `mavdesktop`, executable `mavlink-lab` và hai test targets. `BUILD_GUI=OFF` chỉ build core; `BUILD_TESTING=OFF` bỏ tests. Full build cần Qt ≥6.2 Widgets/SerialPort và Qt Test khi bật tests. Desktop tests dùng Linux PTY API và link `util`. Repository hiện không có CI workflow được theo dõi trong Git.
 
 MAVLink là git submodule, pin tại `a2d0ecf011a4aaa7840480e43f4e38d8c9e79d29` trong baseline được kiểm tra. Dùng revision của parent checkout làm chuẩn; không chỉnh generated headers để thêm application behavior.
 
