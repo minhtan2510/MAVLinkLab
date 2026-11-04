@@ -52,12 +52,18 @@
   * Do not toggle DTR/RTS aggressively to avoid unintended device resets.
   * DMA depends on hardware kernel drivers; never infer DMA support from PTY or asynchronous I/O.
 * **Multi-Agent Collaboration:**
-  * Divide complex or multi-step tasks among specialized Subagents (Research, Developer, Review, QA) for parallel execution and cross-verification.
+  * Proactively distribute multi-step or technically involved tasks across specialized **Subagents** (Research, Developer, Review, QA) for parallel execution, cross-checking, and time optimization.
+* **QA Artifacts Retention:**
+  * Do NOT clean up or delete generated verification images/screenshots in `qa/` or `build/qa/`; retain them for user inspection and visual regression review.
 * **Linux X11 Popups & Rounded Window Masks:**
   * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
-* **Editable ComboBox Text Clipping & Inner Focus Outlines:**
+* **Editable ComboBox Text Clipping, Alignment & Inner Padding:**
   * Child `QLineEdit` inside editable `QComboBox` inherits generic `QLineEdit:focus` styling; avoid QSS `outline` which ignores border-radius, and explicitly clear child line-edit borders/outlines (`QComboBox QLineEdit { border: none; outline: none; }`).
-  * Child text width is reduced by drop-down width and padding; maintain sufficient fixed width (≥140px for baud rates) and zero text margins to prevent horizontal scroll clipping on high rates.
+  * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
+  * Set `QComboBox:editable { padding: 4px 28px 4px 7px; }` with `QComboBox QLineEdit { padding: 0; margin: 0; border: 0; }` and zero left text margins (`setTextMargins(0, 0, 18, 0)`). This aligns the embedded `QLineEdit` geometry (`x = 8`) and its initial text rendering pixel (`X = 12`) pixel-perfect with `QSpinBox` (`padding: 7px; x = 8; X = 12`) without text clipping or chevron overlap.
+* **Enum Autocomplete in Dialog Inputs:**
+  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE (DESC)`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * Hold `Ctrl` while clicking Save/Add message forces all empty payload fields to zero.
 
 ---
 

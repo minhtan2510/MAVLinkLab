@@ -25,6 +25,13 @@ struct EnumEntry
 std::string fieldEnumType(uint32_t msgid, const std::string &fieldName);
 
 /**
+ * @brief Get list of enum entries for a given enum type name.
+ * @param enumName Name of the enum type (e.g. "MAV_COMPONENT").
+ * @return Vector of enum entries, or empty vector if none.
+ */
+const std::vector<EnumEntry> &enumEntries(const std::string &enumName);
+
+/**
  * @brief Get list of enum entries for a given message field.
  * @param msgid Message identifier.
  * @param fieldName Name of the field.
@@ -38,6 +45,14 @@ const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string
  * @return Integer value if recognized, std::nullopt otherwise.
  */
 std::optional<uint64_t> lookupEnumValue(const std::string &symbol);
+
+/**
+ * @brief Lookup enum symbol name from value for an enum type name.
+ * @param enumName Name of the enum type (e.g. "MAV_COMPONENT").
+ * @param value Integer value.
+ * @return Enum entry name or empty string if not found.
+ */
+std::string lookupEnumNameByType(const std::string &enumName, uint64_t value);
 
 /**
  * @brief Lookup enum symbol name from value for a field.

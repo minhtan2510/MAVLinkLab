@@ -312,14 +312,16 @@ private slots:
             auto *buttons = dialog->findChild<QDialogButtonBox *>();
             QVERIFY(fields && buttons);
             QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
-            const auto senderControls = dialog->findChildren<QSpinBox *>();
-            QCOMPARE(senderControls.size(), 2);
-            auto *component = senderControls[1];
-            const int originalComponent = component->value();
-            QTest::mouseClick(component, Qt::LeftButton, Qt::NoModifier, QPoint(component->width() - 10, 7));
-            QCOMPARE(component->value(), originalComponent + 1);
-            QTest::mouseClick(component, Qt::LeftButton, Qt::NoModifier, QPoint(component->width() - 10, component->height() - 7));
-            QCOMPARE(component->value(), originalComponent);
+            auto *sysidControl = dialog->findChild<QSpinBox *>("messageSysId");
+            auto *compidControl = dialog->findChild<QComboBox *>("messageCompId");
+            QVERIFY(sysidControl && compidControl);
+            const int originalSysId = sysidControl->value();
+            QTest::mouseClick(sysidControl, Qt::LeftButton, Qt::NoModifier, QPoint(sysidControl->width() - 10, 7));
+            QCOMPARE(sysidControl->value(), originalSysId + 1);
+            QTest::mouseClick(sysidControl, Qt::LeftButton, Qt::NoModifier, QPoint(sysidControl->width() - 10, sysidControl->height() - 7));
+            QCOMPARE(sysidControl->value(), originalSysId);
+            QCOMPARE(compidControl->currentText(), QString("MAV_COMP_ID_AUTOPILOT1"));
+            QVERIFY(compidControl->toolTip().contains("MAV_COMP_ID_AUTOPILOT1"));
             int uint8Row = -1;
             for (int i = 0; i < fields->rowCount(); ++i)
             {
@@ -832,11 +834,11 @@ private slots:
                 auto *dialog = window.findChild<QDialog *>("messageDialog");
                 QVERIFY(dialog);
                 auto *sysid = dialog->findChild<QSpinBox *>("messageSysId");
-                auto *compid = dialog->findChild<QSpinBox *>("messageCompId");
+                auto *compid = dialog->findChild<QComboBox *>("messageCompId");
                 auto *version = dialog->findChild<QComboBox *>("messageVersion");
                 QVERIFY(sysid && compid && version);
                 QCOMPARE(sysid->value(), 42);
-                QCOMPARE(compid->value(), 190);
+                QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_MISSIONPLANNER"));
                 QCOMPARE(version->currentIndex(), 1);
                 dialog->reject();
             });
@@ -1610,6 +1612,71 @@ private slots:
         add->click();
         QTRY_COMPARE(tx->rowCount(), 1);
         QCOMPARE(tx->item(0, 1)->text(), QString("PARAM_VALUE"));
+    }
+
+    /** @brief Verify Component ID enum dropdown suggestions, auto-conversion, tooltip and validation. */
+    void componentIdDropdownEnum()
+    {
+        MainWindow window;
+        window.show();
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(add);
+
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *sysid = dialog->findChild<QSpinBox *>("messageSysId");
+            auto *compid = dialog->findChild<QComboBox *>("messageCompId");
+            auto *buttons = dialog->findChild<QDialogButtonBox *>();
+            auto *saveButton = buttons ? buttons->button(QDialogButtonBox::Save) : nullptr;
+            auto *errorLabel = dialog->findChild<QLabel *>("validationError");
+            QVERIFY(compid && saveButton && errorLabel && sysid);
+
+            // Default is 1 -> MAV_COMP_ID_AUTOPILOT1
+            QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_AUTOPILOT1"));
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_AUTOPILOT1 = 1"));
+
+            if (auto *compLineEdit = compid->lineEdit())
+            {
+                if (auto *sysLineEdit = sysid->findChild<QLineEdit *>())
+                {
+                    QCOMPARE(compLineEdit->geometry().x(), sysLineEdit->geometry().x());
+                }
+            }
+
+            // Typing a numeric component ID like 100 auto-converts to MAV_COMP_ID_CAMERA on editingFinished
+            compid->setEditText("100");
+            if (compid->lineEdit())
+            {
+                emit compid->lineEdit()->editingFinished();
+            }
+            QCOMPARE(compid->currentText(), QString("MAV_COMP_ID_CAMERA"));
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_CAMERA = 100"));
+
+            // Typing an arbitrary non-enum numeric ID like 215
+            compid->setEditText("215");
+            if (compid->lineEdit())
+            {
+                emit compid->lineEdit()->editingFinished();
+            }
+            QCOMPARE(compid->currentText(), QString("215"));
+            QVERIFY(compid->toolTip().contains("Component ID 215"));
+
+            // Typing an invalid value like "invalid_id" shows error on save
+            compid->setEditText("invalid_id");
+            saveButton->click();
+            QVERIFY(dialog->isVisible());
+            QVERIFY(errorLabel->text().contains("Component ID"));
+
+            // Set to MAV_COMP_ID_GIMBAL
+            compid->setEditText("MAV_COMP_ID_GIMBAL");
+            QVERIFY(compid->toolTip().contains("MAV_COMP_ID_GIMBAL = 154"));
+
+            dialog->reject();
+        });
+
+        add->click();
     }
 };
 

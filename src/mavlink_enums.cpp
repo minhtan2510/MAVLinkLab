@@ -5602,17 +5602,18 @@ std::string fieldEnumType(uint32_t msgid, const std::string &fieldName)
     return it != map.end() ? it->second : std::string();
 }
 
-const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string &fieldName)
+const std::vector<EnumEntry> &enumEntries(const std::string &enumName)
 {
     static const std::vector<EnumEntry> empty;
-    const std::string type = fieldEnumType(msgid, fieldName);
-    if (type.empty())
-    {
-        return empty;
-    }
     const auto &defs = enumDefinitions();
-    const auto it = defs.find(type);
+    const auto it = defs.find(enumName);
     return it != defs.end() ? it->second : empty;
+}
+
+const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string &fieldName)
+{
+    const std::string type = fieldEnumType(msgid, fieldName);
+    return enumEntries(type);
 }
 
 std::optional<uint64_t> lookupEnumValue(const std::string &symbol)
@@ -5649,9 +5650,9 @@ std::optional<uint64_t> lookupEnumValue(const std::string &symbol)
     return std::nullopt;
 }
 
-std::string lookupEnumName(uint32_t msgid, const std::string &fieldName, uint64_t value)
+std::string lookupEnumNameByType(const std::string &enumName, uint64_t value)
 {
-    const auto &entries = fieldEnumEntries(msgid, fieldName);
+    const auto &entries = enumEntries(enumName);
     for (const auto &entry : entries)
     {
         if (entry.value == value)
@@ -5660,6 +5661,12 @@ std::string lookupEnumName(uint32_t msgid, const std::string &fieldName, uint64_
         }
     }
     return {};
+}
+
+std::string lookupEnumName(uint32_t msgid, const std::string &fieldName, uint64_t value)
+{
+    const std::string type = fieldEnumType(msgid, fieldName);
+    return lookupEnumNameByType(type, value);
 }
 
 } // namespace Mav

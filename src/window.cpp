@@ -985,7 +985,7 @@ public:
                     line->setObjectName("payloadValueEditor");
                     line->setAccessibleName(index.sibling(index.row(), 0).data().toString());
                     line->setFont(font);
-                    line->setTextMargins(4, 0, 18, 0);
+                    line->setTextMargins(0, 0, 18, 0);
                     auto *completer = new QCompleter(suggestions, line);
                     completer->setCaseSensitivity(Qt::CaseInsensitive);
                     completer->setFilterMode(Qt::MatchContains);
@@ -2625,12 +2625,124 @@ void MainWindow::editMessage(bool edit)
     auto *form = new QHBoxLayout;
     auto *sysid = new WorkbenchSpinBox<QSpinBox>;
     sysid->setObjectName("messageSysId");
-    auto *compid = new WorkbenchSpinBox<QSpinBox>;
+    auto *compid = new WorkbenchComboBox;
     compid->setObjectName("messageCompId");
+    compid->setEditable(true);
+
+    const auto &compEntries = Mav::enumEntries("MAV_COMPONENT");
+    QStringList compSuggestions;
+    compSuggestions.reserve(int(compEntries.size()));
+    for (const auto &entryItem : compEntries)
+    {
+        compSuggestions << QString::fromLatin1(entryItem.name);
+    }
+    compid->addItems(compSuggestions);
+
+    if (auto *line = compid->lineEdit())
+    {
+        line->setObjectName("messageCompIdEditor");
+        line->setTextMargins(0, 0, 18, 0);
+        auto *completer = new QCompleter(compSuggestions, line);
+        completer->setCaseSensitivity(Qt::CaseInsensitive);
+        completer->setFilterMode(Qt::MatchContains);
+        line->setCompleter(completer);
+    }
+
+    const auto updateCompIdTooltipAndNormalize = [compid, &compEntries](bool normalizeNumber)
+    {
+        QString text = compid->currentText().trimmed();
+        if (text.isEmpty())
+        {
+            compid->setToolTip(QString());
+            return;
+        }
+
+        const int paren = text.indexOf('(');
+        if (paren > 0)
+        {
+            text = text.left(paren).trimmed();
+        }
+
+        const Mav::EnumEntry *matched = nullptr;
+        bool ok = false;
+        const uint64_t numVal = text.toULongLong(&ok, 0);
+
+        if (ok)
+        {
+            for (const auto &e : compEntries)
+            {
+                if (e.value == numVal)
+                {
+                    matched = &e;
+                    break;
+                }
+            }
+            if (normalizeNumber && matched)
+            {
+                const QSignalBlocker blocker(compid);
+                compid->setEditText(QString::fromLatin1(matched->name));
+            }
+        }
+        else
+        {
+            for (const auto &e : compEntries)
+            {
+                if (text.compare(e.name, Qt::CaseInsensitive) == 0)
+                {
+                    matched = &e;
+                    break;
+                }
+            }
+        }
+
+        if (matched)
+        {
+            QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
+            if (matched->description && *matched->description)
+            {
+                tip += QString(" (%1)").arg(matched->description);
+            }
+            compid->setToolTip(tip);
+        }
+        else if (ok && numVal <= 255)
+        {
+            compid->setToolTip(QString("Component ID %1").arg(numVal));
+        }
+        else
+        {
+            compid->setToolTip(QString());
+        }
+    };
+
+    const std::string initialCompName = Mav::lookupEnumNameByType("MAV_COMPONENT", entry.compid);
+    if (!initialCompName.empty())
+    {
+        compid->setEditText(QString::fromLatin1(initialCompName));
+    }
+    else
+    {
+        compid->setEditText(QString::number(entry.compid));
+    }
+    updateCompIdTooltipAndNormalize(false);
+
+    QObject::connect(compid, &QComboBox::currentTextChanged, [updateCompIdTooltipAndNormalize](const QString &)
+    {
+        updateCompIdTooltipAndNormalize(false);
+    });
+    if (auto *line = compid->lineEdit())
+    {
+        QObject::connect(line, &QLineEdit::editingFinished, [updateCompIdTooltipAndNormalize]()
+        {
+            updateCompIdTooltipAndNormalize(true);
+        });
+    }
+    QObject::connect(compid, QOverload<int>::of(&QComboBox::activated), [updateCompIdTooltipAndNormalize](int)
+    {
+        updateCompIdTooltipAndNormalize(true);
+    });
+
     sysid->setRange(1, 255);
-    compid->setRange(0, 255);
     sysid->setValue(entry.sysid);
-    compid->setValue(entry.compid);
     auto *version = new WorkbenchComboBox;
     version->setObjectName("messageVersion");
     version->addItems({"MAVLink v2", "MAVLink v1"});
@@ -2640,7 +2752,7 @@ void MainWindow::editMessage(bool edit)
     rate->setRange(1, 1000);
     rate->setSingleStep(1);
     rate->setValue(entry.hz);
-    const auto fieldControl = [&](const QString &name, QWidget *control)
+    const auto fieldControl = [&](const QString &name, QWidget *control, int stretch = 1)
     {
         auto *field = new QVBoxLayout;
         field->setSpacing(6);
@@ -2653,12 +2765,12 @@ void MainWindow::editMessage(bool edit)
         control->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         field->addWidget(control);
         control->setAccessibleName(name);
-        form->addLayout(field, 1);
+        form->addLayout(field, stretch);
     };
-    fieldControl("System ID", sysid);
-    fieldControl("Component ID", compid);
+    fieldControl("System ID", sysid, 1);
+    fieldControl("Component ID", compid, 2);
     form->addSpacing(14);
-    fieldControl("Rate (Hz)", rate);
+    fieldControl("Rate (Hz)", rate, 1);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");
@@ -3173,11 +3285,43 @@ void MainWindow::editMessage(bool edit)
             error->show();
             return;
         }
+        QString compText = compid->currentText().trimmed();
+        const int compParen = compText.indexOf('(');
+        if (compParen > 0)
+        {
+            compText = compText.left(compParen).trimmed();
+        }
+        uint64_t resolvedCompId = 0;
+        bool compValid = false;
+        const auto symVal = Mav::lookupEnumValue(compText.toStdString());
+        if (symVal.has_value() && *symVal <= 255)
+        {
+            resolvedCompId = *symVal;
+            compValid = true;
+        }
+        else
+        {
+            bool ok = false;
+            const uint64_t num = compText.toULongLong(&ok, 0);
+            if (ok && num <= 255)
+            {
+                resolvedCompId = num;
+                compValid = true;
+            }
+        }
+        if (!compValid)
+        {
+            error->setText("Component ID must be between 0 and 255 or a valid MAV_COMPONENT enum");
+            error->show();
+            compid->setFocus();
+            return;
+        }
+
         const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
         entry.id = selectedInfo->msgid;
         entry.payload.assign(metadata->max_msg_len, 0);
         entry.sysid = uint8_t(sysid->value());
-        entry.compid = uint8_t(compid->value());
+        entry.compid = uint8_t(resolvedCompId);
         entry.version1 = version->currentIndex() == 1;
         entry.hz = rate->value();
         for (unsigned i = 0; i < selectedInfo->num_fields; ++i)
@@ -3682,6 +3826,7 @@ void MainWindow::applyTheme()
         "QPushButton[keyboardFocus=true],QPushButton[role=primary][keyboardFocus=true],QPushButton[role=success][keyboardFocus=true] { border:2px solid #818cf8; padding:6px 9px; outline:none; }"
         "QLineEdit,QSpinBox,QDoubleSpinBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:7px; }"
         "QComboBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:4px 28px 4px 10px; min-height:22px; outline:none; }"
+        "QComboBox:editable { padding:4px 28px 4px 7px; }"
         "QComboBox:hover { background:%6; border-color:#818cf8; }"
         "QComboBox:focus,QComboBox:on { border:1px solid #4f46e5; outline:none; }"
         "QComboBox:disabled { color:%5; background:%6; border-color:%4; }"

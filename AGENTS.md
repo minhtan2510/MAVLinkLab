@@ -8,9 +8,10 @@
 - Trong phase **analysis/review** được yêu cầu riêng, không chỉnh sửa file trước khi có yêu cầu implementation.
 - Khi chỉnh code, tóm tắt thay đổi trong 1–2 câu đầu. Báo kết quả, cách kiểm tra và giới hạn thực tế; không khẳng định đã kiểm chứng nếu chưa chạy.
 - Chỉ thay đổi trong scope được yêu cầu, giữ nguyên công việc sẵn có của user. Không commit/push/publish nếu chưa được yêu cầu.
+- **Bắt buộc đọc `MEMORY.md` ngay đầu phiên làm việc** trước khi phân tích hoặc thực hiện task để nắm vững các quyết định kiến trúc (ADR), conventions và gotchas đã được đúc kết. Cập nhật bài học mới vào `MEMORY.md` sau khi giải quyết các vấn đề quan trọng.
 - Hỏi trước khi xóa file có sẵn, thêm dependency ngoài stack đã chốt, cài package hệ thống hoặc thay đổi cấu hình OS. Không hỏi lại quyền đã được cấp trong session.
 - Không chỉnh sửa `.agents/`, `.codex/`, `.aws/`, global configuration hoặc truy xuất credentials cho công việc thông thường của project.
-- Với các tác vụ nhiều bước hoặc có độ phức tạp kỹ thuật (phân tích dialect MAVLink, can thiệp worker thread, refactor UI, kiểm thử tự động), chủ động chia việc cho các **Subagents** chuyên trách (Research, Developer, Review, QA) để phối hợp xử lý song song, rà soát chéo và tối ưu thời gian.
+- Với các tác vụ nhiều bước hoặc có độ phức tạp kỹ thuật (phân tích dialect MAVLink, can thiệp worker thread, refactor UI, kiểm thử tự động), **chủ động chia việc song song cho các Subagents chuyên trách** (Research, Developer, Review, QA) để phối hợp xử lý, rà soát chéo và tối ưu thời gian.
 
 ## Project và architecture
 
@@ -67,6 +68,7 @@
 - Với thay đổi UI, tự kiểm tra rendered consistency ở **Light/Dark**, hover, pressed, focus, enabled/disabled, dropdown popup rows, resize và theme changes trong cùng session. Sửa regression tái hiện được trước khi kết luận.
 - Phân biệt **offscreen render** với native desktop integration. Nếu không có môi trường render, báo rõ giới hạn.
 - Các form controls có indicator (như checkbox, combobox chevrons, spinbox arrows) phải kế thừa lớp chuyên dụng (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) và tự vẽ bằng `QPainter` vector antialiasing theme-aware; không dùng QSS màu khối đặc thô sơ làm mất biểu tượng checkmark/indicator.
+- Với `WorkbenchComboBox` editable, luôn đồng bộ căn lề trái với `QSpinBox` bằng cách đặt padding-left trực tiếp trên `QComboBox:editable` (`padding: 4px 28px 4px 7px;`), giữ child `QLineEdit` không padding (`padding: 0;`) và `line->setTextMargins(0, 0, 18, 0)` để tránh text bị đè lên chevron hoặc lệch lề (do Qt phớt lờ `padding-left` trên child `QLineEdit` của `QComboBox`).
 - Các tùy chọn tự động khôi phục dữ liệu phiên làm việc (như Restore TX messages) phải luôn có giá trị **mặc định là tắt (`false` / disabled)** để đảm bảo an toàn và giữ trạng thái ứng dụng sạch sẽ khi khởi động.
 
 ## Build và verification
@@ -95,6 +97,7 @@ ctest --test-dir build-core --output-on-failure
 - Tự kiểm tra syntax/types, API usage, initialization/lifetime, buffer bounds, state machine, concurrency và error handling. Cân nhắc sanitizers/static analysis khi có nguy cơ tương ứng.
 - Báo riêng **build**, **automated tests**, **rendered GUI**, **PTY**, **physical UART** và **DMA**. Test fixture không phải bằng chứng hardware.
 - Qt desktop tests tự chọn offscreen platform qua CTest và tạo ảnh tại `build/qa/`. Không đưa build artifacts hoặc `.codegraph/` vào Git.
+- **Không xóa hoặc cleanup thư mục `qa/` và `build/qa/`** sau khi chạy test; giữ nguyên các ảnh chụp kiểm thử offscreen để người dùng có thể trực tiếp thanh tra giao diện và theo dõi visual regression.
 - Cập nhật documentation liên quan khi behavior/workflow thay đổi. Gợi ý commit message khi user yêu cầu version-control work.
 
 <!-- CODEGRAPH_START -->

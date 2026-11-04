@@ -136,6 +136,13 @@ struct EnumEntry
 std::string fieldEnumType(uint32_t msgid, const std::string &fieldName);
 
 /**
+ * @brief Get list of enum entries for a given enum type name.
+ * @param enumName Name of the enum type (e.g. "MAV_COMPONENT").
+ * @return Vector of enum entries, or empty vector if none.
+ */
+const std::vector<EnumEntry> &enumEntries(const std::string &enumName);
+
+/**
  * @brief Get list of enum entries for a given message field.
  * @param msgid Message identifier.
  * @param fieldName Name of the field.
@@ -149,6 +156,14 @@ const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string
  * @return Integer value if recognized, std::nullopt otherwise.
  */
 std::optional<uint64_t> lookupEnumValue(const std::string &symbol);
+
+/**
+ * @brief Lookup enum symbol name from value for an enum type name.
+ * @param enumName Name of the enum type (e.g. "MAV_COMPONENT").
+ * @param value Integer value.
+ * @return Enum entry name or empty string if not found.
+ */
+std::string lookupEnumNameByType(const std::string &enumName, uint64_t value);
 
 /**
  * @brief Lookup enum symbol name from value for a field.
@@ -243,17 +258,18 @@ def generate_source(source_path: Path, enums, field_mappings, all_symbols):
     lines.append('    return it != map.end() ? it->second : std::string();')
     lines.append('}')
     lines.append('')
-    lines.append('const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string &fieldName)')
+    lines.append('const std::vector<EnumEntry> &enumEntries(const std::string &enumName)')
     lines.append('{')
     lines.append('    static const std::vector<EnumEntry> empty;')
-    lines.append('    const std::string type = fieldEnumType(msgid, fieldName);')
-    lines.append('    if (type.empty())')
-    lines.append('    {')
-    lines.append('        return empty;')
-    lines.append('    }')
     lines.append('    const auto &defs = enumDefinitions();')
-    lines.append('    const auto it = defs.find(type);')
+    lines.append('    const auto it = defs.find(enumName);')
     lines.append('    return it != defs.end() ? it->second : empty;')
+    lines.append('}')
+    lines.append('')
+    lines.append('const std::vector<EnumEntry> &fieldEnumEntries(uint32_t msgid, const std::string &fieldName)')
+    lines.append('{')
+    lines.append('    const std::string type = fieldEnumType(msgid, fieldName);')
+    lines.append('    return enumEntries(type);')
     lines.append('}')
     lines.append('')
     lines.append('std::optional<uint64_t> lookupEnumValue(const std::string &symbol)')
@@ -290,9 +306,9 @@ def generate_source(source_path: Path, enums, field_mappings, all_symbols):
     lines.append('    return std::nullopt;')
     lines.append('}')
     lines.append('')
-    lines.append('std::string lookupEnumName(uint32_t msgid, const std::string &fieldName, uint64_t value)')
+    lines.append('std::string lookupEnumNameByType(const std::string &enumName, uint64_t value)')
     lines.append('{')
-    lines.append('    const auto &entries = fieldEnumEntries(msgid, fieldName);')
+    lines.append('    const auto &entries = enumEntries(enumName);')
     lines.append('    for (const auto &entry : entries)')
     lines.append('    {')
     lines.append('        if (entry.value == value)')
@@ -301,6 +317,12 @@ def generate_source(source_path: Path, enums, field_mappings, all_symbols):
     lines.append('        }')
     lines.append('    }')
     lines.append('    return {};')
+    lines.append('}')
+    lines.append('')
+    lines.append('std::string lookupEnumName(uint32_t msgid, const std::string &fieldName, uint64_t value)')
+    lines.append('{')
+    lines.append('    const std::string type = fieldEnumType(msgid, fieldName);')
+    lines.append('    return lookupEnumNameByType(type, value);')
     lines.append('}')
     lines.append('')
     lines.append('} // namespace Mav')
