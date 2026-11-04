@@ -1673,6 +1673,37 @@ private slots:
             compid->setEditText("MAV_COMP_ID_GIMBAL");
             QVERIFY(compid->toolTip().contains("MAV_COMP_ID_GIMBAL = 154"));
 
+            // Verify popup active highlight persistence across scrolling
+            compid->showPopup();
+            QVERIFY(compid->view());
+            const int gimbalRow = compid->findText("MAV_COMP_ID_GIMBAL");
+            QVERIFY(gimbalRow >= 0);
+            QCOMPARE(compid->currentIndex(), gimbalRow);
+
+            if (auto *scrollBar = compid->view()->verticalScrollBar())
+            {
+                // Scroll to top
+                scrollBar->setValue(0);
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+
+                // Scroll to bottom
+                scrollBar->setValue(scrollBar->maximum());
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+
+                // Simulate mouse move over another item in viewport
+                const QModelIndex firstVisible = compid->view()->indexAt(QPoint(10, 10));
+                if (firstVisible.isValid())
+                {
+                    QMouseEvent moveEvent(QEvent::MouseMove, QPoint(10, 10), QPoint(10, 10),
+                                          Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(compid->view()->viewport(), &moveEvent);
+                }
+
+                // Active index remains MAV_COMP_ID_GIMBAL
+                QCOMPARE(compid->currentIndex(), gimbalRow);
+            }
+            compid->hidePopup();
+
             dialog->reject();
         });
 

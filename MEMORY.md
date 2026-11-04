@@ -64,6 +64,10 @@
 * **Enum Autocomplete in Dialog Inputs:**
   * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE (DESC)`), and bidirectional conversion between integer IDs and symbolic enum names.
   * Hold `Ctrl` while clicking Save/Add message forces all empty payload fields to zero.
+* **Dropdown Popup Selection Persistence & Active Highlight:**
+  * In Qt6, editable `QComboBox` does not automatically update `currentIndex()` from typed text, causing popup views to highlight index 0 and lose current selection during mouse hover or scroll.
+  * `WorkbenchComboBox` synchronizes `currentIndex()`, `view()->selectionModel()`, and auto-centers the view with `scrollTo()` upon `showPopup()`.
+  * `WorkbenchComboDelegate` persists the active item's highlight independently of mouse hover states, rendering a theme-aware background (`#4f46e5` / `#4338ca`), bold text, and a crisp vector checkmark (`✓`) so the selected item remains clearly distinguishable while scrolling.
 
 ---
 

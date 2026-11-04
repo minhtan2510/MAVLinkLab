@@ -236,7 +236,46 @@ static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QStri
     return {};
 }
 
-/** @brief Keep native combo interaction with a theme-aware vector chevron. */
+class WorkbenchComboBox;
+
+/**
+ * @brief Custom delegate for combo popup items rendering selection highlight, hover, and vector checkmark.
+ */
+class WorkbenchComboDelegate : public QStyledItemDelegate
+{
+public:
+    /**
+     * @brief Construct delegate bound to a WorkbenchComboBox.
+     * @param combo Parent combo box pointer.
+     */
+    explicit WorkbenchComboDelegate(WorkbenchComboBox *combo);
+
+    /**
+     * @brief Render popup item with persistent active highlight, hover feedback, and checkmark.
+     * @param painter Active painter.
+     * @param option Style options for the item.
+     * @param index Model index being drawn.
+     */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+
+    /**
+     * @brief Provide adequate item height for clean touch and desktop readability.
+     * @param option View options.
+     * @param index Item model index.
+     * @return Minimum required size.
+     */
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QSize size = QStyledItemDelegate::sizeHint(option, index);
+        size.setHeight(std::max(size.height(), 28));
+        return size;
+    }
+
+private:
+    WorkbenchComboBox *m_combo = nullptr;
+};
+
+/** @brief Keep native combo interaction with a theme-aware vector chevron and persistent item highlight. */
 class WorkbenchComboBox : public QComboBox
 {
 public:
@@ -247,7 +286,7 @@ public:
     explicit WorkbenchComboBox(QWidget *parent = nullptr)
         : QComboBox(parent)
     {
-        setItemDelegate(new QStyledItemDelegate(this));
+        setItemDelegate(new WorkbenchComboDelegate(this));
         setAttribute(Qt::WA_Hover, true);
         if (view())
         {
@@ -260,10 +299,90 @@ public:
     }
 
     /**
-     * @brief Show popup with rounded mask and translucent background.
+     * @brief Find item index matching current text or numeric ID.
+     * @return Matching index or -1 if not found.
+     */
+    int activeIndex() const
+    {
+        QString text = currentText().trimmed();
+        const int paren = text.indexOf('(');
+        if (paren > 0)
+        {
+            text = text.left(paren).trimmed();
+        }
+        if (text.isEmpty())
+        {
+            return isEditable() ? -1 : currentIndex();
+        }
+
+        int idx = findText(text, Qt::MatchFixedString | Qt::MatchCaseSensitive);
+        if (idx < 0)
+        {
+            idx = findText(text, Qt::MatchFixedString);
+        }
+        if (idx < 0)
+        {
+            bool ok = false;
+            const qulonglong num = text.toULongLong(&ok, 0);
+            if (ok)
+            {
+                idx = findData(num);
+            }
+        }
+        if (idx < 0 && !isEditable())
+        {
+            idx = currentIndex();
+        }
+        return idx;
+    }
+
+    /**
+     * @brief Show popup with rounded mask, synchronized active item highlight, and center scroll.
      */
     void showPopup() override
     {
+        if (isEditable())
+        {
+            const int idx = activeIndex();
+            if (idx >= 0 && idx != currentIndex())
+            {
+                const QString preservedText = currentText();
+                const int preservedCursor = lineEdit() ? lineEdit()->cursorPosition() : -1;
+                const QSignalBlocker blocker(this);
+                setCurrentIndex(idx);
+                if (currentText() != preservedText)
+                {
+                    setEditText(preservedText);
+                }
+                if (lineEdit() && preservedCursor >= 0)
+                {
+                    lineEdit()->setCursorPosition(preservedCursor);
+                }
+            }
+            if (view())
+            {
+                if (idx >= 0)
+                {
+                    view()->setCurrentIndex(model()->index(idx, modelColumn()));
+                    if (view()->selectionModel())
+                    {
+                        view()->selectionModel()->select(model()->index(idx, modelColumn()),
+                                                         QItemSelectionModel::ClearAndSelect);
+                    }
+                    view()->scrollTo(model()->index(idx, modelColumn()), QAbstractItemView::PositionAtCenter);
+                }
+                else if (view()->selectionModel())
+                {
+                    view()->selectionModel()->clearSelection();
+                    view()->setCurrentIndex(QModelIndex());
+                }
+            }
+        }
+        else if (view() && currentIndex() >= 0)
+        {
+            view()->scrollTo(model()->index(currentIndex(), modelColumn()), QAbstractItemView::PositionAtCenter);
+        }
+
         QComboBox::showPopup();
         if (QWidget *container = view() ? view()->window() : nullptr)
         {
@@ -355,6 +474,74 @@ protected:
         painter.drawLine(center + QPointF(0, 2.0 * direction), center + QPointF(4.0, -2.0 * direction));
     }
 };
+
+WorkbenchComboDelegate::WorkbenchComboDelegate(WorkbenchComboBox *combo)
+    : QStyledItemDelegate(reinterpret_cast<QObject *>(combo)), m_combo(combo)
+{
+}
+
+void WorkbenchComboDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
+{
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
+
+    const int active = m_combo ? m_combo->activeIndex() : -1;
+    const bool isCurrent = (index.row() == active);
+    const bool isHovered = (option.state & QStyle::State_Selected) || (option.state & QStyle::State_MouseOver);
+
+    const bool dark = m_combo && m_combo->property("darkTheme").isValid()
+        ? m_combo->property("darkTheme").toBool()
+        : (m_combo && m_combo->window() && m_combo->window()->property("darkTheme").isValid()
+           ? m_combo->window()->property("darkTheme").toBool()
+           : (qApp && qApp->property("darkTheme").isValid()
+              ? qApp->property("darkTheme").toBool()
+              : (m_combo ? m_combo->palette().color(QPalette::Window).lightness() < 128 : false)));
+
+    const QRect itemRect = option.rect.adjusted(2, 1, -2, -1);
+
+    if (isCurrent)
+    {
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(isHovered ? QColor("#4338ca") : QColor("#4f46e5"));
+        painter->drawRoundedRect(itemRect, 5.0, 5.0);
+    }
+    else if (isHovered)
+    {
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(dark ? QColor("#212c40") : QColor("#f7f8fc"));
+        painter->drawRoundedRect(itemRect, 5.0, 5.0);
+    }
+
+    QFont font = option.font;
+    if (isCurrent)
+    {
+        font.setBold(true);
+    }
+    painter->setFont(font);
+
+    const QColor textColor = isCurrent
+        ? QColor("#ffffff")
+        : (dark ? QColor("#edf0fa") : QColor("#20263b"));
+    painter->setPen(textColor);
+
+    const QRect textRect = itemRect.adjusted(10, 0, isCurrent ? -26 : -10, 0);
+    const QString text = option.fontMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
+                                                       Qt::ElideRight, textRect.width());
+    painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
+
+    if (isCurrent)
+    {
+        painter->setPen(QPen(QColor("#ffffff"), 1.75, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        const QPointF checkPos(itemRect.right() - 14, itemRect.center().y());
+        QPainterPath check;
+        check.moveTo(checkPos + QPointF(-4.5, 0.0));
+        check.lineTo(checkPos + QPointF(-1.5, 3.0));
+        check.lineTo(checkPos + QPointF(4.5, -3.5));
+        painter->drawPath(check);
+    }
+
+    painter->restore();
+}
 
 /** @brief Preserve native numeric editing with visible theme-aware step indicators. */
 template<typename SpinBox>
@@ -2635,8 +2822,8 @@ void MainWindow::editMessage(bool edit)
     for (const auto &entryItem : compEntries)
     {
         compSuggestions << QString::fromLatin1(entryItem.name);
+        compid->addItem(QString::fromLatin1(entryItem.name), QVariant::fromValue<qulonglong>(entryItem.value));
     }
-    compid->addItems(compSuggestions);
 
     if (auto *line = compid->lineEdit())
     {
@@ -2717,11 +2904,27 @@ void MainWindow::editMessage(bool edit)
     const std::string initialCompName = Mav::lookupEnumNameByType("MAV_COMPONENT", entry.compid);
     if (!initialCompName.empty())
     {
-        compid->setEditText(QString::fromLatin1(initialCompName));
+        const int initialIdx = compid->findText(QString::fromLatin1(initialCompName));
+        if (initialIdx >= 0)
+        {
+            compid->setCurrentIndex(initialIdx);
+        }
+        else
+        {
+            compid->setEditText(QString::fromLatin1(initialCompName));
+        }
     }
     else
     {
-        compid->setEditText(QString::number(entry.compid));
+        const int initialIdx = compid->findData(quint64(entry.compid));
+        if (initialIdx >= 0)
+        {
+            compid->setCurrentIndex(initialIdx);
+        }
+        else
+        {
+            compid->setEditText(QString::number(entry.compid));
+        }
     }
     updateCompIdTooltipAndNormalize(false);
 
@@ -3840,9 +4043,8 @@ void MainWindow::applyTheme()
         "QSpinBox::down-button,QDoubleSpinBox::down-button { subcontrol-origin:border; subcontrol-position:bottom right; width:20px; border-left:1px solid %4; }"
         "QSpinBox::up-arrow,QSpinBox::down-arrow,QDoubleSpinBox::up-arrow,QDoubleSpinBox::down-arrow { image:none; }"
         "QComboBox QAbstractItemView { background:%2; color:%3; border:1px solid %4; border-radius:8px; padding:4px; outline:none; selection-background-color:transparent; }"
-        "QComboBox QAbstractItemView::item { min-height:28px; padding:4px 10px; border-radius:5px; margin:1px 2px; }"
-        "QComboBox QAbstractItemView::item:hover { background:%6; color:%3; }"
-        "QComboBox QAbstractItemView::item:selected { background:#4f46e5; color:#ffffff; }"
+        "QComboBox QAbstractItemView::item { min-height:28px; border-radius:5px; margin:1px 2px; }"
+        "QComboBox QAbstractItemView::item:hover,QComboBox QAbstractItemView::item:selected { background:transparent; }"
         "QListWidget { background:%2; color:%3; selection-background-color:#4f46e5; selection-color:white; padding:3px; }"
         "QListWidget::item { padding:5px 6px; border-radius:3px; }"
         "QListWidget::item:selected { background:#4f46e5; color:white; }"
