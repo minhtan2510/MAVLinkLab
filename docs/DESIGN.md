@@ -49,3 +49,5 @@
 **Frequency presentation:** TX Target/Actual and RX Hz display rounded whole numbers without a decimal suffix. Add/Edit Rate configures TX scheduling using whole-number rates from 1 to 1000 Hz in 1 Hz steps.
 
 **Message sender/rate controls:** new messages default to System ID 1 and Component ID 1. Edit preserves the existing sender IDs. The rate input displays only the number; its label and accessible name are `Rate (Hz)`.
+
+**Settings copy:** Settings cards show section titles, control labels and actions only; explanatory helper lines below Auto-reconnect, Deassert DTR/RTS and Restore TX messages are omitted.

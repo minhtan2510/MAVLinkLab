@@ -144,6 +144,42 @@ private slots:
         ::close(slave);
     }
 
+    /** @brief Bypass modem ioctls when disabled and apply preference changes on the next reconnect. */
+    void disabledPolicy()
+    {
+        int master = -1;
+        int slave = -1;
+        char path[256]{};
+        QVERIFY(::openpty(&master, &slave, path, nullptr, nullptr) == 0);
+        SerialWorker worker;
+        worker.initialize();
+        QSignalSpy states(&worker, &SerialWorker::stateChanged);
+        PortConfig config;
+        config.port = path;
+        config.autoReconnect = true;
+        config.deassertControlLines = false;
+        clearError = EIO;
+        worker.openPort(config);
+        QVERIFY(states.last()[1].toBool());
+        QCOMPARE(clears, 0);
+        QCOMPARE(reads, 0);
+        worker.setDeassertControlLines(true);
+        QCOMPARE(clears, 0);
+        auto *port = worker.findChild<QSerialPort *>();
+        QVERIFY(port);
+        emit port->errorOccurred(QSerialPort::ResourceError);
+        QTRY_VERIFY_WITH_TIMEOUT(clears > 0, 2000);
+        QVERIFY(!port->isOpen());
+        worker.setDeassertControlLines(false);
+        const int failedAttempts = clears;
+        QTRY_VERIFY_WITH_TIMEOUT(states.last()[1].toBool(), 2000);
+        QCOMPARE(clears, failedAttempts);
+        QCOMPARE(reads, 0);
+        worker.closePort();
+        ::close(master);
+        ::close(slave);
+    }
+
     /** @brief Retry EINTR and repeat deassertion/readback after a silent automatic reconnect. */
     void reconnectPolicy()
     {

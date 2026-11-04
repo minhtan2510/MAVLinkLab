@@ -94,6 +94,8 @@ Các giới hạn trên không phải total-memory budget: rate windows chứa t
 
 ## Chỗ sửa khi mở rộng
 
+Checkbox **Deassert DTR/RTS on connect** trong Settings → Serial Management mặc định bật; lưu ở `MAVLinkSimulator/Preferences`, key `serial/deassertControlLines`. GUI restore dùng `QSignalBlocker`, save dùng `sync()`, chuyển bool qua queued slot `setDeassertControlLines()` và `PortConfig`. Worker chỉ áp dụng policy khi open/reopen; tắt checkbox bỏ qua clear/readback, không đổi lines ngay trên link đang mở.
+
 - Codec/field validation/rate/queue: `core.*`, kiểm tra bằng core tests.
 - Serial lifecycle/backpressure/scheduling: `worker.*`, kiểm tra thêm PTY tests.
 - UI/editor/theme: `window.*`, kiểm tra widget flow và render Light/Dark.

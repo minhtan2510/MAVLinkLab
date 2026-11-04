@@ -76,6 +76,16 @@
   * Synchronized with `payloadFields`: column headers (`Parameter`, `Type`, `Value`, with hidden `Unit`), row height (40px), header height (36px), column widths (190px, 105px, stretch), and QSS borders.
   * Rendered via `ValueDelegate::paint()` as a clean view-only rounded pill (`drawRoundedRect(input, 5, 5)`) with monospace font and dynamic changed highlight (`#58a6ff` / `#0969da`), while strictly enforcing view-only semantics (`createEditor()` returns `nullptr`).
   * Non-interactive display: `setSelectionMode(NoSelection)` and `setFocusPolicy(NoFocus)` prevent cells from being clicked, focused or highlighted with selection borders, while retaining right-click "Copy value" context menu and enum tooltips.
+* **RX Dashboard Smart Grouped Tree Architecture:**
+  * Clean 2-level hierarchy replacing obsolete 3-level tree: Level 1 is the Device group (`System X · Component Y`), and Level 2 contains the leaf message streams with a compact 16px indentation.
+  * Device Group Banner (Level 1): Aggregates device identity in Message column, total frequency (`totalHz`), total packet count, and overall device freshness in the Status column. Rendered as a cohesive banner with distinct subtle background (`#1c273c` / `#edf2f9`) spanning all columns for strong visual hierarchy without jarring vertical dividers.
+  * Leaf Message Row (Level 2): Displays integrated identity `[ID] NAME` (Col 0, tooltip suppressed), stream rate in Hz (Col 1), frame count (Col 2), and vector rounded status pill (Col 3).
+  * Smooth Interactive Column Resizing: All columns configured with `QHeaderView::Interactive`, `setSectionsMovable(false)`, `setCascadingSectionResizes(false)`, and `setStretchLastSection(false)` with safe default widths (250px, 85px, 70px, 95px). Re-applied strictly after `restoreState()` in `restoreLayout()` to prevent obsolete stored settings from locking column 0 to `Stretch` or enabling drag-to-reorder section movements. Users can freely drag and resize any column (including Message) without involuntary column squishing or ellipsis clipping, keeping horizontal scrollbars absent at minimum window size (1000x640).
+  * Centered Metrics & Distinct Headers: `Rate (Hz)` and `Count` values (along with their column headers) are cleanly centered (`Qt::AlignCenter`) across device banners and leaf items. Header sections retain subtle `border-right: 1px solid` to clearly expose drag handles for column resizing, while keeping table rows unfragmented by vertical gridlines.
+  * Seamless Layout without Jarring Vertical Gridlines: Eliminated rigid vertical separator lines from intermediate columns, relying on horizontal separators (`border-bottom: 1px solid`) and cohesive group banners to maintain modern desktop ergonomics and avoid fragmented visual clutter.
+  * Focus Rect & Outline Suppression: `RxItemDelegate` strips `State_HasFocus` while QSS enforces `outline: none; border: none;` on selected and focused items, providing clean full-row solid highlight without distracting dotted frames.
+  * Vector Status Badges: Rendered via `RxStatusDelegate` with theme-aware colors: `● Active` (green, `age <= 1.2s`), `▲ Stale` (amber, `1.2s < age <= 3.0s`), and `✖ Inactive` (muted slate, `age > 3.0s`).
+  * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
 
 ---
 

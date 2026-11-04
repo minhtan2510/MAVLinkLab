@@ -88,6 +88,7 @@ private:
     QSpinBox *defaultCompIdBox = nullptr;
     QComboBox *defaultVersionBox = nullptr;
     QCheckBox *autoReconnectBox = nullptr;
+    QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
     QPushButton *connectButton = nullptr;

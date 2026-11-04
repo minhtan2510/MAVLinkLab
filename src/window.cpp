@@ -169,37 +169,6 @@ static bool isPluggedPort(const QSerialPortInfo &info)
 }
 
 /**
- * @brief Generate a small vector dot indicator for stream freshness.
- * @param age Elapsed seconds since the last frame.
- * @param dark True if rendering under a dark palette.
- * @return Theme-aware icon representing stream activity.
- */
-static QIcon activityLed(double age, bool dark)
-{
-    QPixmap pixmap(10, 10);
-    pixmap.fill(Qt::transparent);
-    QPainter p(&pixmap);
-    p.setRenderHint(QPainter::Antialiasing);
-    QColor color;
-    if (age <= 0.5)
-    {
-        color = dark ? QColor("#3fb950") : QColor("#1a7f37");
-    }
-    else if (age <= 2.0)
-    {
-        color = dark ? QColor("#d29922") : QColor("#9a6700");
-    }
-    else
-    {
-        color = dark ? QColor("#6e7681") : QColor("#8c959f");
-    }
-    p.setBrush(color);
-    p.setPen(Qt::NoPen);
-    p.drawEllipse(1, 1, 8, 8);
-    return QIcon(pixmap);
-}
-
-/**
  * @brief Provide human-readable enum descriptions for common MAVLink fields.
  * @param msgid MAVLink message identity.
  * @param field Field name string.
@@ -1398,6 +1367,120 @@ protected:
 };
 
 /**
+ * @brief Custom delegate rendering stream status badges in the RX dashboard.
+ */
+class RxStatusDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    /**
+     * @brief Render the status pill reflecting message stream age and health.
+     * @param painter Active painter.
+     * @param option Style options for the cell.
+     * @param index Model index containing stream age data.
+     */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+
+        if (option.state & QStyle::State_Selected)
+        {
+            painter->fillRect(option.rect, option.palette.highlight());
+        }
+
+        const double age = index.data(Qt::UserRole).toDouble();
+        const bool dark = (option.palette.window().color().lightness() < 128);
+
+        QColor pillColor;
+        QColor pillBg;
+        QColor pillBorder;
+        QString label;
+
+        if (age <= 1.2)
+        {
+            pillColor = dark ? QColor("#3fb950") : QColor("#1a7f37");
+            pillBg = dark ? QColor(63, 185, 80, 28) : QColor(26, 127, 55, 24);
+            pillBorder = dark ? QColor(63, 185, 80, 80) : QColor(26, 127, 55, 60);
+            label = QString("● %1s").arg(age, 0, 'f', 1);
+        }
+        else if (age <= 3.0)
+        {
+            pillColor = dark ? QColor("#d29922") : QColor("#9a6700");
+            pillBg = dark ? QColor(210, 153, 34, 28) : QColor(154, 103, 0, 24);
+            pillBorder = dark ? QColor(210, 153, 34, 80) : QColor(154, 103, 0, 60);
+            label = QString("▲ %1s").arg(age, 0, 'f', 1);
+        }
+        else
+        {
+            pillColor = dark ? QColor("#8b949e") : QColor("#6e7781");
+            pillBg = dark ? QColor(139, 148, 158, 24) : QColor(110, 119, 129, 20);
+            pillBorder = dark ? QColor(139, 148, 158, 65) : QColor(110, 119, 129, 50);
+            label = (age > 99.0) ? QString("Inactive") : QString("✖ %1s").arg(age, 0, 'f', 0);
+        }
+
+        if (option.state & QStyle::State_Selected)
+        {
+            pillBg.setAlpha(dark ? 55 : 45);
+        }
+
+        const int pillWidth = qMin(option.rect.width() - 16, 88);
+        const int pillHeight = 22;
+        const QRect pillRect(option.rect.x() + (option.rect.width() - pillWidth) / 2,
+                            option.rect.y() + (option.rect.height() - pillHeight) / 2,
+                            pillWidth, pillHeight);
+
+        painter->setPen(QPen(pillBorder, 1));
+        painter->setBrush(pillBg);
+        painter->drawRoundedRect(pillRect, 11, 11);
+
+        QFont font = option.font;
+        font.setPixelSize(11);
+        font.setWeight(QFont::DemiBold);
+        painter->setFont(font);
+        painter->setPen(pillColor);
+        painter->drawText(pillRect, Qt::AlignCenter, label);
+
+        painter->restore();
+    }
+
+    /**
+     * @brief Size hint for the cell to maintain consistent row height.
+     * @param option Style options.
+     * @param index Model index.
+     * @return Ideal cell size.
+     */
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        Q_UNUSED(index);
+        return QSize(option.rect.width(), 34);
+    }
+};
+
+/**
+ * @brief Delegate for RX tree items preventing focus rectangle outlines.
+ */
+class RxItemDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    /**
+     * @brief Paint cell content while suppressing dotted focus rectangle.
+     * @param painter Active painter.
+     * @param option Style options.
+     * @param index Model index.
+     */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem opt(option);
+        opt.state &= ~QStyle::State_HasFocus;
+        QStyledItemDelegate::paint(painter, opt, index);
+    }
+};
+
+/**
  * @brief Create a labeled button with a stable automation identity.
  * @param text Button label text.
  * @param name Automation object name.
@@ -1675,11 +1758,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     autoReconnectBox->setAccessibleName("Auto-reconnect on unexpected disconnect");
     reconnectGroup->addWidget(autoReconnectBox);
 
-    auto *reconnectHint = new QLabel("Automatically retries connection with backoff if physical link drops.", serialCard);
-    reconnectHint->setObjectName("secondaryText");
-    reconnectHint->setStyleSheet("padding-left: 28px; font-size: 11px;");
-    reconnectGroup->addWidget(reconnectHint);
     serialLayout->addLayout(reconnectGroup);
+
+    auto *controlLinesGroup = new QVBoxLayout;
+    controlLinesGroup->setContentsMargins(0, 4, 0, 0);
+    controlLinesGroup->setSpacing(3);
+    deassertControlLinesBox = new WorkbenchCheckBox("Deassert DTR/RTS on connect", serialCard);
+    deassertControlLinesBox->setObjectName("deassertControlLines");
+    deassertControlLinesBox->setChecked(true);
+    deassertControlLinesBox->setAccessibleName("Deassert DTR/RTS on connect");
+    controlLinesGroup->addWidget(deassertControlLinesBox);
+    serialLayout->addLayout(controlLinesGroup);
 
     settingsDialogLayout->addWidget(serialCard);
 
@@ -1726,10 +1815,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     restoreTxBox->setAccessibleName("Restore TX messages on startup");
     restoreGroup->addWidget(restoreTxBox);
 
-    auto *restoreHint = new QLabel("Restored messages remain stopped until explicitly started.", workspaceCard);
-    restoreHint->setObjectName("secondaryText");
-    restoreHint->setStyleSheet("padding-left: 28px; font-size: 11px;");
-    restoreGroup->addWidget(restoreHint);
     workspaceLayout->addLayout(restoreGroup);
 
     auto *resetRow = new QHBoxLayout;
@@ -2149,20 +2234,29 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setHandleWidth(16);
     rxTree = new QTreeWidget;
     rxTree->setObjectName("rxTree");
-    rxTree->setHeaderLabels({"Message / Source", "ID", "Count", "Hz", "Activity"});
+    rxTree->setHeaderLabels({"Message", "Rate (Hz)", "Count", "Status"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    rxTree->headerItem()->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
-    rxTree->headerItem()->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
-    rxTree->headerItem()->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
-    rxTree->headerItem()->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
+    rxTree->headerItem()->setTextAlignment(1, Qt::AlignCenter);
+    rxTree->headerItem()->setTextAlignment(2, Qt::AlignCenter);
+    rxTree->headerItem()->setTextAlignment(3, Qt::AlignCenter);
+    rxTree->setRootIsDecorated(true);
+    rxTree->setIndentation(16);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
-    rxTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    rxTree->setColumnWidth(1, 52);
-    rxTree->setColumnWidth(2, 75);
-    rxTree->setColumnWidth(3, 58);
-    rxTree->setColumnWidth(4, 115);
+    rxTree->header()->setSectionsMovable(false);
+    rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
+    rxTree->header()->setCascadingSectionResizes(false);
+    rxTree->header()->setStretchLastSection(false);
+    rxTree->header()->setFixedHeight(36);
+    rxTree->header()->setMinimumSectionSize(65);
+    rxTree->setColumnWidth(0, 250);
+    rxTree->setColumnWidth(1, 85);
+    rxTree->setColumnWidth(2, 70);
+    rxTree->setColumnWidth(3, 95);
+    rxTree->setItemDelegate(new RxItemDelegate(rxTree));
+    rxTree->setItemDelegateForColumn(3, new RxStatusDelegate(rxTree));
     inspector = table({"Parameter", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));
@@ -2407,6 +2501,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         saveSettings();
     });
+    connect(deassertControlLinesBox, &QCheckBox::toggled, this, [this](bool enabled)
+    {
+        saveSettings();
+        if (worker)
+        {
+            QMetaObject::invokeMethod(worker, "setDeassertControlLines", Qt::QueuedConnection,
+                                      Q_ARG(bool, enabled));
+        }
+    });
     connect(resetLayoutButton, &QPushButton::clicked, this, [this]()
     {
         resetLayout();
@@ -2468,6 +2571,25 @@ void MainWindow::restoreLayout()
         findChild<QSplitter *>(name)->restoreState(settings.value(name).toByteArray());
     }
     rxTree->header()->restoreState(settings.value("rxColumns").toByteArray());
+    rxTree->header()->setSectionsMovable(false);
+    rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
+    rxTree->header()->setCascadingSectionResizes(false);
+    rxTree->header()->setStretchLastSection(false);
+    for (int i = 0; i < rxTree->header()->count(); ++i)
+    {
+        const int visual = rxTree->header()->visualIndex(i);
+        if (visual != i)
+        {
+            rxTree->header()->moveSection(visual, i);
+        }
+    }
+    if (rxTree->columnWidth(0) < 150)
+    {
+        rxTree->setColumnWidth(0, 250);
+        rxTree->setColumnWidth(1, 85);
+        rxTree->setColumnWidth(2, 70);
+        rxTree->setColumnWidth(3, 95);
+    }
     inspector->horizontalHeader()->restoreState(settings.value("fieldColumns").toByteArray());
     // Hidden metadata is not part of the user-configurable table presentation.
     inspector->hideColumn(3);
@@ -2493,10 +2615,22 @@ void MainWindow::resetLayout()
     }
     if (rxTree)
     {
-        rxTree->setColumnWidth(1, 52);
-        rxTree->setColumnWidth(2, 75);
-        rxTree->setColumnWidth(3, 58);
-        rxTree->setColumnWidth(4, 115);
+        rxTree->header()->setSectionsMovable(false);
+        rxTree->header()->setSectionResizeMode(QHeaderView::Interactive);
+        rxTree->header()->setCascadingSectionResizes(false);
+        rxTree->header()->setStretchLastSection(false);
+        for (int i = 0; i < rxTree->header()->count(); ++i)
+        {
+            const int visual = rxTree->header()->visualIndex(i);
+            if (visual != i)
+            {
+                rxTree->header()->moveSection(visual, i);
+            }
+        }
+        rxTree->setColumnWidth(0, 250);
+        rxTree->setColumnWidth(1, 85);
+        rxTree->setColumnWidth(2, 70);
+        rxTree->setColumnWidth(3, 95);
     }
     if (inspector)
     {
@@ -2561,6 +2695,17 @@ void MainWindow::restoreSettings()
         QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection,
                                   Q_ARG(bool, autoReconnectBox->isChecked()));
     }
+    const bool deassertControlLines = settings.value("serial/deassertControlLines", true).toBool();
+    if (deassertControlLinesBox)
+    {
+        const QSignalBlocker blocker(deassertControlLinesBox);
+        deassertControlLinesBox->setChecked(deassertControlLines);
+    }
+    if (worker)
+    {
+        QMetaObject::invokeMethod(worker, "setDeassertControlLines", Qt::QueuedConnection,
+                                  Q_ARG(bool, deassertControlLines));
+    }
     const bool restoreTx = settings.value("workspace/restoreTx", false).toBool();
     if (restoreTxBox)
     {
@@ -2596,6 +2741,10 @@ void MainWindow::saveSettings()
     if (restoreTxBox)
     {
         settings.setValue("workspace/restoreTx", restoreTxBox->isChecked());
+    }
+    if (deassertControlLinesBox)
+    {
+        settings.setValue("serial/deassertControlLines", deassertControlLinesBox->isChecked());
     }
     settings.sync();
 }
@@ -2738,6 +2887,7 @@ void MainWindow::toggleConnection()
         return;
     }
     config.autoReconnect = autoReconnectBox ? autoReconnectBox->isChecked() : false;
+    config.deassertControlLines = deassertControlLinesBox ? deassertControlLinesBox->isChecked() : true;
     config.data = static_cast<QSerialPort::DataBits>(dataBox->currentText().toInt());
     const QSerialPort::Parity parities[] = {QSerialPort::NoParity, QSerialPort::EvenParity,
                                           QSerialPort::OddParity, QSerialPort::MarkParity, QSerialPort::SpaceParity};
@@ -3723,81 +3873,111 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                     .arg(textCrc, textPending, textOverflow));
     if (!paused)
     {
+        const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+
+        struct DeviceSummary
+        {
+            double totalHz = 0.0;
+            uint64_t totalCount = 0;
+            double minAge = 9999.0;
+            int streamCount = 0;
+        };
+        std::map<std::pair<uint32_t, uint8_t>, DeviceSummary> summaries;
+        for (const auto &entry : latest->rx)
+        {
+            auto &st = summaries[{entry.message.sysid, entry.message.compid}];
+            st.totalHz += entry.hz;
+            st.totalCount += entry.count;
+            st.minAge = qMin(st.minAge, entry.age);
+            st.streamCount++;
+        }
+
         for (const auto &entry : latest->rx)
         {
             const auto &message = entry.message;
-            const QString systemKey = QString::number(message.sysid);
-            QTreeWidgetItem *system = nullptr;
+            const uint32_t sysid = message.sysid;
+            const uint8_t compid = message.compid;
+
+            QTreeWidgetItem *device = nullptr;
             for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
             {
-                if (rxTree->topLevelItem(i)->data(0, Qt::UserRole).toString() == systemKey)
+                auto *candidate = rxTree->topLevelItem(i);
+                if (candidate->data(0, Qt::UserRole).toUInt() == sysid &&
+                    candidate->data(0, Qt::UserRole + 1).toUInt() == compid)
                 {
-                    system = rxTree->topLevelItem(i);
+                    device = candidate;
                     break;
                 }
             }
-            if (!system)
+            if (!device)
             {
-                system = new QTreeWidgetItem(rxTree, {"System " + systemKey});
-                system->setData(0, Qt::UserRole, systemKey);
-                system->setExpanded(true);
+                device = new QTreeWidgetItem(rxTree);
+                device->setData(0, Qt::UserRole, sysid);
+                device->setData(0, Qt::UserRole + 1, compid);
+                device->setExpanded(true);
+
+                QFont groupFont = rxTree->font();
+                groupFont.setPixelSize(12);
+                groupFont.setWeight(QFont::DemiBold);
+                device->setFont(0, groupFont);
+                device->setFont(1, fixedFont);
+                device->setFont(2, fixedFont);
+
+                device->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
+                device->setTextAlignment(1, Qt::AlignCenter);
+                device->setTextAlignment(2, Qt::AlignCenter);
+                device->setTextAlignment(3, Qt::AlignCenter);
             }
-            QTreeWidgetItem *component = nullptr;
-            for (int i = 0; i < system->childCount(); ++i)
+
+            const auto &st = summaries[{sysid, compid}];
+            device->setText(0, QString("System %1 · Component %2").arg(sysid).arg(compid));
+            device->setForeground(0, QColor(dark ? "#c9d1d9" : "#24292f"));
+            const QColor groupBg = dark ? QColor("#1c273c") : QColor("#edf2f9");
+            for (int c = 0; c < 4; ++c)
             {
-                if (system->child(i)->data(0, Qt::UserRole).toUInt() == message.compid)
-                {
-                    component = system->child(i);
-                    break;
-                }
+                device->setBackground(c, groupBg);
             }
-            if (!component)
-            {
-                component = new QTreeWidgetItem(system, {QString("Component %1").arg(message.compid)});
-                component->setData(0, Qt::UserRole, message.compid);
-                component->setExpanded(true);
-            }
-            const QColor groupColor(dark ? "#aab4cd" : "#626c84");
-            system->setForeground(0, groupColor);
-            component->setForeground(0, groupColor);
-            QFont groupFont = rxTree->font();
-            groupFont.setPixelSize(12);
-            system->setFont(0, groupFont);
-            component->setFont(0, groupFont);
+            device->setText(1, QString::number(st.totalHz, 'f', st.totalHz < 10.0 && st.totalHz > 0 ? 1 : 0));
+            device->setText(2, QString::number(qulonglong(st.totalCount)));
+            device->setData(3, Qt::UserRole, st.minAge);
+            device->setText(3, QString("%1 s").arg(st.minAge, 0, 'f', 1));
+            device->setToolTip(0, QString("System %1, Component %2 (%3 active streams)")
+                                      .arg(sysid).arg(compid).arg(st.streamCount));
+
             QTreeWidgetItem *item = nullptr;
-            for (int i = 0; i < component->childCount(); ++i)
+            for (int i = 0; i < device->childCount(); ++i)
             {
-                if (component->child(i)->data(0, Qt::UserRole).toUInt() == message.msgid)
+                if (device->child(i)->data(0, Qt::UserRole).toUInt() == message.msgid)
                 {
-                    item = component->child(i);
+                    item = device->child(i);
                     break;
                 }
             }
             if (!item)
             {
-                item = new QTreeWidgetItem(component);
+                item = new QTreeWidgetItem(device);
                 item->setData(0, Qt::UserRole, message.msgid);
-                const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-                for (int col = 1; col < 5; ++col)
-                {
-                    item->setFont(col, fixedFont);
-                }
+
                 QFont messageFont = rxTree->font();
                 messageFont.setPixelSize(13);
                 item->setFont(0, messageFont);
-                item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
-                item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
-                item->setTextAlignment(3, Qt::AlignRight | Qt::AlignVCenter);
-                item->setTextAlignment(4, Qt::AlignLeft | Qt::AlignVCenter);
+                item->setFont(1, fixedFont);
+                item->setFont(2, fixedFont);
+
+                item->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
+                item->setTextAlignment(1, Qt::AlignCenter);
+                item->setTextAlignment(2, Qt::AlignCenter);
+                item->setTextAlignment(3, Qt::AlignCenter);
             }
-            item->setIcon(4, activityLed(entry.age, dark));
-            item->setText(0, messageName(message.msgid));
-            item->setText(1, QString::number(message.msgid));
+
+            item->setText(0, QString("[%1] %2").arg(message.msgid).arg(messageName(message.msgid)));
+            item->setText(1, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
+            item->setData(1, Qt::UserRole, entry.hz);
             item->setText(2, QString::number(qulonglong(entry.count)));
-            item->setText(3, QString::number(entry.hz, 'f', 0));
-            item->setText(4, QString("%1 s · %2").arg(entry.age, 0, 'f', 1).arg(entry.age > 2 ? "Stale" : "Recent"));
-            item->setToolTip(0, (message.incompat_flags & MAVLINK_IFLAG_SIGNED) ?
-                              "Signed frame; signature NOT verified" : "Unsigned frame; no authentication");
+            item->setData(2, Qt::UserRole, qulonglong(entry.count));
+            item->setData(3, Qt::UserRole, entry.age);
+            item->setText(3, QString("%1 s").arg(entry.age, 0, 'f', 1));
+            item->setToolTip(3, QString("Age: %1 s · %2").arg(entry.age, 0, 'f', 1).arg(entry.age > 1.2 ? "Stale" : "Active"));
         }
         filterRx();
         updateInspector();
@@ -3815,14 +3995,14 @@ void MainWindow::updateInspector()
     inspectorSource->clear();
     inspectorSource->hide();
     auto *item = rxTree->currentItem();
-    if (!item || !item->parent() || !item->parent()->parent())
+    if (!item || !item->parent())
     {
         inspector->setRowCount(0);
         return;
     }
     const uint32_t id = item->data(0, Qt::UserRole).toUInt();
-    const uint8_t component = uint8_t(item->parent()->data(0, Qt::UserRole).toUInt());
-    const uint32_t system = item->parent()->parent()->data(0, Qt::UserRole).toUInt();
+    const uint32_t system = item->parent()->data(0, Qt::UserRole).toUInt();
+    const uint8_t component = uint8_t(item->parent()->data(0, Qt::UserRole + 1).toUInt());
     for (const auto &view : latest->rx)
     {
         const auto &message = view.message;
@@ -3888,26 +4068,19 @@ void MainWindow::filterRx()
     int matched = 0;
     for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
     {
-        auto *system = rxTree->topLevelItem(i);
-        bool systemVisible = false;
-        for (int j = 0; j < system->childCount(); ++j)
+        auto *device = rxTree->topLevelItem(i);
+        bool deviceVisible = false;
+        for (int j = 0; j < device->childCount(); ++j)
         {
-            auto *component = system->child(j);
-            bool componentVisible = false;
-            for (int k = 0; k < component->childCount(); ++k)
-            {
-                auto *item = component->child(k);
-                const QString identity = system->text(0) + " " + component->text(0) + " " + item->text(0) + " " + item->text(1);
-                const bool visible = identity.contains(query, Qt::CaseInsensitive);
-                item->setHidden(!visible);
-                ++total;
-                matched += visible;
-                componentVisible |= visible;
-            }
-            component->setHidden(!componentVisible);
-            systemVisible |= componentVisible;
+            auto *item = device->child(j);
+            const QString identity = device->text(0) + " " + item->text(0);
+            const bool visible = identity.contains(query, Qt::CaseInsensitive);
+            item->setHidden(!visible);
+            ++total;
+            matched += visible;
+            deviceVisible |= visible;
         }
-        system->setHidden(!systemVisible);
+        device->setHidden(!deviceVisible);
     }
     rxSummary->setText(query.isEmpty() ? QString("%1 %2").arg(total).arg(total == 1 ? "stream" : "streams") :
                        QString("%1 / %2 streams").arg(matched).arg(total));
@@ -4066,7 +4239,7 @@ void MainWindow::applyTheme()
     {
         inspector->setProperty("darkTheme", dark);
     }
-    for (auto *box : {restoreTxBox, autoReconnectBox})
+    for (auto *box : {restoreTxBox, autoReconnectBox, deassertControlLinesBox})
     {
         if (box)
         {
@@ -4224,24 +4397,27 @@ void MainWindow::applyTheme()
         "QLabel#inspectorMessageTitle { background:transparent; color:%4; font-size:12px; font-weight:600; }"
         "QLabel#inspectorSource { color:%4; font-size:12px; }"
         "QLabel#displayPaused { color:%7; background:%1; padding:2px 6px; border-radius:4px; font-size:11px; }"
-        "QTreeWidget#rxTree { background:%1; alternate-background-color:%5; }"
+        "QTreeWidget#rxTree { background:%1; alternate-background-color:%5; outline:none; }"
         "QTableWidget#inspector { background:%1; border:0; }"
         "QTableWidget#txTable { background:transparent; }"
         "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
-        "QTreeWidget#rxTree::item { border-bottom:1px solid %5; }"
-        "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; }"
+        "QTreeWidget#rxTree::item { border-bottom:1px solid %5; height:34px; padding:0 8px; outline:none; }"
+        "QTreeWidget#rxTree::item:focus { outline:none; border:none; }"
+        "QTreeWidget#rxTree::item:selected:focus { outline:none; border:none; }"
+        "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; border-right:1px solid %5; padding:4px 10px; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
     setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
+    const QColor groupBg = dark ? QColor("#1c273c") : QColor("#edf2f9");
     for (int row = 0; row < rxTree->topLevelItemCount(); ++row)
     {
-        auto *system = rxTree->topLevelItem(row);
-        system->setForeground(0, QColor(muted));
-        for (int child = 0; child < system->childCount(); ++child)
+        auto *device = rxTree->topLevelItem(row);
+        device->setForeground(0, QColor(dark ? "#c9d1d9" : "#24292f"));
+        for (int c = 0; c < 4; ++c)
         {
-            system->child(child)->setForeground(0, QColor(muted));
+            device->setBackground(c, groupBg);
         }
     }
     for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})

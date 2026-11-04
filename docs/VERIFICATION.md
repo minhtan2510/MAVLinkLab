@@ -1,5 +1,15 @@
 # Verification evidence
 
+## Settings helper text removal (2026-11-04)
+
+Removed explanatory helper lines from Settings while preserving titles, control labels and behavior. Build passed; targeted preferences, control-line Settings rendering and interaction checks passed (6 Qt test entries, 0 failures). Reviewed regenerated Light/Dark compact Settings plus pressed/disabled offscreen renders in `build/qa/`. CodeGraph is current; git diff --check passed. Native desktop integration was not tested.
+
+## Control-line Settings checkbox (2026-11-04)
+
+Added **Deassert DTR/RTS on connect** under Settings → Serial Management, enabled by default and persisted immediately in Preferences. Changes apply on the next open, including automatic reconnect, without modifying an active port's control lines. Disabling skips the worker's explicit modem clear/readback.
+
+**Verification:** desktop build passed; CTest **3/3 passed in 19.92 s**. Added preference default/off/on persistence checks and worker disabled-policy coverage proving no modem ioctls while disabled, no immediate ioctl on preference change, and changed policy on automatic reconnect. Reviewed 10 retained offscreen Settings screenshots in `build/qa/control-lines-*.png` covering Light/Dark, checked/unchecked, focus/hover/pressed, disabled and resize; no clipping observed. Existing dropdown and live-theme interaction checks passed. CodeGraph is current and git diff --check passed. Physical VIO RESET/UART/DMA and native desktop integration remain untested.
+
 ## Linux control-line deassertion (2026-11-04)
 
 After open and automatic reconnect, the worker clears DTR/RTS simultaneously and verifies driver readback. Hardware RTS/CTS retains driver ownership of RTS and clears/verifies DTR only; use Flow control None for the VIO policy. Control-line failure closes the port before Connected; reconnect continues retrying. Only ENOTTY from an identified slave PTY bypasses modem-line setup.

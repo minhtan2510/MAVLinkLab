@@ -15,6 +15,7 @@ struct PortConfig
     QSerialPort::StopBits stop = QSerialPort::OneStop;
     QSerialPort::FlowControl flow = QSerialPort::NoFlowControl;
     bool autoReconnect = false;
+    bool deassertControlLines = true;
 };
 Q_DECLARE_METATYPE(PortConfig)
 Q_DECLARE_METATYPE(Mav::TxEntry)
@@ -81,6 +82,8 @@ public slots:
      * @param enabled True to automatically retry connection when link is dropped.
      */
     void setAutoReconnect(bool enabled);
+    /** @brief Set control-line policy for the next open without changing an active link. */
+    void setDeassertControlLines(bool enabled);
 signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);

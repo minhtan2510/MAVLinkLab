@@ -58,6 +58,8 @@ The launcher discovers the matching Qt library/plugin paths from `build/CMakeCac
 
 ## Measurement and resource limits
 
+**Settings → Serial Management → Deassert DTR/RTS on connect** enables the control-line policy below and is **on by default**. The preference is saved immediately and applies on the next Connect or automatic reconnect, without changing lines on an already open port. When disabled, the worker skips its explicit deassertion/readback and leaves control-line behavior to Qt/OS/driver.
+
 - **Queued frames / measured TX Hz:** complete frames handed to Qt's output buffer. These are not delivery acknowledgements. TX throughput uses `bytesWritten`, which still does not prove reception or physical wire completion.
 - **RX/TX Hz:** count of events in the trailing one-second window. At startup or below 1 Hz this is an event-window count, not an interarrival-period estimate. Idle streams become 0 Hz; **Stale** means no frame for more than two seconds.
 - **Capacity:** conservative maximum payload length, protocol overhead and selected serial framing. Start is rejected if the configured aggregate periodic load exceeds baud capacity. Send Once uses bounded queues. Flow-control pauses can still produce backpressure.

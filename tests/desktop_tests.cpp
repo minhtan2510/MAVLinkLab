@@ -370,7 +370,7 @@ private slots:
         const auto frame = Mav::encode(0, 1, 42, false, payload, status);
         QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         QTRY_COMPARE(rx->topLevelItemCount(), 1);
-        auto *message = rx->topLevelItem(0)->child(0)->child(0);
+        auto *message = rx->topLevelItem(0)->child(0);
         rx->setCurrentItem(message);
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
@@ -875,6 +875,89 @@ private slots:
         }
     }
 
+    /** @brief Verify the control-line preference defaults on and persists both checkbox states. */
+    void controlLinePreferences()
+    {
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QCOMPARE(control->text(), QString("Deassert DTR/RTS on connect"));
+            QVERIFY(control->isChecked());
+            control->setChecked(false);
+            settings.sync();
+            QCOMPARE(settings.value("serial/deassertControlLines").toBool(), false);
+        }
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QVERIFY(!control->isChecked());
+            control->setChecked(true);
+            settings.sync();
+            QCOMPARE(settings.value("serial/deassertControlLines").toBool(), true);
+        }
+        {
+            MainWindow window;
+            window.show();
+            auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+            QVERIFY(control);
+            QVERIFY(control->isChecked());
+        }
+    }
+
+    /** @brief Render the control-line checkbox in both live themes and interactive states. */
+    void controlLineSettingsRendering()
+    {
+        MainWindow window;
+        window.show();
+        auto *theme = window.findChild<QComboBox *>("theme");
+        auto *dialog = window.findChild<QDialog *>("settingsDialog");
+        auto *control = window.findChild<QCheckBox *>("deassertControlLines");
+        QVERIFY(theme && dialog && control);
+        QDir().mkpath("qa");
+        dialog->show();
+        dialog->activateWindow();
+        QTest::qWait(30);
+        for (int index : {1, 2})
+        {
+            const QString mode = index == 1 ? "light" : "dark";
+            theme->setCurrentIndex(index);
+            QTest::qWait(20);
+            QCOMPARE(control->property("darkTheme").toBool(), index == 2);
+            QVERIFY(control->isVisible());
+            const QRect bounds(control->mapTo(dialog, QPoint(0, 0)), control->size());
+            QVERIFY(dialog->rect().contains(bounds));
+            control->setFocus(Qt::TabFocusReason);
+            QTRY_VERIFY(control->hasFocus());
+            QTest::mouseMove(control, control->rect().center());
+            QTest::qWait(20);
+            QVERIFY(dialog->grab().save("qa/control-lines-focus-hover-" + mode + ".png"));
+            QTest::mousePress(control, Qt::LeftButton);
+            QVERIFY(control->isDown());
+            QCOMPARE(QRect(control->mapTo(dialog, QPoint(0, 0)), control->size()), bounds);
+            QVERIFY(dialog->grab().save("qa/control-lines-pressed-" + mode + ".png"));
+            QTest::mouseRelease(control, Qt::LeftButton);
+            QVERIFY(!control->isChecked());
+            QVERIFY(dialog->grab().save("qa/control-lines-unchecked-" + mode + ".png"));
+            QTest::keyClick(control, Qt::Key_Space);
+            QVERIFY(control->isChecked());
+            control->setEnabled(false);
+            QTest::keyClick(control, Qt::Key_Space);
+            QVERIFY(control->isChecked());
+            QVERIFY(dialog->grab().save("qa/control-lines-disabled-" + mode + ".png"));
+            control->setEnabled(true);
+            dialog->resize(dialog->minimumSizeHint());
+            QTest::qWait(20);
+            QVERIFY(dialog->rect().contains(QRect(control->mapTo(dialog, QPoint(0, 0)), control->size())));
+            QVERIFY(dialog->grab().save("qa/control-lines-small-" + mode + ".png"));
+        }
+        dialog->close();
+    }
+
     /** @brief Verify TX message list persistence across sessions and stopped initial state. */
     void workspaceTxPersistence()
     {
@@ -1062,11 +1145,26 @@ private slots:
             QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         }
         auto *rx = window.findChild<QTreeWidget *>("rxTree");
-        QTRY_COMPARE(rx->topLevelItemCount(), 1);
-        QTRY_COMPARE(rx->topLevelItem(0)->childCount(), 2);
-        rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
+        QTRY_COMPARE(rx->topLevelItemCount(), 2);
+        QCOMPARE(rx->topLevelItem(0)->childCount(), 2);
+        QCOMPARE(rx->topLevelItem(1)->childCount(), 1);
+        rx->setCurrentItem(rx->topLevelItem(0)->child(1));
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
+        QCOMPARE(rx->headerItem()->text(0), QString("Message"));
+        QCOMPARE(rx->headerItem()->text(1), QString("Rate (Hz)"));
+        QCOMPARE(rx->headerItem()->text(2), QString("Count"));
+        QCOMPARE(rx->headerItem()->text(3), QString("Status"));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->text(0), QString("[30] ATTITUDE"));
+        QVERIFY(rx->topLevelItem(0)->child(1)->toolTip(0).isEmpty());
+        QVERIFY(!rx->header()->sectionsMovable());
+        QCOMPARE(rx->header()->sectionResizeMode(0), QHeaderView::Interactive);
+        QCOMPARE(rx->headerItem()->textAlignment(1), int(Qt::AlignCenter));
+        QCOMPARE(rx->headerItem()->textAlignment(2), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->textAlignment(1), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->textAlignment(2), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(1), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(2), int(Qt::AlignCenter));
         QCOMPARE(inspector->horizontalHeaderItem(0)->text(), QString("Parameter"));
         QCOMPARE(inspector->horizontalHeaderItem(1)->text(), QString("Type"));
         QCOMPARE(inspector->horizontalHeaderItem(2)->text(), QString("Value"));
@@ -1088,10 +1186,10 @@ private slots:
         copyValue->trigger();
         QCOMPARE(QApplication::clipboard()->text(), expectedValue);
         valueMenu->hide();
-        rx->setCurrentItem(rx->topLevelItem(0)->child(1)->child(0));
+        rx->setCurrentItem(rx->topLevelItem(1)->child(0));
         QTRY_COMPARE(fieldTitle->text(), QString("[33] GLOBAL_POSITION_INT"));
         QCOMPARE(window.findChild<QLabel *>("inspectorSource")->text(), QString("System 1 · Component 42"));
-        rx->setCurrentItem(rx->topLevelItem(0)->child(0)->child(1));
+        rx->setCurrentItem(rx->topLevelItem(0)->child(1));
         tx->setCurrentCell(0, 1);
         window.findChild<QAction *>("startTx")->trigger();
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));

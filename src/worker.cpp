@@ -21,6 +21,10 @@ static int modemIoctl(int fd, unsigned long request, int *bits)
 
 QString SerialWorker::prepareControlLines()
 {
+    if (!config.deassertControlLines)
+    {
+        return {};
+    }
     const int fd = port->handle();
     int mask = TIOCM_DTR;
     if (config.flow != QSerialPort::HardwareControl)
@@ -142,6 +146,11 @@ void SerialWorker::closePort()
     txStatuses.clear();
     closing = false;
     emit stateChanged("Disconnected", false);
+}
+
+void SerialWorker::setDeassertControlLines(bool enabled)
+{
+    config.deassertControlLines = enabled;
 }
 
 void SerialWorker::setAutoReconnect(bool enabled)
