@@ -2028,11 +2028,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->viewport()->installEventFilter(this);
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
-    auto *txMenu = new QMenu(txTable);
+    txMenu = new QMenu(txTable);
     txMenu->setObjectName("txMessageMenu");
     txMenu->setAttribute(Qt::WA_TranslucentBackground, true);
     txMenu->installEventFilter(this);
-    const auto addTxAction = [txMenu](const QString &text, const char *name)
+    const auto addTxAction = [this](const QString &text, const char *name)
     {
         auto *action = txMenu->addAction(text);
         action->setObjectName(name);
@@ -2045,7 +2045,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     editAction = addTxAction("Edit message…", "editMessage");
     removeAction = addTxAction("Remove message", "removeMessage");
     txTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(txTable, &QWidget::customContextMenuRequested, this, [this, txMenu](const QPoint &position)
+    connect(txTable, &QWidget::customContextMenuRequested, this, [this](const QPoint &position)
     {
         const bool keyboard = position.x() < 0 || position.y() < 0;
         const int row = keyboard ? txTable->currentRow() : txTable->indexAt(position).row();
@@ -3917,6 +3917,46 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         themeBox && themeBox->currentIndex() == 0)
     {
         applyTheme();
+    }
+    if (event->type() == QEvent::MouseButtonPress)
+    {
+        auto *mouseEvent = static_cast<QMouseEvent *>(event);
+        if (mouseEvent->button() == Qt::LeftButton && txTable)
+        {
+            if (watched == txTable->viewport())
+            {
+                const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+                if (!index.isValid())
+                {
+                    txTable->clearSelection();
+                    txTable->setCurrentItem(nullptr);
+                    txTable->setCurrentCell(-1, -1);
+                    updateActions();
+                }
+            }
+            else
+            {
+                const auto *widget = qobject_cast<const QWidget *>(watched);
+                const bool isScroll = widget && (widget == txTable->verticalScrollBar() ||
+                                                 widget == txTable->horizontalScrollBar() ||
+                                                 txTable->verticalScrollBar()->isAncestorOf(widget) ||
+                                                 txTable->horizontalScrollBar()->isAncestorOf(widget));
+                const bool isTxMenu = txMenu && (txMenu == watched || txMenu->isAncestorOf(widget));
+                const bool isMenu = qobject_cast<const QMenu *>(watched) || qobject_cast<const QMenuBar *>(watched);
+                const bool hasModal = QApplication::activeModalWidget() != nullptr;
+
+                if (!isScroll && !isTxMenu && !isMenu && !hasModal)
+                {
+                    if (txTable->currentRow() >= 0 || !txTable->selectedItems().isEmpty())
+                    {
+                        txTable->clearSelection();
+                        txTable->setCurrentItem(nullptr);
+                        txTable->setCurrentCell(-1, -1);
+                        updateActions();
+                    }
+                }
+            }
+        }
     }
     if (txTable && watched == txTable->viewport())
     {

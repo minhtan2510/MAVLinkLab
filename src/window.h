@@ -94,6 +94,7 @@ private:
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;
     QTableWidget *txTable = nullptr;
+    QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;

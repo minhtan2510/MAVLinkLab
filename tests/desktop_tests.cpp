@@ -1032,6 +1032,24 @@ private slots:
         QCOMPARE(tx->currentRow(), 2);
         QVERIFY(tx->item(2, 1)->toolTip().isEmpty());
         QVERIFY(tx->item(2, 1)->data(Qt::AccessibleTextRole).toString().contains("Target 10 Hz"));
+
+        // Verify clicking empty space in txTable deselects the active card
+        const QPoint emptySpace(10, tx->viewport()->height() - 10);
+        if (!tx->indexAt(emptySpace).isValid())
+        {
+            QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, emptySpace);
+            QCOMPARE(tx->currentRow(), -1);
+            QVERIFY(tx->selectedItems().isEmpty());
+        }
+
+        // Re-select card and verify clicking another widget (like txTitle) deselects it
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, card.center());
+        QCOMPARE(tx->currentRow(), 1);
+        auto *txTitle = window.findChild<QLabel *>("panelTitle");
+        QVERIFY(txTitle);
+        QTest::mouseClick(txTitle, Qt::LeftButton);
+        QCOMPARE(tx->currentRow(), -1);
+        QVERIFY(tx->selectedItems().isEmpty());
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
