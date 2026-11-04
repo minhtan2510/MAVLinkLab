@@ -6,6 +6,7 @@
 #include <QMenuBar>
 #include <QAction>
 #include <QDir>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QScrollBar>
@@ -295,8 +296,10 @@ private slots:
         QTRY_VERIFY(!advanced->isVisible());
         QCOMPARE(controls[2]->currentText(), QString("2"));
         qInfo() << "Compact UART height:" << collapsedHeight << "px";
-        port->setCurrentText(pty.name);
         QTest::mouseClick(window.findChild<QPushButton *>("refreshPorts"), Qt::LeftButton);
+        // PTYs are injected into the dropdown only by the test fixture.
+        port->addItem(pty.name);
+        port->setCurrentText(pty.name);
         QCOMPARE(port->currentText(), QString::fromLocal8Bit(pty.name));
         connectButton->click();
         QTRY_COMPARE(connectButton->text(), QString("Disconnect"));
@@ -926,6 +929,7 @@ private slots:
         QVERIFY(pty.master >= 0);
         MainWindow window;
         window.show();
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
@@ -1284,6 +1288,7 @@ private slots:
         QTest::mouseClick(txTitle, Qt::LeftButton);
         QCOMPARE(tx->currentRow(), -1);
         QVERIFY(tx->selectedItems().isEmpty());
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
         window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
         auto *connection = window.findChild<QPushButton *>("connect");
         connection->click();
@@ -1661,11 +1666,11 @@ private slots:
             QCOMPARE(baudEdit->cursorPosition(), 0);
         }
 
-        // 2. Verify portBox and baudBox child QLineEdit do not render square focus borders
+        // 2. Verify editable baudBox does not render square focus borders
         const QColor focusBorder("#4f46e5");
         const QColor focusOutline("#818cf8");
 
-        for (const auto &name : {"port", "baudRate"})
+        for (const auto &name : {"baudRate"})
         {
             auto *combo = window.findChild<QComboBox *>(name);
             QVERIFY(combo && combo->lineEdit());
@@ -1742,6 +1747,65 @@ private slots:
             QVERIFY2(hasTranslucent || hasMask,
                      qPrintable(QString("ComboBox '%1' popup window lacks WA_TranslucentBackground or mask")
                                 .arg(name)));
+        }
+    }
+
+    /** @brief Keep unavailable ports out of the selection-only dropdown without stealing startup focus. */
+    void unavailableSerialPort()
+    {
+        const QString missing = settingsDirectory.path() + "/missing-serial-device";
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        settings.setValue("serial/port", missing);
+        settings.sync();
+        MainWindow window;
+        window.show();
+        auto *port = window.findChild<QComboBox *>("port");
+        auto *refresh = window.findChild<QPushButton *>("refreshPorts");
+        QVERIFY(port && refresh);
+        QVERIFY(!port->isEditable());
+        QVERIFY(!port->lineEdit());
+        QTest::qWait(30);
+        QVERIFY(!port->hasFocus());
+        QTest::keyClick(&window, Qt::Key_Tab);
+        QTRY_VERIFY(port->hasFocus());
+        window.setFocus();
+        QVERIFY(port->currentText() != missing);
+        if (port->count() == 0)
+        {
+            QVERIFY(port->currentText().isEmpty());
+        }
+        const QString previous = port->currentText();
+        port->setCurrentText(missing);
+        QCOMPARE(port->currentText(), previous);
+        // Simulate a selected device that disappears from enumeration on Refresh.
+        port->addItem(missing);
+        port->setCurrentText(missing);
+        QCOMPARE(port->currentText(), missing);
+        refresh->click();
+        QCOMPARE(port->findText(missing), -1);
+        QVERIFY(port->currentText() != missing);
+        if (port->count() == 0)
+        {
+            QVERIFY(port->currentText().isEmpty());
+        }
+        const QString selected = port->currentText();
+        refresh->click();
+        QCOMPARE(port->currentText(), selected);
+        auto *theme = window.findChild<QComboBox *>("theme");
+        for (int mode : {1, 2})
+        {
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+            QVERIFY(window.grab().save(QString("qa/serial-port-unavailable-%1.png")
+                                      .arg(mode == 1 ? "light" : "dark")));
+            if (port->count() > 0)
+            {
+                port->showPopup();
+                QTest::qWait(30);
+                QVERIFY(port->view()->window()->grab().save(QString("qa/serial-port-dropdown-%1.png")
+                                      .arg(mode == 1 ? "light" : "dark")));
+                port->hidePopup();
+            }
         }
     }
 

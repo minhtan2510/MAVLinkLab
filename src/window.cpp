@@ -224,7 +224,7 @@ public:
     explicit WorkbenchComboDelegate(WorkbenchComboBox *combo);
 
     /**
-     * @brief Render popup item with persistent active highlight, hover feedback, and checkmark.
+     * @brief Render popup items with persistent active highlight and an optional checkmark.
      * @param painter Active painter.
      * @param option Style options for the item.
      * @param index Model index being drawn.
@@ -488,6 +488,7 @@ void WorkbenchComboDelegate::paint(QPainter *painter, const QStyleOptionViewItem
 
     const int active = m_combo ? m_combo->activeIndex() : -1;
     const bool isCurrent = (index.row() == active);
+    const bool showCheckmark = isCurrent && !(m_combo && m_combo->property("hideSelectionCheckmark").toBool());
     const bool isHovered = (option.state & QStyle::State_Selected) || (option.state & QStyle::State_MouseOver);
 
     const bool dark = m_combo && m_combo->property("darkTheme").isValid()
@@ -525,12 +526,12 @@ void WorkbenchComboDelegate::paint(QPainter *painter, const QStyleOptionViewItem
         : (dark ? QColor("#edf0fa") : QColor("#20263b"));
     painter->setPen(textColor);
 
-    const QRect textRect = itemRect.adjusted(10, 0, isCurrent ? -26 : -10, 0);
+    const QRect textRect = itemRect.adjusted(10, 0, showCheckmark ? -26 : -10, 0);
     const QString text = option.fontMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
                                                        Qt::ElideRight, textRect.width());
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
 
-    if (isCurrent)
+    if (showCheckmark)
     {
         painter->setPen(QPen(QColor("#ffffff"), 1.75, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         const QPointF checkPos(itemRect.right() - 14, itemRect.center().y());
@@ -2003,12 +2004,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     portBox = new WorkbenchComboBox;
     portBox->setFixedHeight(32);
     portBox->setFixedWidth(160);
-    portBox->setEditable(true);
-    if (portBox->lineEdit())
-    {
-        portBox->lineEdit()->setPlaceholderText("Select or enter /dev/…");
-        portBox->lineEdit()->setTextMargins(0, 0, 0, 0);
-    }
+    portBox->setEditable(false);
+    portBox->setProperty("hideSelectionCheckmark", true);
     portBox->setObjectName("port");
     portBox->setAccessibleName("Serial port");
     uartRow->addWidget(portBox);
@@ -2570,13 +2567,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     thread.start();
     refresh.start(200);
-    restoreSettings();
     refreshPorts();
+    restoreSettings();
     applyTheme();
     updateActions();
     connect(txTable->horizontalHeader(), &QHeaderView::sectionResized, this, &MainWindow::updateTxHeights);
     restoreLayout();
     restoreTxMessages();
+    // Start with neutral focus instead of selecting the first editable control.
+    setFocus(Qt::OtherFocusReason);
 }
 
 /** @brief Fit TX card titles after model updates or viewport width changes. */
@@ -2855,6 +2854,7 @@ MainWindow::~MainWindow()
     thread.wait();
 }
 
+/** @brief Refresh the port dropdown and retain its selection only if still enumerated. */
 void MainWindow::refreshPorts()
 {
     if (connected || connecting || reconnecting)
@@ -2875,7 +2875,7 @@ void MainWindow::refreshPorts()
             portBox->setItemData(portBox->count() - 1, tip, Qt::ToolTipRole);
         }
     }
-    if (!previous.isEmpty())
+    if (!previous.isEmpty() && portBox->findText(previous) >= 0)
     {
         portBox->setCurrentText(previous);
     }

@@ -36,7 +36,9 @@ Replace the example path with your Qt installation. Use matching Qt libraries an
 
 ## Quick start
 
-1. **Connect:** choose a serial port and baud rate, then click **Connect**. Use the UART settings icon for framing and flow control.
+Run `./cli.sh` for the interactive workbench menu. Each menu remembers its last highlighted option after commands and when returning from a submenu, for the current CLI session.
+
+1. **Connect:** select a serial port from the dropdown and choose a baud rate, then click **Connect**. Port does not accept typed paths and has no startup focus or placeholder. Use the UART settings icon for framing and flow control. On startup or Refresh, unavailable previous ports are discarded; Port is empty when no ports are available.
 2. **Create a message:** click **Add message**, search by ID or name, set sender IDs, protocol, rate and payload. **Add & start** immediately starts periodic TX when connected; messages added offline stay stopped.
 3. **Control TX:** use a card's start/stop button or right-click for **Send once**, **Start/Stop**, **Edit message…** and **Remove message**. Batch controls run, stop or delete all entries.
 4. **Inspect RX:** select a message under its System/Component group to view decoded fields. Search filters streams; **Pause display** freezes the view while parsing and counters continue. Right-click a field to **Copy value**.

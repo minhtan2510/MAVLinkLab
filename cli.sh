@@ -20,6 +20,9 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
+# Retain each menu's highlighted option for the current CLI session.
+declare -A menu_selections=()
+
 # Check if terminal supports color
 if [[ ! -t 1 ]]; then
     RED=''
@@ -411,7 +414,7 @@ show_help()
 }
 
 ##
-# @brief Generic interactive menu using arrow key navigation.
+# @brief Show an arrow-key menu, retaining its last highlight within this session.
 #
 # @param title Title of the menu.
 # @param return_var Variable name to receive the selected 0-based index (-1 if cancelled/exit).
@@ -424,7 +427,10 @@ prompt_menu()
     shift 2
     local options=("$@")
     local num_options=${#options[@]}
-    local selected=0
+    local selected="${menu_selections["$title"]:-0}"
+    if (( selected < 0 || selected >= num_options )); then
+        selected=0
+    fi
     local total_lines=$((num_options + 6))
 
     # Fallback to simple line-based prompt if stdin is not a TTY
@@ -498,11 +504,13 @@ prompt_menu()
             "")
                 # Enter key pressed
                 printf "\033[?25h" # Restore cursor
+                menu_selections["$title"]=$selected
                 eval "$return_var=$selected"
                 return 0
                 ;;
             q|Q|$'\e')
                 printf "\033[?25h"
+                menu_selections["$title"]=$selected
                 eval "$return_var=-1"
                 return 0
                 ;;

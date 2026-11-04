@@ -468,3 +468,13 @@ System/Component rows now display only their identity, spanning the table. Remov
 The application event filter previously interpreted mouse presses addressed to the popup's `QWindow` as outside clicks. This cleared TX selection and disabled actions before the menu received widget input. Deselection now classifies only `QWidget` receivers.
 
 **Verification:** build and full CTest **3/3 passed in 24.65 s**. The dashboard test opens the context menu with a context-menu event, clicks Start/Stop through its `QWindow`, and verifies the selected stream changes while the other stream retains its state. Existing outside-click deselection and Light/Dark checks pass. The failure was reproduced before the fix using a temporary popup-window input probe. These are offscreen/PTY results; native desktop integration was not verified because display `:1` was inaccessible.
+
+## Unavailable serial-port display
+
+Port is now a selection-only dropdown with no text editor, placeholder or startup focus. Startup enumerates ports before restoring a saved selection; Refresh retains a previous selection only when still listed. An empty port list no longer displays a missing saved device.
+
+The Port popup keeps the active-row highlight without a checkmark. Other dropdowns retain their existing checkmarks.
+
+**Verification:** build and full CTest **3/3 passed in 24.78 s**. Regression coverage includes unavailable saved/removed selections, rejecting text outside the dropdown, preserving an enumerated selection on Refresh, neutral startup focus and Tab access. PTY GUI tests inject fixture paths into the model without enabling manual input in production. Reviewed Light/Dark offscreen controls and popup rows (`build/qa/serial-port-*.png`); the current run enumerated `/dev/ttyUSB0`. Empty-list behavior was also verified in the earlier no-device run. Physical USB hotplug and native desktop integration were not verified.
+
+**Final validation:** full CTest **3/3 passed in 24.55 s** after the Port checkmark change. CLI syntax and a PTY harness with stub commands passed checks for repeated commands, Main Menu return, submenu re-entry and retaining highlights when cancelling; the Enter-to-continue prompt remains enabled.
