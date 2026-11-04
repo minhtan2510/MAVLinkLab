@@ -596,7 +596,7 @@ public:
         // Accent strip on the left edge
         painter->setPen(Qt::NoPen);
         painter->setBrush(stateAccent);
-        painter->drawRoundedRect(QRect(card.left() + 9, card.top() + 8, 4, card.height() - 16), 2, 2);
+        painter->drawRoundedRect(QRect(card.left() + 8, card.top() + 8, 5, card.height() - 16), 3, 3);
 
         // Status badge button on top right
         const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
@@ -1223,34 +1223,36 @@ static QIcon actionIcon(const QString &name, const QColor &color)
     }
     else if (name == "deleteAll")
     {
+        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         painter.setBrush(Qt::NoBrush);
-        // Handle on top: rounded arch
+
+        // Handle on top: rounded top corners resting on lid
         QPainterPath handle;
-        handle.moveTo(6.3, 3.5);
-        handle.lineTo(6.3, 2.3);
-        handle.quadTo(6.3, 1.7, 6.9, 1.7);
-        handle.lineTo(9.1, 1.7);
-        handle.quadTo(9.7, 1.7, 9.7, 2.3);
-        handle.lineTo(9.7, 3.5);
+        handle.moveTo(6.2, 3.4);
+        handle.lineTo(6.2, 1.8);
+        handle.quadTo(6.2, 1.2, 6.9, 1.2);
+        handle.lineTo(9.1, 1.2);
+        handle.quadTo(9.8, 1.2, 9.8, 1.8);
+        handle.lineTo(9.8, 3.4);
         painter.drawPath(handle);
 
-        // Lid: rounded rectangle overhanging the container body
-        painter.drawRoundedRect(QRectF(2.2, 3.4, 11.6, 2.0), 0.8, 0.8);
+        // Lid: rounded rectangle
+        painter.drawRoundedRect(QRectF(2.6, 3.4, 10.8, 2.2), 0.9, 0.9);
 
-        // Body: tapered container with generously rounded bottom corners
+        // Body: connects directly to lid bottom with rounded bottom corners
         QPainterPath body;
-        body.moveTo(3.2, 5.4);
-        body.lineTo(3.7, 12.6);
-        body.quadTo(3.9, 13.8, 5.0, 13.8);
-        body.lineTo(11.0, 13.8);
-        body.quadTo(12.1, 13.8, 12.3, 12.6);
-        body.lineTo(12.8, 5.4);
+        body.moveTo(3.8, 5.6);
+        body.lineTo(3.8, 12.2);
+        body.quadTo(3.8, 13.8, 5.4, 13.8);
+        body.lineTo(10.6, 13.8);
+        body.quadTo(12.2, 13.8, 12.2, 12.2);
+        body.lineTo(12.2, 5.6);
         painter.drawPath(body);
 
         // Three vertical parallel ribs
-        painter.drawLine(QPointF(5.8, 7.2), QPointF(5.8, 11.8));
-        painter.drawLine(QPointF(8.0, 7.2), QPointF(8.0, 11.8));
-        painter.drawLine(QPointF(10.2, 7.2), QPointF(10.2, 11.8));
+        painter.drawLine(QPointF(5.8, 7.4), QPointF(5.8, 11.8));
+        painter.drawLine(QPointF(8.0, 7.4), QPointF(8.0, 11.8));
+        painter.drawLine(QPointF(10.2, 7.4), QPointF(10.2, 11.8));
     }
     else if (name == "editMessage")
     {
