@@ -339,6 +339,13 @@ private slots:
             fields->item(uint8Row, 2)->setText("0");
             QVERIFY(!fields->item(uint8Row, 2)->data(Qt::UserRole + 1).toBool());
             QVERIFY(dialog->findChild<QLabel *>("validationError")->isHidden());
+            for (int i = 0; i < fields->rowCount(); ++i)
+            {
+                if (fields->item(i, 2)->text().isEmpty())
+                {
+                    fields->item(i, 2)->setText("0");
+                }
+            }
             buttons->button(QDialogButtonBox::Save)->click();
         });
         add->click();
@@ -465,6 +472,7 @@ private slots:
                 rate->stepUp();
                 QCOMPARE(rate->value(), 11.0);
                 rate->setValue(1);
+                QVERIFY(fields->item(0, 2)->text().isEmpty());
                 fields->editItem(fields->item(0, 2));
                 auto *valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
                 QVERIFY(valueEditor);
@@ -472,7 +480,7 @@ private slots:
                 valueEditor->selectAll();
                 QTest::keyClicks(valueEditor, "1");
                 QTest::keyClick(valueEditor, Qt::Key_Return);
-                QTRY_COMPARE(fields->item(0, 2)->text(), QString("1"));
+                QTRY_COMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
 
                 search->setText("no_such_message");
                 QVERIFY(dialog->findChild<QLabel *>("catalogEmpty")->isVisible());
@@ -480,7 +488,7 @@ private slots:
                 search->setText("heartbeat");
                 QVERIFY(catalog->isVisible());
                 QVERIFY(!catalog->item(0)->isHidden());
-                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
                 search->setText("1");
                 QCOMPARE(catalog->item(0)->data(Qt::UserRole).toUInt(), 1U);
                 QVERIFY(search->isClearButtonEnabled());
@@ -502,6 +510,7 @@ private slots:
                 QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                 fields->item(0, 2)->setText("1");
                 QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
                 // Switching messages commits an active native editor into that message's draft.
                 fields->editItem(fields->item(0, 2));
                 valueEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
@@ -509,7 +518,7 @@ private slots:
                 valueEditor->setText("2");
                 catalog->setCurrentRow(1);
                 catalog->setCurrentRow(0);
-                QCOMPARE(fields->item(0, 2)->text(), QString("2"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_QUADROTOR"));
                 fields->item(0, 2)->setText("1");
                 for (int row = 0; row < fields->rowCount(); ++row)
                 {
@@ -612,7 +621,10 @@ private slots:
                         }
                         parameterSearch->setText(fields->item(0, 0)->text());
                         QVERIFY(!fields->isRowHidden(0));
-                        const QString originalValue = fields->item(0, 2)->text();
+                        const auto suggestions = fields->item(0, 2)->data(Qt::UserRole + 7).toStringList();
+                        const QString validValue = !suggestions.isEmpty() ? suggestions.front() : "0";
+                        fields->item(0, 2)->setText(validValue);
+                        QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         fields->item(0, 2)->setText("invalid");
                         QVERIFY(fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         parameterSearch->setText("no_such_field");
@@ -620,7 +632,7 @@ private slots:
                         QVERIFY(dialog->isVisible());
                         QVERIFY(!fields->isRowHidden(0));
                         QVERIFY(parameterSearch->text().isEmpty());
-                        fields->item(0, 2)->setText(originalValue);
+                        fields->item(0, 2)->setText(validValue);
                         QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                         QVERIFY(dialog->grab().save(mode == 1 ? "qa/editor-many-light.png" : "qa/editor-many-dark.png"));
                         manyFields = true;
@@ -630,7 +642,71 @@ private slots:
                 QVERIFY(manyFields);
                 catalog->setCurrentRow(0);
                 QVERIFY(parameterSearch->isHidden());
-                QCOMPARE(fields->item(0, 2)->text(), QString("1"));
+                QCOMPARE(fields->item(0, 2)->text(), QString("MAV_TYPE_FIXED_WING"));
+
+                // Verify enum dropdown, keyboard entry, hint, and tooltip for PARAM_VALUE (msgid 22).
+                for (int i = 0; i < catalog->count(); ++i)
+                {
+                    if (catalog->item(i)->data(Qt::UserRole).toUInt() == 22U)
+                    {
+                        catalog->setCurrentRow(i);
+                        break;
+                    }
+                }
+                QTest::qWait(50);
+                QCOMPARE(catalog->currentItem()->data(Qt::UserRole).toUInt(), 22U);
+                int paramTypeRow = -1;
+                for (int row = 0; row < fields->rowCount(); ++row)
+                {
+                    if (fields->item(row, 0)->text() == "param_type")
+                    {
+                        paramTypeRow = row;
+                        break;
+                    }
+                }
+                QVERIFY(paramTypeRow >= 0);
+                QVERIFY(fields->item(paramTypeRow, 2)->text().isEmpty());
+                const QStringList suggestions = fields->item(paramTypeRow, 2)->data(Qt::UserRole + 7).toStringList();
+                QVERIFY(!suggestions.isEmpty());
+                bool foundReal32 = false;
+                for (const auto &itemText : suggestions)
+                {
+                    if (itemText.startsWith("MAV_PARAM_TYPE_REAL32"))
+                    {
+                        foundReal32 = true;
+                        break;
+                    }
+                }
+                QVERIFY(foundReal32);
+                fields->setCurrentCell(paramTypeRow, 2);
+                QVERIFY(hint->isVisible());
+                QVERIFY(hint->text().contains("Enum MAV_PARAM_TYPE"));
+
+                // Test symbolic enum string input
+                fields->editItem(fields->item(paramTypeRow, 2));
+                auto *enumEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                QVERIFY(enumEditor);
+                enumEditor->selectAll();
+                QTest::keyClicks(enumEditor, "MAV_PARAM_TYPE_REAL32");
+                QTest::keyClick(enumEditor, Qt::Key_Return);
+                QTRY_COMPARE(fields->item(paramTypeRow, 2)->text(), QString("MAV_PARAM_TYPE_REAL32"));
+                QVERIFY(!fields->item(paramTypeRow, 2)->data(Qt::UserRole + 1).toBool());
+                QVERIFY(fields->item(paramTypeRow, 2)->toolTip().contains("MAV_PARAM_TYPE_REAL32 = 9"));
+
+                // Test numeric value input with auto-conversion to enum symbol in table cell
+                QTest::qWait(30);
+                fields->editItem(fields->item(paramTypeRow, 2));
+                enumEditor = fields->findChild<QLineEdit *>("payloadValueEditor");
+                QVERIFY(enumEditor);
+                enumEditor->selectAll();
+                QTest::keyClicks(enumEditor, "9");
+                QTest::keyClick(enumEditor, Qt::Key_Return);
+                QTRY_COMPARE(fields->item(paramTypeRow, 2)->text(), QString("MAV_PARAM_TYPE_REAL32"));
+                QVERIFY(!fields->item(paramTypeRow, 2)->data(Qt::UserRole + 1).toBool());
+                QVERIFY(fields->item(paramTypeRow, 2)->toolTip().contains("MAV_PARAM_TYPE_REAL32 = 9"));
+                catalog->setCurrentRow(0);
+                QTest::qWait(30);
+
                 dialog->resize(880, 600);
                 splitter->setSizes({320, 540});
                 QTest::qWait(30);
@@ -793,6 +869,17 @@ private slots:
                     }
                 }
                 dialog->findChild<QDoubleSpinBox *>()->setValue(5.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
                 dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
             });
             add->click();
@@ -885,6 +972,17 @@ private slots:
                 }
                 QVERIFY(selected);
                 dialog->findChild<QDoubleSpinBox *>()->setValue(id == 0 ? 1.0 : 10.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
                 dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
             });
             add->click();

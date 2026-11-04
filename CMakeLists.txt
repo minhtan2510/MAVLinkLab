@@ -8,7 +8,25 @@ include(CTest)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mavlink/ardupilotmega/mavlink.h")
     message(FATAL_ERROR "Initialize MAVLink: git submodule update --init --recursive")
 endif()
-add_library(mavcore src/core.cpp)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    file(GLOB MAVLINK_XML_DEFS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mavlink/message_definitions/*.xml")
+    add_custom_command(
+        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/src/mavlink_enums.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/mavlink_enums.h"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_mavlink_enums.py"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_mavlink_enums.py" ${MAVLINK_XML_DEFS}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Generating MAVLink enum lookup tables from XML definitions"
+        VERBATIM
+    )
+    add_custom_target(update-enums
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_mavlink_enums.py"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Regenerating MAVLink enum tables from XML definitions"
+        VERBATIM
+    )
+endif()
+add_library(mavcore src/core.cpp src/mavlink_enums.cpp)
 target_include_directories(mavcore PUBLIC src)
 target_compile_definitions(mavcore PUBLIC MAVLINK_USE_MESSAGE_INFO)
 target_include_directories(mavcore SYSTEM PUBLIC third_party/mavlink)

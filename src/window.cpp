@@ -1,6 +1,8 @@
 #include "window.h"
+#include "mavlink_enums.h"
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCompleter>
 #include <QSettings>
 #include <QTextLayout>
 #include <QClipboard>
@@ -210,45 +212,26 @@ static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QStri
     {
         return {};
     }
-    if (msgid == 0)
+    const auto name = Mav::lookupEnumName(msgid, field.toStdString(), v);
+    if (!name.empty())
     {
-        if (field == "autopilot")
+        QString res = QString::fromStdString(name);
+        if (msgid == 0)
         {
-            switch (v)
+            if (field == "autopilot" && res.startsWith("MAV_AUTOPILOT_"))
             {
-                case 0: return "GENERIC";
-                case 3: return "ARDUPILOTMEGA";
-                case 12: return "PX4";
-                default: break;
+                return res.mid(14);
+            }
+            if (field == "type" && res.startsWith("MAV_TYPE_"))
+            {
+                return res.mid(9);
+            }
+            if (field == "system_status" && res.startsWith("MAV_STATE_"))
+            {
+                return res.mid(10);
             }
         }
-        else if (field == "type")
-        {
-            switch (v)
-            {
-                case 1: return "FIXED_WING";
-                case 2: return "QUADROTOR";
-                case 3: return "COAXIAL";
-                case 4: return "HELICOPTER";
-                case 10: return "GROUND_ROVER";
-                case 12: return "SUBMARINE";
-                default: break;
-            }
-        }
-        else if (field == "system_status")
-        {
-            switch (v)
-            {
-                case 0: return "UNINIT";
-                case 1: return "BOOT";
-                case 2: return "CALIBRATING";
-                case 3: return "STANDBY";
-                case 4: return "ACTIVE";
-                case 5: return "CRITICAL";
-                case 6: return "EMERGENCY";
-                default: break;
-            }
-        }
+        return res;
     }
     return {};
 }
@@ -951,26 +934,172 @@ public:
     {
         if (option.widget && option.widget->objectName() == "payloadFields")
         {
-            editor->setGeometry(QRect(option.rect.left() + 8, option.rect.top() + 6, option.rect.width() - 16, 28));
+            editor->setGeometry(QRect(option.rect.left() + 8, option.rect.top() + 4, option.rect.width() - 16, 32));
             return;
         }
         QStyledItemDelegate::updateEditorGeometry(editor, option, index);
     }
 
-    /** @brief Create a standard text editor with the same typography and field identity. */
+    /** @brief Forward return/enter key from combo line edit to commit the active editor. */
+    bool eventFilter(QObject *object, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress)
+        {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            {
+                if (auto *line = qobject_cast<QLineEdit *>(object))
+                {
+                    if (auto *combo = qobject_cast<QComboBox *>(line->parentWidget()))
+                    {
+                        emit commitData(combo);
+                        emit closeEditor(combo, QAbstractItemDelegate::SubmitModelCache);
+                        return true;
+                    }
+                }
+            }
+        }
+        return QStyledItemDelegate::eventFilter(object, event);
+    }
+
+    /** @brief Create a standard text editor or editable dropdown for enum fields. */
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override
     {
-        auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
-        if (editor && option.widget && option.widget->objectName() == "payloadFields")
+        if (option.widget && option.widget->objectName() == "payloadFields")
         {
-            editor->setObjectName("payloadValueEditor");
-            editor->setAccessibleName(index.sibling(index.row(), 0).data().toString());
             QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
             font.setPixelSize(13);
-            editor->setFont(font);
+
+            const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
+            if (!suggestions.isEmpty())
+            {
+                auto *combo = new WorkbenchComboBox(parent);
+                combo->setObjectName("payloadValueCombo");
+                combo->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+                combo->setFont(font);
+                combo->setEditable(true);
+                combo->addItems(suggestions);
+                if (auto *line = combo->lineEdit())
+                {
+                    line->setObjectName("payloadValueEditor");
+                    line->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+                    line->setFont(font);
+                    line->setTextMargins(4, 0, 18, 0);
+                    line->setPlaceholderText("Select from dropdown or enter value…");
+                    auto *completer = new QCompleter(suggestions, line);
+                    completer->setCaseSensitivity(Qt::CaseInsensitive);
+                    completer->setFilterMode(Qt::MatchContains);
+                    line->setCompleter(completer);
+                    line->installEventFilter(const_cast<ValueDelegate *>(this));
+                }
+                QObject::connect(combo, QOverload<int>::of(&QComboBox::activated), combo, [this, combo](int)
+                {
+                    const_cast<ValueDelegate *>(this)->commitData(combo);
+                    const_cast<ValueDelegate *>(this)->closeEditor(combo, QAbstractItemDelegate::SubmitModelCache);
+                });
+                return combo;
+            }
+
+            auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
+            if (editor)
+            {
+                editor->setObjectName("payloadValueEditor");
+                editor->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+                editor->setFont(font);
+            }
+            return editor;
         }
-        return editor;
+        return QStyledItemDelegate::createEditor(parent, option, index);
+    }
+
+    /** @brief Prepopulate the editor with the current table value. */
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox *>(editor);
+        if (!combo && editor)
+        {
+            combo = qobject_cast<QComboBox *>(editor->parentWidget());
+        }
+        if (combo)
+        {
+            const QString current = index.data(Qt::EditRole).toString().trimmed();
+            int found = combo->findText(current, Qt::MatchFixedString);
+            if (found < 0)
+            {
+                for (int i = 0; i < combo->count(); ++i)
+                {
+                    const QString itemText = combo->itemText(i);
+                    if (itemText == current || itemText.startsWith(current + " ") || itemText.startsWith(current + "("))
+                    {
+                        found = i;
+                        break;
+                    }
+                }
+            }
+            if (found >= 0)
+            {
+                combo->setCurrentIndex(found);
+            }
+            else
+            {
+                combo->setEditText(current);
+            }
+            if (combo->lineEdit())
+            {
+                combo->lineEdit()->selectAll();
+            }
+            return;
+        }
+        QStyledItemDelegate::setEditorData(editor, index);
+    }
+
+    /** @brief Write the chosen or typed value back to the payload model. */
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox *>(editor);
+        if (!combo && editor)
+        {
+            combo = qobject_cast<QComboBox *>(editor->parentWidget());
+        }
+        if (combo)
+        {
+            QString text = combo->currentText().trimmed();
+            const int paren = text.indexOf('(');
+            if (paren > 0)
+            {
+                const QString symbol = text.left(paren).trimmed();
+                if (Mav::lookupEnumValue(symbol.toStdString()).has_value())
+                {
+                    text = symbol;
+                }
+            }
+
+            // Auto-convert numeric value to enum symbol so the table cell displays pure enum names
+            const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
+            if (!suggestions.isEmpty() && !text.isEmpty())
+            {
+                bool ok = false;
+                const qulonglong numVal = text.toULongLong(&ok, 0);
+                if (ok)
+                {
+                    for (const auto &item : suggestions)
+                    {
+                        const QString symbol = item.section('(', 0, 0).trimmed();
+                        const auto valOpt = Mav::lookupEnumValue(symbol.toStdString());
+                        if (valOpt.has_value() && *valOpt == numVal)
+                        {
+                            text = symbol;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            model->setData(index, text, Qt::EditRole);
+            return;
+        }
+        QStyledItemDelegate::setModelData(editor, model, index);
     }
 
 protected:
@@ -2614,8 +2743,13 @@ void MainWindow::editMessage(bool edit)
         if (active && active->isVisible())
         {
             auto *delegate = fields->itemDelegateForColumn(2);
-            emit delegate->commitData(active);
-            emit delegate->closeEditor(active, QAbstractItemDelegate::NoHint);
+            QWidget *target = active;
+            if (auto *combo = qobject_cast<QComboBox *>(active->parentWidget()))
+            {
+                target = combo;
+            }
+            emit delegate->commitData(target);
+            emit delegate->closeEditor(target, QAbstractItemDelegate::NoHint);
         }
     };
     const auto validateField = [&](int row)
@@ -2625,6 +2759,33 @@ void MainWindow::editMessage(bool edit)
         {
             return true;
         }
+        const auto &enumEntries = Mav::fieldEnumEntries(selectedInfo->msgid, selectedInfo->fields[row].name);
+        if (!enumEntries.empty())
+        {
+            const QString currentText = item->text().trimmed();
+            if (currentText.isEmpty())
+            {
+                const QSignalBlocker blocker(fields);
+                item->setData(Qt::UserRole + 1, !loadingFields);
+                const QString emptyReason = "Value required: please select or enter an enum name";
+                item->setData(Qt::UserRole + 4, loadingFields ? QString() : emptyReason);
+                item->setData(Qt::AccessibleDescriptionRole, loadingFields ? QString() : emptyReason);
+                item->setToolTip(emptyReason);
+                fields->setRowHeight(row, loadingFields ? 40 : 60);
+                return false;
+            }
+            bool ok = false;
+            const qulonglong numVal = currentText.toULongLong(&ok, 0);
+            if (ok)
+            {
+                const std::string enumSymbol = Mav::lookupEnumName(selectedInfo->msgid, selectedInfo->fields[row].name, numVal);
+                if (!enumSymbol.empty() && currentText != QString::fromLatin1(enumSymbol))
+                {
+                    const QSignalBlocker blocker(fields);
+                    item->setText(QString::fromLatin1(enumSymbol));
+                }
+            }
+        }
         const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
         Mav::Bytes probe(metadata->max_msg_len, 0);
         std::string reason;
@@ -2633,7 +2794,74 @@ void MainWindow::editMessage(bool edit)
         item->setData(Qt::UserRole + 1, !valid);
         item->setData(Qt::UserRole + 4, QString::fromStdString(reason));
         item->setData(Qt::AccessibleDescriptionRole, QString::fromStdString(reason));
-        item->setToolTip(QString::fromStdString(reason));
+        if (valid)
+        {
+            if (!enumEntries.empty())
+            {
+                const QString currentText = item->text().trimmed();
+                const Mav::EnumEntry *matched = nullptr;
+                for (const auto &e : enumEntries)
+                {
+                    if (currentText.compare(e.name, Qt::CaseInsensitive) == 0)
+                    {
+                        matched = &e;
+                        break;
+                    }
+                }
+                if (!matched)
+                {
+                    bool ok = false;
+                    const uint64_t numVal = currentText.toULongLong(&ok);
+                    if (ok)
+                    {
+                        for (const auto &e : enumEntries)
+                        {
+                            if (e.value == numVal)
+                            {
+                                matched = &e;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        const auto valOpt = Mav::lookupEnumValue(currentText.toStdString());
+                        if (valOpt.has_value())
+                        {
+                            for (const auto &e : enumEntries)
+                            {
+                                if (e.value == *valOpt)
+                                {
+                                    matched = &e;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (matched)
+                {
+                    QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
+                    if (matched->description && *matched->description)
+                    {
+                        tip += QString(" (%1)").arg(matched->description);
+                    }
+                    item->setToolTip(tip);
+                }
+                else
+                {
+                    item->setToolTip(QString());
+                }
+            }
+            else
+            {
+                item->setToolTip(QString());
+            }
+        }
+        else
+        {
+            item->setToolTip(QString::fromStdString(reason));
+        }
         fields->setRowHeight(row, valid ? 40 : 60);
         return valid;
     };
@@ -2664,6 +2892,15 @@ void MainWindow::editMessage(bool edit)
                 hint->setText(field.type == MAVLINK_TYPE_CHAR ?
                     QString("UTF-8 text · maximum %1 bytes.").arg(field.array_length) :
                     QString("Enter exactly %1 comma-separated numeric values.").arg(field.array_length));
+            }
+            else
+            {
+                const auto enumType = Mav::fieldEnumType(selectedInfo->msgid, field.name);
+                if (!enumType.empty())
+                {
+                    hint->setText(QString("Enum %1: accept symbolic name or numeric value (e.g. MAV_PARAM_TYPE_REAL32 or 9).")
+                                  .arg(QString::fromStdString(enumType)));
+                }
             }
         }
         hint->setVisible(!hint->text().isEmpty());
@@ -2799,8 +3036,50 @@ void MainWindow::editMessage(bool edit)
             nameFont.setPixelSize(12);
             fields->item(int(i), 1)->setFont(nameFont);
             const auto draft = drafts.find(selectedInfo->msgid);
-            cell(fields, int(i), 2, draft != drafts.end() ? draft->second.value(int(i)) :
-                 QString::fromStdString(Mav::readField(source, field)));
+            const auto &enumEntries = Mav::fieldEnumEntries(selectedInfo->msgid, field.name);
+            QString initialValue;
+            if (draft != drafts.end())
+            {
+                initialValue = draft->second.value(int(i));
+            }
+            else if (edit && selectedInfo->msgid == entry.id)
+            {
+                initialValue = QString::fromStdString(Mav::readField(source, field));
+                if (!enumEntries.empty())
+                {
+                    bool ok = false;
+                    const qulonglong num = initialValue.toULongLong(&ok, 0);
+                    if (ok)
+                    {
+                        const std::string name = Mav::lookupEnumName(selectedInfo->msgid, field.name, num);
+                        if (!name.empty())
+                        {
+                            initialValue = QString::fromLatin1(name);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (!enumEntries.empty())
+                {
+                    initialValue = QString();
+                }
+                else
+                {
+                    initialValue = QString::fromStdString(Mav::readField(source, field));
+                }
+            }
+            cell(fields, int(i), 2, initialValue);
+            if (!enumEntries.empty())
+            {
+                QStringList suggestions;
+                for (const auto &e : enumEntries)
+                {
+                    suggestions << QString::fromLatin1(e.name);
+                }
+                fields->item(int(i), 2)->setData(Qt::UserRole + 7, suggestions);
+            }
             if (selectedInfo->msgid == MAVLINK_MSG_ID_HEARTBEAT && qstrcmp(field.name, "mavlink_version") == 0)
             {
                 fields->item(int(i), 2)->setText("3");

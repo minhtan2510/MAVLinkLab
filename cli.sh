@@ -125,6 +125,9 @@ build_full()
     if ! update_submodules; then
         return 1
     fi
+    if ! update_enums; then
+        return 1
+    fi
 
     local need_config=0
     if [[ ! -f "$build_dir/CMakeCache.txt" || (! -f "$build_dir/Makefile" && ! -f "$build_dir/build.ninja") ]]; then
@@ -163,6 +166,9 @@ build_core()
 {
     printf "\n%b=== Building Core Only (No GUI) ===%b\n" "$BLUE" "$NC"
     if ! update_submodules; then
+        return 1
+    fi
+    if ! update_enums; then
         return 1
     fi
 
@@ -351,6 +357,27 @@ sync_codegraph()
 }
 
 ##
+# @brief Regenerate MAVLink enum tables from XML definitions.
+#
+update_enums()
+{
+    printf "\n%b=== Updating MAVLink Enums from XML Definitions ===%b\n" "$BLUE" "$NC"
+    local generator="$project_dir/tools/generate_mavlink_enums.py"
+    if [[ ! -f "$generator" ]]; then
+        printf "%bGenerator script not found: %s%b\n" "$RED" "$generator" "$NC" >&2
+        return 1
+    fi
+    if command -v python3 &>/dev/null; then
+        python3 "$generator"
+        printf "%bMAVLink enum tables updated successfully.%b\n" "$GREEN" "$NC"
+        return 0
+    else
+        printf "%bpython3 is required to regenerate MAVLink enums.%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+}
+
+##
 # @brief Print CLI command usage help.
 #
 show_help()
@@ -375,6 +402,7 @@ show_help()
     printf "    clean               Delete build directories\n"
     printf "    rebuild             Clean and rebuild full project\n"
     printf "    submodules          Update git submodules\n"
+    printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
     printf "    sync-graph          Synchronize CodeGraph index\n"
     printf "    menu                Open interactive menu (default when no args)\n"
     printf "    help, -h, --help    Show this help message\n\n"
@@ -596,6 +624,7 @@ menu_tools()
         local choice
         prompt_menu "Tools & Utilities" choice \
             "Update git submodules" \
+            "Regenerate MAVLink enums from XML" \
             "Sync CodeGraph" \
             "← Back to Main Menu"
 
@@ -606,6 +635,11 @@ menu_tools()
                 safe_clear
                 ;;
             1)
+                update_enums || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            2)
                 sync_codegraph || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
@@ -742,6 +776,10 @@ case "$cmd" in
     submodules)
         shift
         update_submodules "$@"
+        ;;
+    update-enums|enums)
+        shift
+        update_enums "$@"
         ;;
     sync-graph)
         shift
