@@ -17,6 +17,11 @@
 #include <QCheckBox>
 #include <map>
 
+class TxSummaryWidget;
+class ConnectionStatusWidget;
+class StatusBarMetricsWidget;
+class StatusBarMessageWidget;
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -25,6 +30,14 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     /** @brief Close the serial port in its owning thread and join the worker. */
     ~MainWindow() override;
+    /** @brief Select display mode for the TX status indicator (0: DualPills, 1: SegmentedChip). */
+    void setTxSummaryMode(int mode);
+    /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
+    void setTxSummaryStats(int total, int running);
+    /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
+    void setConnectionStatus(const QString &state, bool open);
+    /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
+    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -47,6 +60,8 @@ private:
     void applyTheme();
     /** @brief Display a persistent actionable error in the status bar. */
     void showError(const QString &message);
+    /** @brief Display a compact alert dialog when serial port connection fails. */
+    void showConnectionError(const QString &title, const QString &message);
     /** @brief Return the stable identity of the selected TX row, or zero. */
     uint64_t selectedTx() const;
     /** @brief Enable actions according to connection and selection state. */
@@ -67,6 +82,18 @@ private:
     void restoreTxMessages();
     /** @brief Save configured TX messages to workspace storage. */
     void saveTxMessages();
+    /** @brief Import a validated TX profile with an explicit append option. */
+    void importProfile();
+    /** @brief Choose a destination and export the worker's current TX definitions. */
+    void exportProfile();
+    /** @brief Display a popup menu with preset frequencies and custom rate input. */
+    void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
+    /** @brief Display transient confirmation badge and cell flash when copying a field value. */
+    void showCopiedFeedback(int row);
+    bool profileBusy = false;
+    QString profileExportPath;
+    QAction *importProfileAction = nullptr;
+    QAction *exportProfileAction = nullptr;
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -74,6 +101,9 @@ private:
     bool connected = false;
     bool connecting = false;
     bool reconnecting = false;
+    bool connectingByUser = false;
+    QString connectingPort;
+    int connectingBaud = 0;
     bool paused = false;
     uint64_t nextKey = 1;
     SnapshotPtr latest;
@@ -91,9 +121,10 @@ private:
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
+    ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
-    QLabel *metrics = nullptr;
-    QLabel *lastError = nullptr;
+    StatusBarMetricsWidget *metricsWidget = nullptr;
+    StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
@@ -108,10 +139,13 @@ private:
     QPushButton *stopAllButton = nullptr;
     QPushButton *deleteAllButton = nullptr;
     QLabel *serialSummary = nullptr;
-    QLabel *txSummary = nullptr;
+    TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
     QLabel *inspectorSource = nullptr;
+    QLabel *copyFeedbackBadge = nullptr;
+    QTimer *copyFeedbackTimer = nullptr;
+    int copiedInspectorRow = -1;
     QLabel *pausedLabel = nullptr;
     std::map<QString, QString> lastFieldValues;
 };

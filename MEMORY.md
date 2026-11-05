@@ -37,6 +37,8 @@
   * Indicators for controls (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) and batch TX action buttons (`runAll`, `stopAll`, `deleteAll`) are painted via vector paths with antialiased `QPainter` instead of crude QSS or text labels.
   * Batch action buttons use 28x28 px compact icon buttons with semantic tooltips (`Run all`, `Stop all`, `Delete all`).
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
+  * Batch action buttons are located in the TX Dashboard header overview row (`txOverview`), vertically aligned with `txSummary` (`X messages · Y running`) and right-aligned beneath `+ Add message`. This consolidates action triggers into a natural top-down flow and removes redundant footer dividers (`txBatchDivider`), reclaiming full vertical space for the TX cards list.
+  * TX Status indicator (`TxSummaryWidget`) uses Dual Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with an antialiased vector LED dot (glowing green when running, neutral hollow when idle). Text measurement uses the matching DemiBold font metrics to prevent text clipping on `running`.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
@@ -73,12 +75,24 @@
   * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
 * **TX Card Deselection on Clicking Elsewhere:**
   * Only classify mouse presses delivered to `QWidget` receivers. Application event filters also see the popup's `QWindow` event before widget delivery; treating that non-widget receiver as an outside click clears the TX selection and disables context-menu actions before activation.
+* **QLineEdit Placeholder Text & QSS Palette Override:**
+  * In Qt6, QSS `color` on `QLineEdit` automatically resets `QPalette::PlaceholderText` to the primary text color during widget polish and show events, causing placeholder text to render at full foreground brightness instead of muted.
+  * `WorkbenchLineEdit` intercepts `showEvent()` and `changeEvent()` (`PaletteChange`, `ApplicationPaletteChange`, `StyleChange`) and explicitly clears resolve masks (`colors.setResolveMask(0)`) to preserve the theme-aware dimmed placeholder color (`#606d88` in Dark, `#8893a7` in Light).
   * In `QTableWidget` (`txTable`), clicking empty space in the viewport does not deselect items by default.
   * Handled via `MainWindow::eventFilter()` on `QEvent::MouseButtonPress`: clicking invalid indices in `txTable->viewport()` or clicking outside `txTable` (e.g. headers, other dashboard panels, or toolbar, excluding scrollbars, modal dialogs, and `txMenu`) calls `txTable->clearSelection()`, `txTable->setCurrentCell(-1, -1)`, and `updateActions()` to dismiss active card focus.
 * **Decoded Fields Table (`inspector`) Styling & Consistency:**
   * Synchronized with `payloadFields`: column headers (`Parameter`, `Type`, `Value`, with hidden `Unit`), row height (40px), header height (36px), column widths (190px, 105px, stretch), and QSS borders.
   * Rendered via `ValueDelegate::paint()` as a clean view-only rounded pill (`drawRoundedRect(input, 5, 5)`) with monospace font and dynamic changed highlight (`#58a6ff` / `#0969da`), while strictly enforcing view-only semantics (`createEditor()` returns `nullptr`).
   * Non-interactive display: `setSelectionMode(NoSelection)` and `setFocusPolicy(NoFocus)` prevent cells from being clicked, focused or highlighted with selection borders, while retaining right-click "Copy value" context menu and enum tooltips.
+  * Visual feedback on Copy: Clicking "Copy value" triggers transient emerald cell flash/highlight (`#0f2e24` Dark / `#ecfdf5` Light) and a floating `CopyFeedbackBadge` ("✓ Copied") positioned inside the right side of the value pill for 800ms before auto-resetting. Automatically hidden on scrolling to preserve visual integrity.
+* **Modern Subdued Debug Status Bar:**
+  * Segmented metric chips (`StatusBarMetricsWidget`: `RX ↓`, `TX ↑`, `CRC`, `Pending`, `Overflow`) are aligned to the right via `addStretch(1)` in `statusBarCard`, matching `dashRight` (x = 1420px) pixel-perfect with upper dashboard panels.
+  * Omit redundant connection text status from the debug bar; connection lifecycle states are exclusively reported by `ConnectionStatusWidget` on the UART toolbar.
+  * Connection Status indicator (`ConnectionStatusWidget`) maintains clean binary/lifecycle states (`Disconnected`, `Connecting`, `Connected`, `Reconnecting`). Omit `Error` state from the badge: when a connection fails, a compact modal alert dialog is displayed and the badge cleanly remains `Disconnected`.
+* **Compact Floating Alert Dialogs (`ConnectionErrorDialog`):**
+  * Do NOT apply `border-radius` directly to a top-level `QDialog` stylesheet without alpha transparency; X11/OS native window rects cause dark/light jagged clipping artifacts at the corners.
+  * Correct architecture: `setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint)` + `setAttribute(Qt::WA_TranslucentBackground)` on `QDialog`, enclosing content in an inner `QFrame#connectionErrorCard` with `border-radius: 10px; border: 1px solid %4; background: %2;`.
+  * Support titleless window movement via `mousePressEvent`/`mouseMoveEvent` on the card surface, and auto-dismiss via default OK button, `Enter`, `Space`, or `Escape`.
 * **RX Dashboard Smart Grouped Tree Architecture:**
   * Clean 2-level hierarchy replacing obsolete 3-level tree: Level 1 is the Device group (`System X · Component Y`), and Level 2 contains the leaf message streams with a compact 16px indentation.
   * Device Group Banner (Level 1): identity-only `System X · Component Y`, spanning the full row. No Rate, Count, status dot, age or auxiliary tooltip on the group. Bold 13 px text distinguishes it from message rows; there is no custom background or text color.

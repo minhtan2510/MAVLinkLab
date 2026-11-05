@@ -22,6 +22,8 @@
 #include <QMouseEvent>
 #include <QContextMenuEvent>
 #include <QWindow>
+#include <QStatusBar>
+#include <QLayout>
 #include <array>
 #include <fcntl.h>
 #include <pty.h>
@@ -1445,7 +1447,15 @@ private slots:
         QVERIFY(runAll->text().isEmpty());
         QVERIFY(stopAll->text().isEmpty());
         QVERIFY(deleteAll->text().isEmpty());
-        QVERIFY(stopAll->geometry().top() > tx->geometry().bottom());
+        QVERIFY(stopAll->geometry().bottom() < tx->geometry().top());
+        QCOMPARE(runAll->geometry().top(), stopAll->geometry().top());
+        QCOMPARE(deleteAll->geometry().top(), stopAll->geometry().top());
+        auto *addButton = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(addButton);
+        QVERIFY(runAll->geometry().top() >= addButton->geometry().bottom() + 8);
+        QCOMPARE(runAll->geometry().left(), addButton->geometry().left());
+        QCOMPARE(deleteAll->geometry().right(), addButton->geometry().right());
+        QVERIFY(stopAll->geometry().right() < deleteAll->geometry().left());
         stopAll->click();
         for (int row = 0; row < tx->rowCount(); ++row)
         {
@@ -2081,6 +2091,426 @@ private slots:
         });
 
         add->click();
+    }
+
+    /** @brief Exercise quick rate switcher popup and rate modifications from TX cards. */
+    void quickRateSwitcherUi()
+    {
+        for (int mode = 0; mode < 2; ++mode)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(tx && add);
+
+            // Add a HEARTBEAT message at 1.0 Hz
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                catalog->setCurrentRow(0);
+                dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 1);
+            QCOMPARE(tx->item(0, 3)->text(), QString("1"));
+
+            // Locate rate pill position on card 0
+            const QRect rect = tx->visualRect(tx->model()->index(0, 0));
+            const QRect card = rect.adjusted(1, 5, -2, -5);
+            QFont titleFont = tx->font();
+            titleFont.setPixelSize(13);
+            titleFont.setWeight(QFont::Normal);
+            const int advance = QFontMetrics(titleFont).horizontalAdvance("[0] HEARTBEAT");
+            const int pillLeft = card.left() + 24 + advance + 8;
+            const QPoint pillClickPos(pillLeft + 10, card.top() + 8 + 3 + 9);
+
+            QTimer::singleShot(100, [&window, mode]()
+            {
+                auto *menu = window.findChild<QMenu *>("quickRateMenu");
+                if (menu)
+                {
+                    menu->grab().save(mode == 0 ? "qa/quick-rate-menu-dark.png" : "qa/quick-rate-menu-light.png");
+                    for (auto *action : menu->actions())
+                    {
+                        if (action->text() == "5 Hz")
+                        {
+                            action->trigger();
+                            break;
+                        }
+                    }
+                }
+            });
+
+            QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
+
+            QTRY_COMPARE_WITH_TIMEOUT(tx->item(0, 3)->text(), QString("5"), 3000);
+        }
+    }
+
+    /** @brief Render side-by-side visual comparisons of Option 1 (Dual Pills) and Option 2 (Segmented Chip). */
+    void compareTxSummaryOptions()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(tx && add);
+
+            // Add first message: HEARTBEAT (id 0)
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                catalog->setCurrentRow(0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 1);
+
+            // Add second message: ATTITUDE (id 30)
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                for (int r = 0; r < catalog->count(); ++r)
+                {
+                    if (catalog->item(r)->data(Qt::UserRole).toUInt() == 30)
+                    {
+                        catalog->setCurrentRow(r);
+                        break;
+                    }
+                }
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 2);
+
+            // Set stats to 2 messages, 1 running to render both total count and active dot
+            window.setTxSummaryStats(2, 1);
+            QTest::qWait(50);
+
+            // Verify TxSummaryWidget renders dual pills with full text visibility
+            auto *txPanel = tx->parentWidget();
+            QVERIFY(txPanel);
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            QApplication::processEvents();
+            QTest::qWait(50);
+            QVERIFY(window.grab().save(QString("qa/option-1-dual-pills-%1.png").arg(themeSuffix)));
+            QVERIFY(txPanel->grab(QRect(0, 0, txPanel->width(), 100))
+                    .save(QString("qa/option-1-heading-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Test connection status indicator states and render QA snapshots. */
+    void connectionStatusIndicator()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *statusPill = window.findChild<QWidget *>("connectionStatusPill");
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            auto *uartBar = window.findChild<QFrame *>("connectionBar");
+            QVERIFY(statusPill);
+            QVERIFY(connectBtn);
+            QVERIFY(uartBar);
+
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            // 1. Initial Disconnected state
+            QCOMPARE(statusPill->accessibleName(), QString("Connection status"));
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-disconnected-%1.png").arg(themeSuffix)));
+
+            // 2. Connecting state
+            window.setConnectionStatus("Connecting", false);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-connecting-%1.png").arg(themeSuffix)));
+
+            // 3. Connected state
+            window.setConnectionStatus("Connected", true);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-connected-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("qa/window-status-connected-%1.png").arg(themeSuffix)));
+
+            // 4. Reconnecting state
+            window.setConnectionStatus("Reconnecting", false);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-reconnecting-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Test modern status bar segmented metric chips and message badges across states and themes. */
+    void modernStatusBar()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *statusBar = window.findChild<QFrame *>("statusBarCard");
+            auto *metricsWidget = window.findChild<QWidget *>("statusBarMetrics");
+            auto *dashboards = window.findChild<QSplitter *>("dashboards");
+            QVERIFY(statusBar);
+            QVERIFY(metricsWidget);
+            QVERIFY(dashboards);
+
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            const int dashLeft = dashboards->mapTo(&window, QPoint(0, 0)).x();
+            const int dashRight = dashLeft + dashboards->width();
+            const int barLeft = statusBar->mapTo(&window, QPoint(0, 0)).x();
+            const int barRight = barLeft + statusBar->width();
+
+            const auto chips = metricsWidget->findChildren<QLabel *>();
+            QVERIFY(chips.size() >= 5);
+            auto *lastChip = chips.last();
+            QVERIFY(lastChip);
+
+            const int metricsRight = metricsWidget->mapTo(&window, QPoint(0, 0)).x() + metricsWidget->width();
+            const int lastChipRight = lastChip->mapTo(&window, QPoint(0, 0)).x() + lastChip->width();
+
+            qDebug() << "STATUS BAR ALIGNMENT [" << themeSuffix << "]:"
+                     << "dashLeft=" << dashLeft << "barLeft=" << barLeft
+                     << "dashRight=" << dashRight << "barRight=" << barRight
+                     << "metricsRight=" << metricsRight << "lastChipRight=" << lastChipRight
+                     << "windowWidth=" << window.width();
+
+            QCOMPARE(barLeft, dashLeft);
+            QCOMPARE(barRight, dashRight);
+            QCOMPARE(metricsRight, dashRight);
+            QCOMPARE(lastChipRight, dashRight);
+
+            // 1. Idle state
+            window.setStatusMetrics(0, 0, 0, 0, 0);
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-idle-%1.png").arg(themeSuffix)));
+
+            // 2. Active stream state
+            window.setStatusMetrics(1250, 480, 0, 128, 0);
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-active-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("qa/window-statusbar-active-%1.png").arg(themeSuffix)));
+
+            // 3. Alert & warning state
+            window.setStatusMetrics(2400, 960, 4, 5200, 2);
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-alert-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Test transient visual confirmation badge and cell flash when copying field values. */
+    void copyValueVisualFeedback()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            Pty pty;
+            QVERIFY(pty.master >= 0);
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            // Connect to Pty
+            auto *port = window.findChild<QComboBox *>("port");
+            QVERIFY(port);
+            port->addItem(pty.name);
+            port->setCurrentText(pty.name);
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            QVERIFY(connectBtn);
+            connectBtn->click();
+            QTRY_COMPARE(connectBtn->text(), QString("Disconnect"));
+
+            // Feed an ATTITUDE message (id 30)
+            mavlink_status_t status{};
+            Mav::Bytes payload(mavlink_get_msg_entry(30)->max_msg_len);
+            const auto frame = Mav::encode(30, 1, 1, false, payload, status);
+            QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
+
+            auto *rx = window.findChild<QTreeWidget *>("rxTree");
+            QVERIFY(rx);
+            QTRY_VERIFY(rx->topLevelItemCount() > 0 && rx->topLevelItem(0)->childCount() > 0);
+            rx->setCurrentItem(rx->topLevelItem(0)->child(0));
+
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            QVERIFY(inspector);
+            QTRY_VERIFY(inspector->rowCount() > 0);
+
+            // Select row 1 to copy
+            const int targetRow = 1;
+            auto *valItem = inspector->item(targetRow, 2);
+            QVERIFY(valItem);
+            const QString expectedValue = valItem->text();
+            const QPoint valuePosition = inspector->visualItemRect(valItem).center();
+
+            // Trigger context menu
+            QVERIFY(QMetaObject::invokeMethod(inspector, "customContextMenuRequested", Qt::DirectConnection,
+                                              Q_ARG(QPoint, valuePosition)));
+            auto *valueMenu = window.findChild<QMenu *>("inspectorMenu");
+            auto *copyAction = window.findChild<QAction *>("copyInspectorValue");
+            QVERIFY(valueMenu && copyAction && valueMenu->isVisible());
+
+            // Trigger copy
+            copyAction->trigger();
+            valueMenu->hide();
+
+            // 1. Verify clipboard content
+            QCOMPARE(QApplication::clipboard()->text(), expectedValue);
+
+            // 2. Verify cell copied state and badge visibility
+            auto *badge = inspector->viewport()->findChild<QLabel *>("copyFeedbackBadge");
+            QVERIFY(badge);
+            QVERIFY(badge->isVisible());
+            QCOMPARE(badge->text(), QString("✓ Copied"));
+            QVERIFY(valItem->data(Qt::UserRole + 6).toBool());
+
+            // Capture screenshot of inspector showing the copied badge & highlight
+            QTest::qWait(30);
+            QVERIFY(inspector->grab().save(QString("qa/inspector-copied-%1.png").arg(themeSuffix)));
+            auto *inspectorPane = inspector->parentWidget();
+            if (inspectorPane)
+            {
+                QVERIFY(inspectorPane->grab().save(QString("qa/pane-inspector-copied-%1.png").arg(themeSuffix)));
+            }
+            QVERIFY(window.grab().save(QString("qa/window-copied-%1.png").arg(themeSuffix)));
+
+            // 3. Verify transient timeout: after 850ms, badge disappears and cell state resets
+            QTest::qWait(850);
+            QVERIFY(!badge->isVisible());
+            QVERIFY(!valItem->data(Qt::UserRole + 6).toBool());
+        }
+    }
+
+    /** @brief Test error dialog prompt when attempting to connect to an invalid or unavailable COM port. */
+    void serialConnectionErrorDialog()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            auto *portBox = window.findChild<QComboBox *>("port");
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            QVERIFY(portBox && connectBtn);
+
+            // 1. Case A: Empty port selection
+            portBox->clear();
+            QTimer::singleShot(50, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("connectionErrorDialog");
+                QVERIFY(dialog);
+                auto *msg = dialog->findChild<QLabel *>("connectionErrorMessage");
+                QVERIFY(msg && msg->text().contains("Please select an available serial port"));
+                auto *btn = dialog->findChild<QPushButton *>("dismissConnectionError");
+                QVERIFY(btn);
+                btn->click();
+            });
+            connectBtn->click();
+            QTest::qWait(80);
+
+            // 2. Case B: Hardware open failure (unavailable/nonexistent port)
+            const QString badPort = "/dev/nonexistent_serial_device_xyz";
+            portBox->addItem(badPort);
+            portBox->setCurrentText(badPort);
+
+            QTimer::singleShot(150, [&window, badPort, themeSuffix]()
+            {
+                auto *dialog = window.findChild<QDialog *>("connectionErrorDialog");
+                QVERIFY(dialog);
+                QCOMPARE(dialog->windowTitle(), QString("Connection Failed"));
+                auto *headline = dialog->findChild<QLabel *>("dialogHeadline");
+                QVERIFY(headline && headline->text() == "Connection Failed");
+                auto *msg = dialog->findChild<QLabel *>("connectionErrorMessage");
+                QVERIFY(msg);
+                QVERIFY(dialog->grab().save(QString("qa/dialog-connection-error-%1.png").arg(themeSuffix)));
+                auto *btn = dialog->findChild<QPushButton *>("dismissConnectionError");
+                QVERIFY(btn);
+                btn->click();
+            });
+            connectBtn->click();
+            QTRY_VERIFY_WITH_TIMEOUT(!window.findChild<QDialog *>("connectionErrorDialog"), 2000);
+
+            // Verify button is restored to enabled Connect state and status remains Disconnected
+            QTRY_COMPARE(connectBtn->text(), QString("Connect"));
+            QTRY_VERIFY(connectBtn->isEnabled());
+            auto *statusPill = window.findChild<QWidget *>("connectionStatusPill");
+            QVERIFY(statusPill);
+            QTRY_COMPARE(statusPill->toolTip(), QString("Serial link disconnected"));
+        }
     }
 };
 

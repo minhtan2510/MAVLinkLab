@@ -1,9 +1,11 @@
 #include "worker.h"
+#include "profile.h"
 #include <QFile>
 #include <QSerialPortInfo>
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <limits>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -234,6 +236,43 @@ void SerialWorker::setActive(quint64 key, bool active)
     }
 }
 
+void SerialWorker::setRate(quint64 key, double hz)
+{
+    if (!std::isfinite(hz) || hz < 0.1 || hz > 1000.0)
+    {
+        fail("Target rate must be between 0.1 and 1000 Hz");
+        return;
+    }
+    for (auto &entry : entries)
+    {
+        if (entry.key != key)
+        {
+            continue;
+        }
+        if (entry.active)
+        {
+            const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
+                                (config.stop == QSerialPort::TwoStop ? 2.0 :
+                                 config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+            Mav::TxEntry candidate = entry;
+            candidate.hz = hz;
+            if (!port->isOpen() || !Mav::fitsLink(entries, candidate, config.baud, bits))
+            {
+                fail("Offered load exceeds link capacity");
+                return;
+            }
+            entry.hz = hz;
+            entry.deadline = clock.nsecsElapsed() / 1000 + static_cast<int64_t>(1000000.0 / hz);
+        }
+        else
+        {
+            entry.hz = hz;
+        }
+        requestSnapshot();
+        return;
+    }
+}
+
 void SerialWorker::sendOnce(quint64 key)
 {
     for (auto &entry : entries)
@@ -292,6 +331,70 @@ void SerialWorker::deleteAll()
 {
     stopAll();
     entries.clear();
+}
+
+void SerialWorker::importProfile(QByteArray data, bool append, quint64 minimumKey)
+{
+    std::vector<Mav::TxEntry> imported;
+    QString error;
+    if (!Profile::decode(data, imported, error))
+    {
+        emit profileImportFailed(error);
+        return;
+    }
+    const size_t retained = append ? entries.size() : 0;
+    if (imported.size() > 128 || retained > 128 - imported.size())
+    {
+        emit profileImportFailed("Import would exceed the TX entry limit (128)");
+        return;
+    }
+    quint64 nextKey = std::max<quint64>(minimumKey, 1);
+    for (const auto &entry : entries)
+    {
+        if (entry.key == std::numeric_limits<quint64>::max())
+        {
+            emit profileImportFailed("Cannot allocate fresh TX entry keys");
+            return;
+        }
+        nextKey = std::max(nextKey, quint64(entry.key + 1));
+    }
+    // Reserve a representable next key for subsequent GUI-created entries as well.
+    if (imported.size() > std::numeric_limits<quint64>::max() - nextKey)
+    {
+        emit profileImportFailed("Cannot allocate fresh TX entry keys");
+        return;
+    }
+    for (auto &entry : imported)
+    {
+        entry.key = nextKey++;
+        entry.active = false;
+        entry.count = 0;
+        entry.deadline = 0;
+        entry.measured = {};
+        entry.error.clear();
+    }
+    // Build the complete replacement before cancelling any existing output.
+    auto updated = append ? entries : std::vector<Mav::TxEntry>{};
+    updated.insert(updated.end(), imported.begin(), imported.end());
+    if (!append)
+    {
+        discardOutput();
+    }
+    entries.swap(updated);
+    emit profileImported(int(imported.size()), append, nextKey);
+    requestSnapshot();
+}
+
+void SerialWorker::exportProfile()
+{
+    QString error;
+    const auto data = Profile::encode(entries, error);
+    if (!error.isEmpty())
+    {
+        emit profileExportFailed(error);
+        return;
+    }
+    emit profileExported(data);
 }
 
 void SerialWorker::discardOutput()

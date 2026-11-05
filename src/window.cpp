@@ -1,4 +1,7 @@
 #include "window.h"
+#include "profile.h"
+#include <QFileDialog>
+#include <QSaveFile>
 #include "mavlink_enums.h"
 #include <QApplication>
 #include <QCloseEvent>
@@ -46,6 +49,74 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+
+/** @brief Keep an accepted import visible until the worker reports its outcome. */
+class ProfileImportDialog : public QDialog
+{
+public:
+    using QDialog::QDialog;
+    bool applying = false;
+
+    /** @brief Allow cancellation only before an import has been submitted. */
+    void reject() override
+    {
+        if (!applying)
+        {
+            QDialog::reject();
+        }
+    }
+
+protected:
+    /** @brief Prevent window-manager close while a submitted import is pending. */
+    void closeEvent(QCloseEvent *event) override
+    {
+        if (applying)
+        {
+            event->ignore();
+            return;
+        }
+        QDialog::closeEvent(event);
+    }
+};
+
+/** @brief Paint a small theme-aware document mark for the profile picker. */
+class ProfileDocumentIcon : public QWidget
+{
+public:
+    /** @brief Reserve a compact decorative area without adding a keyboard stop. */
+    explicit ProfileDocumentIcon(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(40, 40);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    /** @brief Draw the document with antialiased vector paths in the current theme. */
+    void paintEvent(QPaintEvent *) override
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#30355d" : "#eeedff"));
+        painter.drawRoundedRect(QRectF(0, 0, 40, 40), 10, 10);
+        painter.setPen(QPen(QColor(dark ? "#b4adff" : "#6254d8"), 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath page;
+        page.moveTo(13, 9);
+        page.lineTo(22, 9);
+        page.lineTo(28, 15);
+        page.lineTo(28, 30);
+        page.lineTo(13, 30);
+        page.closeSubpath();
+        painter.drawPath(page);
+        painter.drawLine(QPointF(22, 9), QPointF(22, 15));
+        painter.drawLine(QPointF(22, 15), QPointF(28, 15));
+        painter.drawLine(QPointF(17, 21), QPointF(24, 21));
+        painter.drawLine(QPointF(17, 25), QPointF(22, 25));
+    }
+};
 
 /** @brief Provide a themeable dialog title bar with native system dragging where available. */
 class DialogTitleBar : public QFrame
@@ -139,6 +210,146 @@ static QVBoxLayout *addDialogTitleBar(QDialog *dialog, QVBoxLayout *layout)
     layout->addWidget(body, 1);
     return content;
 }
+
+/** @brief Paint a compact theme-aware alert icon. */
+class ConnectionAlertIcon : public QWidget
+{
+public:
+    explicit ConnectionAlertIcon(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(32, 32);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#3b1e26" : "#fef2f2"));
+        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 8, 8);
+
+        // Warning triangle
+        painter.setPen(QPen(QColor(dark ? "#f87171" : "#dc2626"), 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath triangle;
+        triangle.moveTo(16, 7);
+        triangle.lineTo(25, 24);
+        triangle.lineTo(7, 24);
+        triangle.closeSubpath();
+        painter.drawPath(triangle);
+
+        // Exclamation mark
+        painter.drawLine(QPointF(16, 13), QPointF(16, 18));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#f87171" : "#dc2626"));
+        painter.drawEllipse(QRectF(15, 20.5, 2, 2));
+    }
+};
+
+/** @brief Compact modal dialog presenting connection failure directly and cleanly. */
+class ConnectionErrorDialog : public QDialog
+{
+public:
+    explicit ConnectionErrorDialog(const QString &titleText, const QString &messageText, QWidget *parent = nullptr)
+        : QDialog(parent)
+    {
+        setObjectName("connectionErrorDialog");
+        setWindowTitle(titleText);
+        setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+        setAttribute(Qt::WA_TranslucentBackground);
+        setFixedWidth(380);
+
+        auto *rootLayout = new QVBoxLayout(this);
+        rootLayout->setContentsMargins(4, 4, 4, 4);
+
+        auto *card = new QFrame(this);
+        card->setObjectName("connectionErrorCard");
+        auto *layout = new QVBoxLayout(card);
+        layout->setContentsMargins(18, 18, 18, 16);
+        layout->setSpacing(14);
+
+        // Content row: Icon + Text
+        auto *contentRow = new QHBoxLayout;
+        contentRow->setSpacing(12);
+        contentRow->setAlignment(Qt::AlignTop);
+
+        contentRow->addWidget(new ConnectionAlertIcon(card), 0, Qt::AlignTop);
+
+        auto *textLayout = new QVBoxLayout;
+        textLayout->setSpacing(4);
+
+        auto *headline = new QLabel(titleText, card);
+        headline->setObjectName("dialogHeadline");
+        QFont f = font();
+        f.setPixelSize(14);
+        f.setWeight(QFont::DemiBold);
+        headline->setFont(f);
+        textLayout->addWidget(headline);
+
+        auto *message = new QLabel(messageText, card);
+        message->setObjectName("connectionErrorMessage");
+        message->setWordWrap(true);
+        QFont mf = font();
+        mf.setPixelSize(12);
+        message->setFont(mf);
+        textLayout->addWidget(message);
+
+        contentRow->addLayout(textLayout, 1);
+        layout->addLayout(contentRow);
+
+        // Button row: right-aligned compact OK button
+        auto *buttonRow = new QHBoxLayout;
+        buttonRow->addStretch(1);
+        auto *okButton = new QPushButton("OK", card);
+        okButton->setObjectName("dismissConnectionError");
+        okButton->setFixedSize(72, 28);
+        okButton->setDefault(true);
+        connect(okButton, &QPushButton::clicked, this, &QDialog::accept);
+        buttonRow->addWidget(okButton);
+        layout->addLayout(buttonRow);
+
+        rootLayout->addWidget(card);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            offset = event->globalPosition().toPoint() - frameGeometry().topLeft();
+            dragging = !windowHandle() || !windowHandle()->startSystemMove();
+            event->accept();
+            return;
+        }
+        QDialog::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (dragging && (event->buttons() & Qt::LeftButton))
+        {
+            move(event->globalPosition().toPoint() - offset);
+            event->accept();
+            return;
+        }
+        QDialog::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        dragging = false;
+        QDialog::mouseReleaseEvent(event);
+    }
+
+private:
+    QPoint offset;
+    bool dragging = false;
+};
 
 /**
  * @brief Check whether a serial port represents an actively connected hardware device.
@@ -576,6 +787,8 @@ protected:
     }
 };
 
+using WorkbenchDoubleSpinBox = WorkbenchSpinBox<QDoubleSpinBox>;
+
 /** @brief Custom theme-aware checkbox with a crisp vector checkmark and focus indicator. */
 class WorkbenchCheckBox : public QCheckBox
 {
@@ -703,6 +916,742 @@ protected:
     }
 };
 
+/** @brief Line edit that maintains a theme-aware dimmed placeholder text color. */
+class WorkbenchLineEdit : public QLineEdit
+{
+public:
+    /**
+     * @brief Construct an input line edit with subdued placeholder support.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchLineEdit(QWidget *parent = nullptr) : QLineEdit(parent)
+    {
+        updatePlaceholderColor();
+    }
+
+    /**
+     * @brief Construct an input line edit with initial text.
+     * @param contents Initial text string.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchLineEdit(const QString &contents, QWidget *parent = nullptr) : QLineEdit(contents, parent)
+    {
+        updatePlaceholderColor();
+    }
+
+protected:
+    /**
+     * @brief Ensure placeholder color persists when the widget is shown.
+     * @param event Show event from Qt.
+     */
+    void showEvent(QShowEvent *event) override
+    {
+        QLineEdit::showEvent(event);
+        updatePlaceholderColor();
+    }
+
+    /**
+     * @brief Keep placeholder hints subdued when the palette or style changes.
+     * @param event Change event from Qt.
+     */
+    void changeEvent(QEvent *event) override
+    {
+        QLineEdit::changeEvent(event);
+        if (event && (event->type() == QEvent::PaletteChange ||
+                      event->type() == QEvent::ApplicationPaletteChange ||
+                      event->type() == QEvent::StyleChange))
+        {
+            updatePlaceholderColor();
+        }
+    }
+
+    /** @brief Apply the dimmed hint color to the placeholder text role. */
+    void updatePlaceholderColor()
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        const QColor hint(dark ? "#606d88" : "#8893a7");
+        QPalette colors = palette();
+        if (colors.color(QPalette::PlaceholderText) != hint)
+        {
+            colors.setResolveMask(0);
+            colors.setColor(QPalette::PlaceholderText, hint);
+            setPalette(colors);
+        }
+    }
+};
+
+/**
+ * @brief Dynamic visual status indicator for configured and active TX messages.
+ * Renders dual rounded pill badges: total messages count and live running state.
+ */
+class TxSummaryWidget : public QWidget
+{
+public:
+    /**
+     * @brief Construct a summary widget with dual-pills appearance.
+     * @param parent Optional parent widget.
+     */
+    explicit TxSummaryWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        setFixedHeight(26);
+    }
+
+    /**
+     * @brief Update message counts and request visual repaint.
+     * @param total Total number of configured TX messages.
+     * @param running Number of currently transmitting messages.
+     */
+    void setStats(int total, int running)
+    {
+        if (totalCount != total || runningCount != running)
+        {
+            totalCount = total;
+            runningCount = running;
+            updateGeometry();
+            update();
+        }
+    }
+
+    /**
+     * @brief Get total number of configured messages.
+     * @return Message count.
+     */
+    int total() const
+    {
+        return totalCount;
+    }
+
+    /**
+     * @brief Get number of running messages.
+     * @return Running message count.
+     */
+    int running() const
+    {
+        return runningCount;
+    }
+
+    /**
+     * @brief Formatted accessible summary text.
+     * @return Accessible status description string.
+     */
+    QString text() const
+    {
+        return QString("%1 %2  ·  %3 running")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages")
+            .arg(runningCount);
+    }
+
+    /**
+     * @brief Calculate recommended dimensions matching badge text and geometry.
+     * @return Layout size hint.
+     */
+    QSize sizeHint() const override
+    {
+        QFont baseFont = font();
+        baseFont.setPixelSize(11);
+        baseFont.setWeight(QFont::Medium);
+        QFont boldFont = baseFont;
+        boldFont.setWeight(QFont::DemiBold);
+
+        const QString totalText = QString("%1 %2")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages");
+        const QString runningText = QString("%1 running").arg(runningCount);
+
+        const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
+        const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
+
+        const int pill1Width = totalTextWidth + 20;
+        const int pill2Width = runningTextWidth + 34;
+        return QSize(pill1Width + 6 + pill2Width, 26);
+    }
+
+protected:
+    /**
+     * @brief Paint dual status pills using crisp vector antialiasing.
+     * @param event Paint event from Qt.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (window() && window()->property("darkTheme").isValid() ?
+                           window()->property("darkTheme").toBool() :
+                           (palette().color(QPalette::Window).lightness() < 128));
+
+        QFont baseFont = font();
+        baseFont.setPixelSize(11);
+        baseFont.setWeight(QFont::Medium);
+
+        QFont boldFont = baseFont;
+        boldFont.setWeight(QFont::DemiBold);
+
+        const QString totalText = QString("%1 %2")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages");
+        const QString runningText = QString("%1 running").arg(runningCount);
+
+        const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
+        const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
+
+        const int pillHeight = 24;
+        const int y = (height() - pillHeight) / 2;
+
+        // --- Pill 1: Total Configured Messages ---
+        const int pill1Width = totalTextWidth + 20;
+        const QRect pill1Rect(0, y, pill1Width, pillHeight);
+
+        painter.setPen(QPen(QColor(dark ? "#334155" : "#cbd5e1"), 1.0));
+        painter.setBrush(QColor(dark ? "#1e293b" : "#f1f5f9"));
+        painter.drawRoundedRect(pill1Rect, 6.0, 6.0);
+
+        painter.setFont(baseFont);
+        painter.setPen(QColor(dark ? "#94a3b8" : "#475569"));
+        painter.drawText(pill1Rect, Qt::AlignCenter, totalText);
+
+        // --- Pill 2: Running State Indicator ---
+        const int pill2Left = pill1Width + 6;
+        const int pill2Width = runningTextWidth + 34;
+        const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
+
+        const int dotX = pill2Left + 9;
+        const int dotY = y + (pillHeight - 6) / 2;
+        const int textLeft = dotX + 6 + 6;
+        const QRect textRect(textLeft, y, runningTextWidth + 6, pillHeight);
+
+        if (runningCount > 0)
+        {
+            painter.setPen(QPen(QColor(dark ? "#0d7a5f" : "#86efac"), 1.0));
+            painter.setBrush(QColor(dark ? "#0a2e23" : "#dcfce7"));
+            painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+
+            // Antialiased active LED dot
+            painter.setPen(QPen(QColor(dark ? "#059669" : "#16a34a"), 1.0));
+            painter.setBrush(QColor(dark ? "#34d399" : "#16a34a"));
+            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
+
+            painter.setFont(boldFont);
+            painter.setPen(QColor(dark ? "#34d399" : "#15803d"));
+            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+        }
+        else
+        {
+            painter.setPen(QPen(QColor(dark ? "#334155" : "#e2e8f0"), 1.0));
+            painter.setBrush(QColor(dark ? "#1e293b" : "#f8fafc"));
+            painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+
+            // Neutral hollow idle dot
+            painter.setPen(QPen(QColor(dark ? "#64748b" : "#94a3b8"), 1.2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
+
+            painter.setFont(baseFont);
+            painter.setPen(QColor(dark ? "#64748b" : "#94a3b8"));
+            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+        }
+    }
+
+private:
+    int totalCount = 0;
+    int runningCount = 0;
+};
+
+/**
+ * @brief Visual status badge next to the serial connection controls.
+ * Renders an antialiased LED indicator and status text for link states.
+ */
+class ConnectionStatusWidget : public QWidget
+{
+public:
+    enum class State
+    {
+        Disconnected,
+        Connecting,
+        Connected,
+        Reconnecting
+    };
+
+    /**
+     * @brief Construct connection status badge.
+     * @param parent Optional parent widget.
+     */
+    explicit ConnectionStatusWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        setFixedSize(116, 32);
+        setAccessibleName("Connection status");
+        updateTooltip();
+    }
+
+    /**
+     * @brief Update status from worker state name and open flag.
+     * @param state State name string from SerialWorker.
+     * @param open True if serial port is open.
+     */
+    void setStatus(const QString &state, bool open)
+    {
+        State nextState = State::Disconnected;
+        if (open)
+        {
+            nextState = State::Connected;
+        }
+        else if (state == "Connecting")
+        {
+            nextState = State::Connecting;
+        }
+        else if (state == "Reconnecting")
+        {
+            nextState = State::Reconnecting;
+        }
+        else
+        {
+            nextState = State::Disconnected;
+        }
+
+        if (m_state != nextState)
+        {
+            m_state = nextState;
+            updateTooltip();
+            update();
+        }
+    }
+
+    /**
+     * @brief Set direct state enum (convenient for testing).
+     * @param state New connection state.
+     */
+    void setState(State state)
+    {
+        if (m_state != state)
+        {
+            m_state = state;
+            updateTooltip();
+            update();
+        }
+    }
+
+    /**
+     * @brief Get current connection state.
+     * @return State enum value.
+     */
+    State state() const
+    {
+        return m_state;
+    }
+
+    /**
+     * @brief Human-readable text for current state.
+     * @return Text label.
+     */
+    QString text() const
+    {
+        switch (m_state)
+        {
+        case State::Connected:
+            return "Connected";
+        case State::Connecting:
+            return "Connecting...";
+        case State::Reconnecting:
+            return "Reconnecting...";
+        case State::Disconnected:
+        default:
+            return "Disconnected";
+        }
+    }
+
+    /**
+     * @brief Recommended dimensions for the status badge.
+     * @return 116x32 size hint.
+     */
+    QSize sizeHint() const override
+    {
+        return QSize(116, 32);
+    }
+
+protected:
+    /**
+     * @brief Paint status badge with antialiased LED indicator.
+     * @param event Paint event from Qt.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (window() && window()->property("darkTheme").isValid() ?
+                           window()->property("darkTheme").toBool() :
+                           (palette().color(QPalette::Window).lightness() < 128));
+
+        const QRect r = rect().adjusted(0, 0, -1, -1);
+        const qreal radius = 7.0;
+
+        QFont statusFont = font();
+        statusFont.setPixelSize(11);
+
+        QColor bgColor;
+        QColor borderColor;
+        QColor textColor;
+
+        switch (m_state)
+        {
+        case State::Connected:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#0a2e23") : QColor("#dcfce7");
+            borderColor = dark ? QColor("#0d7a5f") : QColor("#86efac");
+            textColor = dark ? QColor("#34d399") : QColor("#15803d");
+            break;
+
+        case State::Connecting:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#2d2006") : QColor("#fef3c7");
+            borderColor = dark ? QColor("#854d0e") : QColor("#fde68a");
+            textColor = dark ? QColor("#fbbf24") : QColor("#b45309");
+            break;
+
+        case State::Reconnecting:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#341a08") : QColor("#ffedd5");
+            borderColor = dark ? QColor("#9a3412") : QColor("#fed7aa");
+            textColor = dark ? QColor("#fb923c") : QColor("#c2410c");
+            break;
+
+        case State::Disconnected:
+        default:
+            statusFont.setWeight(QFont::Medium);
+            bgColor = dark ? QColor("#1e293b") : QColor("#f1f5f9");
+            borderColor = dark ? QColor("#334155") : QColor("#cbd5e1");
+            textColor = dark ? QColor("#94a3b8") : QColor("#64748b");
+            break;
+        }
+
+        // Draw pill background and border
+        painter.setPen(QPen(borderColor, 1.0));
+        painter.setBrush(bgColor);
+        painter.drawRoundedRect(r, radius, radius);
+
+        // Draw centered status label
+        painter.setFont(statusFont);
+        painter.setPen(textColor);
+        painter.drawText(r, Qt::AlignCenter, text());
+    }
+
+private:
+    void updateTooltip()
+    {
+        switch (m_state)
+        {
+        case State::Connected:
+            setToolTip("Serial link connected and active");
+            break;
+        case State::Connecting:
+            setToolTip("Opening serial connection...");
+            break;
+        case State::Reconnecting:
+            setToolTip("Serial link lost. Attempting reconnection...");
+            break;
+        case State::Disconnected:
+        default:
+            setToolTip("Serial link disconnected");
+            break;
+        }
+    }
+
+    State m_state = State::Disconnected;
+};
+
+/**
+ * @brief Modern status bar widget displaying segmented metric chips.
+ * Visualizes RX/TX throughput, CRC health, queue backpressure, and overflow.
+ */
+class StatusBarMetricsWidget : public QWidget
+{
+public:
+    /**
+     * @brief Construct segmented metrics bar.
+     * @param parent Optional parent widget.
+     */
+    explicit StatusBarMetricsWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        auto *layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+
+        rxChip = createChip("RX ↓ 0 B/s", "Incoming serial throughput (bytes/second)");
+        txChip = createChip("TX ↑ 0 B/s", "Outgoing serial throughput (bytes/second)");
+        crcChip = createChip("CRC 0", "MAVLink CRC checksum errors detected");
+        pendingChip = createChip("Pending 0 B", "Outbound serial write queue backlog");
+        overflowChip = createChip("Overflow 0", "Serial RX buffer hardware/kernel drops");
+
+        layout->addWidget(rxChip);
+        layout->addWidget(txChip);
+        layout->addWidget(crcChip);
+        layout->addWidget(pendingChip);
+        layout->addWidget(overflowChip);
+
+        setFixedHeight(26);
+        applyStyles();
+    }
+
+    /**
+     * @brief Update metrics and refresh chip visual states.
+     * @param rxBps Incoming bytes per second.
+     * @param txBps Outgoing bytes per second.
+     * @param crc CRC errors count.
+     * @param pending Pending write queue bytes.
+     * @param overflow Buffer overflow drop count.
+     * @param dark True if dark theme is active.
+     */
+    void updateMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow, bool dark)
+    {
+        m_dark = dark;
+        m_rxBps = rxBps;
+        m_txBps = txBps;
+        m_crc = crc;
+        m_pending = pending;
+        m_overflow = overflow;
+
+        rxChip->setText(QString("RX ↓ %1 B/s").arg(rxBps, 0, 'f', 0));
+        txChip->setText(QString("TX ↑ %1 B/s").arg(txBps, 0, 'f', 0));
+        crcChip->setText(QString("CRC %1").arg(crc));
+        pendingChip->setText(QString("Pending %1 B").arg(pending));
+        overflowChip->setText(QString("Overflow %1").arg(overflow));
+
+        applyStyles();
+    }
+
+    /**
+     * @brief Update theme mode and re-apply styles.
+     * @param dark True for dark theme, false for light theme.
+     */
+    void setDarkTheme(bool dark)
+    {
+        if (m_dark != dark)
+        {
+            m_dark = dark;
+            applyStyles();
+        }
+    }
+
+private:
+    /**
+     * @brief Helper to initialize a styled metric chip.
+     * @param text Initial text.
+     * @param tooltip Informative tooltip.
+     * @return Configured QLabel pointer.
+     */
+    QLabel *createChip(const QString &text, const QString &tooltip)
+    {
+        auto *label = new QLabel(text, this);
+        label->setFixedHeight(24);
+        label->setAlignment(Qt::AlignCenter);
+        label->setToolTip(tooltip);
+        return label;
+    }
+
+    /**
+     * @brief Apply contextual stylesheets to all metric chips based on health thresholds.
+     */
+    void applyStyles()
+    {
+        const QString neutralStyle = m_dark ?
+            "QLabel { background: #141c2b; color: #8896b3; border: 1px solid #233047; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 500; }" :
+            "QLabel { background: #e2e8f2; color: #55627a; border: 1px solid #d0d9e7; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 500; }";
+
+        const QString rxActiveStyle = m_dark ?
+            "QLabel { background: #09231b; color: #34d399; border: 1px solid #0f5945; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #e6f9ee; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString txActiveStyle = m_dark ?
+            "QLabel { background: #161636; color: #93c5fd; border: 1px solid #3730a3; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #eff4ff; color: #4f46e5; border: 1px solid #c7d2fe; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString alertStyle = m_dark ?
+            "QLabel { background: #2e1215; color: #f87171; border: 1px solid #7f1d1d; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString warnStyle = m_dark ?
+            "QLabel { background: #2b1a07; color: #fbbf24; border: 1px solid #78350f; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        rxChip->setStyleSheet(m_rxBps > 0 ? rxActiveStyle : neutralStyle);
+        txChip->setStyleSheet(m_txBps > 0 ? txActiveStyle : neutralStyle);
+        crcChip->setStyleSheet(m_crc > 0 ? alertStyle : neutralStyle);
+        pendingChip->setStyleSheet(m_pending > 4096 ? warnStyle : neutralStyle);
+        overflowChip->setStyleSheet(m_overflow > 0 ? alertStyle : neutralStyle);
+    }
+
+    QLabel *rxChip = nullptr;
+    QLabel *txChip = nullptr;
+    QLabel *crcChip = nullptr;
+    QLabel *pendingChip = nullptr;
+    QLabel *overflowChip = nullptr;
+
+    double m_rxBps = 0;
+    double m_txBps = 0;
+    uint64_t m_crc = 0;
+    uint64_t m_pending = 0;
+    uint64_t m_overflow = 0;
+    bool m_dark = false;
+};
+
+/**
+ * @brief Modern status bar pill badge for application messages and alerts.
+ * Automatically adapts visual tone (Neutral, Success, Warning, Error) based on content
+ * and elides long text safely without clipping or word-wrap truncation.
+ */
+class StatusBarMessageWidget : public QLabel
+{
+public:
+    /**
+     * @brief Construct status message pill.
+     * @param text Initial text message.
+     * @param parent Optional parent widget.
+     */
+    explicit StatusBarMessageWidget(const QString &text = "Ready", QWidget *parent = nullptr)
+        : QLabel(text, parent)
+    {
+        setFixedHeight(24);
+        setAlignment(Qt::AlignCenter);
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        setToolTip(text);
+    }
+
+    /**
+     * @brief Update status text, refresh tooltip, and adapt visual badge tone.
+     * @param text Message text string.
+     */
+    void setText(const QString &text)
+    {
+        QLabel::setText(text);
+        setToolTip(text);
+        updateGeometry();
+        update();
+    }
+
+    /**
+     * @brief Update theme mode and refresh styles.
+     * @param dark True for dark theme, false for light theme.
+     */
+    void setDarkTheme(bool dark)
+    {
+        if (m_dark != dark)
+        {
+            m_dark = dark;
+            update();
+        }
+    }
+
+    /**
+     * @brief Provide dynamic width based on message text length, bound within status bar space.
+     * @return Ideal size for the pill badge.
+     */
+    QSize sizeHint() const override
+    {
+        QFont f = font();
+        f.setPixelSize(11);
+        const QString txt = text();
+        const bool error = txt.startsWith("Error:", Qt::CaseInsensitive);
+        f.setWeight(error ? QFont::DemiBold : QFont::Medium);
+        const QFontMetrics fm(f);
+        const int textWidth = fm.horizontalAdvance(txt);
+        const int width = qBound(60, textWidth + 24, 880);
+        return QSize(width, 24);
+    }
+
+    /**
+     * @brief Minimum size ensuring badge presence.
+     * @return Minimum dimensions.
+     */
+    QSize minimumSizeHint() const override
+    {
+        return QSize(60, 24);
+    }
+
+protected:
+    /**
+     * @brief Render rounded vector pill surface and elided text with antialiasing.
+     * @param event Paint event parameters.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        const QString txt = text();
+        if (toolTip() != txt)
+        {
+            const_cast<StatusBarMessageWidget *>(this)->setToolTip(txt);
+        }
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        QColor bg;
+        QColor border;
+        QColor textCol;
+        bool bold = false;
+
+        if (txt.startsWith("Error:", Qt::CaseInsensitive))
+        {
+            bg = m_dark ? QColor("#2e1215") : QColor("#fef2f2");
+            border = m_dark ? QColor("#7f1d1d") : QColor("#fecaca");
+            textCol = m_dark ? QColor("#f87171") : QColor("#dc2626");
+            bold = true;
+        }
+        else if (txt.startsWith("Warning:", Qt::CaseInsensitive) ||
+                 txt.startsWith("Link lost", Qt::CaseInsensitive) ||
+                 txt.contains("Reconnecting", Qt::CaseInsensitive))
+        {
+            bg = m_dark ? QColor("#2b1a07") : QColor("#fffbeb");
+            border = m_dark ? QColor("#78350f") : QColor("#fde68a");
+            textCol = m_dark ? QColor("#fbbf24") : QColor("#d97706");
+            bold = true;
+        }
+        else if (txt.compare("Connected", Qt::CaseInsensitive) == 0)
+        {
+            bg = m_dark ? QColor("#09231b") : QColor("#e6f9ee");
+            border = m_dark ? QColor("#0f5945") : QColor("#bbf7d0");
+            textCol = m_dark ? QColor("#34d399") : QColor("#16a34a");
+            bold = true;
+        }
+        else
+        {
+            bg = m_dark ? QColor("#141c2b") : QColor("#e2e8f2");
+            border = m_dark ? QColor("#233047") : QColor("#d0d9e7");
+            textCol = m_dark ? QColor("#8896b3") : QColor("#55627a");
+            bold = false;
+        }
+
+        painter.setPen(QPen(border, 1));
+        painter.setBrush(bg);
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 5, 5);
+
+        QFont f = font();
+        f.setPixelSize(11);
+        f.setWeight(bold ? QFont::DemiBold : QFont::Medium);
+        painter.setFont(f);
+        painter.setPen(textCol);
+
+        const QFontMetrics fm(f);
+        const QRect textRect = rect().adjusted(10, 0, -10, 0);
+        const QString visibleText = fm.elidedText(txt, Qt::ElideRight, textRect.width());
+        painter.drawText(textRect, Qt::AlignCenter, visibleText);
+    }
+
+private:
+    bool m_dark = false;
+};
+
 /** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
 static QStringList txTitleLines(const QString &text, const QFont &font, int width)
 {
@@ -743,6 +1692,44 @@ static QStringList txTitleLines(const QString &text, const QFont &font, int widt
         lines.append(QFontMetrics(font).elidedText(text.mid(length).trimmed(), Qt::ElideRight, width));
     }
     return lines;
+}
+
+/** @brief Calculate the clickable target-rate pill rectangle on a TX card. */
+static QRect txRatePillRect(const QRect &card, const QString &idStr, const QString &nameStr, const QString &hzStr, const QFont &baseFont)
+{
+    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+    const int textLeft = card.left() + 24;
+    QFont titleFont = baseFont;
+    titleFont.setPixelSize(13);
+    titleFont.setWeight(QFont::Normal);
+    const int maxTitleWidth = badge.left() - textLeft - 8;
+    const QString title = QString("[%1] %2").arg(idStr, nameStr);
+    const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
+
+    QFont pillFont = baseFont;
+    pillFont.setPixelSize(11);
+    pillFont.setWeight(QFont::Medium);
+    const QString rateText = hzStr + " Hz";
+    const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
+    const int pillWidth = rateAdvance + 22;
+
+    if (lines.size() > 1)
+    {
+        const int lastAdvance = QFontMetrics(titleFont).horizontalAdvance(lines.last());
+        const int pillLeft = textLeft + lastAdvance + 8;
+        if (pillLeft + pillWidth <= card.right() - 8)
+        {
+            return QRect(pillLeft, badge.top() + 16 + 2, pillWidth, 18);
+        }
+        return {};
+    }
+    const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
+    const int pillLeft = textLeft + titleAdvance + 8;
+    if (pillLeft + pillWidth <= badge.left() - 8)
+    {
+        return QRect(pillLeft, badge.top() + 3, pillWidth, 18);
+    }
+    return {};
 }
 
 /** @brief Present each TX entry as a readable card backed by the existing row model. */
@@ -855,25 +1842,29 @@ public:
             const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
             painter->drawText(QRect(textLeft, badge.top(), titleAdvance, badge.height()),
                               Qt::AlignVCenter | Qt::AlignLeft, title);
+        }
 
-            // Draw compact Target Hz pill next to title if space allows
+        // Draw compact interactive Target Hz pill with dropdown chevron
+        const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
+        if (pillRect.isValid())
+        {
             const QString rateText = value(3) + " Hz";
             QFont pillFont = option.font;
             pillFont.setPixelSize(11);
             pillFont.setWeight(QFont::Medium);
-            const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
-            const int pillWidth = rateAdvance + 12;
-            const int pillLeft = textLeft + titleAdvance + 8;
-            if (pillLeft + pillWidth <= badge.left() - 8)
-            {
-                const QRect pillRect(pillLeft, badge.top() + 3, pillWidth, 18);
-                painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
-                painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
-                painter->drawRoundedRect(pillRect, 4, 4);
-                painter->setFont(pillFont);
-                painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
-                painter->drawText(pillRect, Qt::AlignCenter, rateText);
-            }
+            painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+            painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
+            painter->drawRoundedRect(pillRect, 4, 4);
+            painter->setFont(pillFont);
+            painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
+            painter->drawText(pillRect.adjusted(6, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
+
+            // Draw crisp vector down-chevron indicating dropdown switcher
+            painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const int cx = pillRect.right() - 8;
+            const int cy = pillRect.center().y();
+            painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
+            painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
         }
 
         // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
@@ -1058,6 +2049,48 @@ public:
     }
 };
 
+/** @brief Floating badge providing transient visual feedback when copying decoded MAVLink values. */
+class CopyFeedbackBadge : public QLabel
+{
+public:
+    explicit CopyFeedbackBadge(QWidget *parent = nullptr) : QLabel(parent)
+    {
+        setObjectName("copyFeedbackBadge");
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAlignment(Qt::AlignCenter);
+        hide();
+    }
+
+    /** @brief Refresh badge styling according to the active theme palette. */
+    void refreshTheme(bool dark)
+    {
+        if (dark)
+        {
+            setStyleSheet("QLabel#copyFeedbackBadge {"
+                          "  background: #064e3b;"
+                          "  color: #6ee7b7;"
+                          "  border: 1px solid #10b981;"
+                          "  border-radius: 4px;"
+                          "  padding: 1px 7px;"
+                          "  font-size: 11px;"
+                          "  font-weight: 600;"
+                          "}");
+        }
+        else
+        {
+            setStyleSheet("QLabel#copyFeedbackBadge {"
+                          "  background: #ecfdf5;"
+                          "  color: #065f46;"
+                          "  border: 1px solid #059669;"
+                          "  border-radius: 4px;"
+                          "  padding: 1px 7px;"
+                          "  font-size: 11px;"
+                          "  font-weight: 600;"
+                          "}");
+        }
+    }
+};
+
 /** @brief Give decoded and editable values a distinct visual column without changing data. */
 class ValueDelegate : public QStyledItemDelegate
 {
@@ -1081,6 +2114,7 @@ public:
         const bool editable = isPayload && (index.flags() & Qt::ItemIsEditable);
         const bool hovered = isPayload && (option.state & QStyle::State_MouseOver);
         const bool changed = isInspector && index.data(Qt::UserRole + 5).toBool();
+        const bool copied = isInspector && index.data(Qt::UserRole + 6).toBool();
         const QColor rowSurface = styled.palette.color(QPalette::Base);
         const QColor border(dark ? "#2d3a4e" : "#e5eaf2");
         const QRect input(option.rect.left() + 8, option.rect.top() + 6, option.rect.width() - 16, 28);
@@ -1092,10 +2126,12 @@ public:
 
         // Draw input box (either editable for payload or clean view-only pill for inspector/readonly)
         const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
+                               copied ? QColor(dark ? "#34d399" : "#059669") :
                                changed ? QColor(dark ? "#388bfd" : "#0969da") :
                                selected || hovered ? QColor("#939bf0") : border;
-        painter->setPen(QPen(outline, selected || invalid || changed ? 1.5 : 1.0));
+        painter->setPen(QPen(outline, selected || invalid || changed || copied ? 1.5 : 1.0));
         const QColor boxBg = invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                             copied ? QColor(dark ? "#0f2e24" : "#ecfdf5") :
                              selected ? QColor(dark ? "#293451" : "#f2f1ff") :
                              editable ? QColor(dark ? "#1e293b" : "#fafbfd") :
                              QColor(dark ? "#1b283d" : "#f4f7fb");
@@ -1103,11 +2139,13 @@ public:
         painter->drawRoundedRect(input, 5, 5);
 
         painter->setFont(styled.font);
-        const QColor textColor = changed ? QColor(dark ? "#58a6ff" : "#0969da") :
+        const QColor textColor = copied ? QColor(dark ? "#6ee7b7" : "#065f46") :
+                                 changed ? QColor(dark ? "#58a6ff" : "#0969da") :
                                  isInspector ? QColor(dark ? "#c9d8eb" : "#24324a") :
                                  styled.palette.color(QPalette::Text);
         painter->setPen(textColor);
-        const QRect textRect = input.adjusted(8, 0, -8, 0);
+        const int rightPadding = copied ? 75 : 8;
+        const QRect textRect = input.adjusted(8, 0, -rightPadding, 0);
         painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
 
@@ -1901,6 +2939,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     auto *fileMenu = appMenuBar->addMenu("File");
     fileMenu->setObjectName("fileMenu");
+    importProfileAction = fileMenu->addAction("Import Profile…", this, &MainWindow::importProfile);
+    importProfileAction->setObjectName("actionImportProfile");
+    exportProfileAction = fileMenu->addAction("Export Profile…", this, &MainWindow::exportProfile);
+    exportProfileAction->setObjectName("actionExportProfile");
+    fileMenu->addSeparator();
     auto *exitAction = fileMenu->addAction("Exit", this, &QWidget::close, QKeySequence::Quit);
     exitAction->setObjectName("actionExit");
 
@@ -2043,10 +3086,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settings->setAccessibleName("Advanced UART settings");
     settings->setToolTip("UART settings");
 
+    uartRow->addSpacing(8);
+    connectionStatusPill = new ConnectionStatusWidget;
+    connectionStatusPill->setObjectName("connectionStatusPill");
+    uartRow->addWidget(connectionStatusPill);
+
+    uartRow->addSpacing(20);
     auto *connectionCard = new QFrame;
     connectionCard->setObjectName("connectionCard");
     auto *cardLayout = new QVBoxLayout(connectionCard);
-    cardLayout->setContentsMargins(8, 0, 0, 0);
+    cardLayout->setContentsMargins(0, 0, 0, 0);
     cardLayout->setSpacing(4);
     auto *connectRow = new QHBoxLayout;
     connectRow->setContentsMargins(0, 0, 0, 0);
@@ -2123,7 +3172,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     }
     updateSerialSummary();
     uart->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-    uart->setMaximumWidth(700);
+    uart->setMaximumWidth(820);
     uart->setFixedHeight(uartLayout->sizeHint().height());
     auto *workspace = new QVBoxLayout;
     workspace->setSpacing(8);
@@ -2142,22 +3191,51 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *txLayout = new QVBoxLayout(txGroup);
     txLayout->setContentsMargins(16, 16, 16, 12);
     txLayout->setSpacing(12);
-    auto *txHeader = new QHBoxLayout;
+    auto *txHeading = new QGridLayout;
+    txHeading->setContentsMargins(0, 0, 0, 0);
+    txHeading->setHorizontalSpacing(8);
+    txHeading->setVerticalSpacing(10);
+
     auto *txTitle = new QLabel("TX Dashboard");
     txTitle->setObjectName("panelTitle");
-    txHeader->addWidget(txTitle);
-    txHeader->addStretch();
-    auto *addButton = button("Add message", "addMessage", txHeader);
+    txHeading->addWidget(txTitle, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
+    txSummary = new TxSummaryWidget;
+    txSummary->setObjectName("txSummary");
+    txHeading->addWidget(txSummary, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
+    txHeading->setColumnStretch(1, 1);
+
+    auto *addButton = new QPushButton("Add message");
+    addButton->setObjectName("addMessage");
     addButton->setProperty("role", "primary");
-    auto *txHeading = new QVBoxLayout;
-    txHeading->setSpacing(6);
-    txHeading->addLayout(txHeader);
-    txSummary = new QLabel("0 messages  ·  0 running");
-    txSummary->setObjectName("secondaryText");
-    auto *txOverview = new QHBoxLayout;
-    txOverview->addWidget(txSummary);
-    txOverview->addStretch();
-    txHeading->addLayout(txOverview);
+    txHeading->addWidget(addButton, 0, 2);
+
+    auto *batchActions = new QHBoxLayout;
+    batchActions->setContentsMargins(0, 0, 0, 0);
+    batchActions->setSpacing(4);
+
+    runAllButton = button("", "runAll", batchActions);
+    runAllButton->setProperty("role", "success");
+    runAllButton->setFixedSize(28, 28);
+    runAllButton->setToolTip("Run all");
+    runAllButton->setAccessibleName("Run all messages");
+
+    stopAllButton = button("", "stopAll", batchActions);
+    stopAllButton->setProperty("role", "danger");
+    stopAllButton->setFixedSize(28, 28);
+    stopAllButton->setToolTip("Stop all");
+    stopAllButton->setAccessibleName("Stop all messages");
+
+    batchActions->addStretch();
+
+    deleteAllButton = button("", "deleteAll", batchActions);
+    deleteAllButton->setProperty("role", "danger");
+    deleteAllButton->setFixedSize(28, 28);
+    deleteAllButton->setToolTip("Delete all");
+    deleteAllButton->setAccessibleName("Delete all messages");
+
+    txHeading->addLayout(batchActions, 1, 2);
     txLayout->addLayout(txHeading);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
@@ -2210,33 +3288,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         const QPoint anchor = keyboard ? txTable->visualItemRect(txTable->item(row, 1)).center() : position;
         txMenu->popup(txTable->viewport()->mapToGlobal(anchor));
     });
-    auto *batchDivider = new QFrame;
-    batchDivider->setObjectName("txBatchDivider");
-    batchDivider->setFixedHeight(1);
-    txLayout->addWidget(batchDivider);
-    auto *batchActions = new QHBoxLayout;
-    batchActions->setSpacing(4);
-    runAllButton = button("", "runAll", batchActions);
-    runAllButton->setProperty("role", "success");
-    runAllButton->setFixedSize(28, 28);
-    runAllButton->setToolTip("Run all");
-    runAllButton->setAccessibleName("Run all messages");
-
-    stopAllButton = button("", "stopAll", batchActions);
-    stopAllButton->setProperty("role", "danger");
-    stopAllButton->setFixedSize(28, 28);
-    stopAllButton->setToolTip("Stop all");
-    stopAllButton->setAccessibleName("Stop all messages");
-
-    batchActions->addStretch();
-
-    deleteAllButton = button("", "deleteAll", batchActions);
-    deleteAllButton->setProperty("role", "danger");
-    deleteAllButton->setFixedSize(28, 28);
-    deleteAllButton->setToolTip("Delete all");
-    deleteAllButton->setAccessibleName("Delete all messages");
-
-    txLayout->addLayout(batchActions);
     dashboards->addWidget(txGroup);
 
     auto *rxGroup = new QFrame;
@@ -2317,9 +3368,30 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     valueMenu->installEventFilter(this);
     auto *copyValue = valueMenu->addAction("Copy value");
     copyValue->setObjectName("copyInspectorValue");
-    connect(copyValue, &QAction::triggered, this, [copyValue]()
+    connect(copyValue, &QAction::triggered, this, [this, copyValue]()
     {
-        QApplication::clipboard()->setText(copyValue->data().toString());
+        const QString text = copyValue->data().toString();
+        QApplication::clipboard()->setText(text);
+        int row = copyValue->property("targetRow").isValid() ? copyValue->property("targetRow").toInt() : -1;
+        if (row < 0 || row >= inspector->rowCount())
+        {
+            row = inspector->currentRow();
+        }
+        if (row < 0 || row >= inspector->rowCount())
+        {
+            for (int i = 0; i < inspector->rowCount(); ++i)
+            {
+                if (auto *item = inspector->item(i, 2))
+                {
+                    if (item->text() == text)
+                    {
+                        row = i;
+                        break;
+                    }
+                }
+            }
+        }
+        showCopiedFeedback(row);
     });
     connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue](const QPoint &position)
     {
@@ -2331,8 +3403,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             return;
         }
         copyValue->setData(value->text());
+        copyValue->setProperty("targetRow", row);
         const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
         valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
+    });
+    connect(inspector->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]()
+    {
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
+    });
+    connect(inspector->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]()
+    {
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
     });
     inspector->setColumnWidth(0, 190);
     inspector->setColumnWidth(1, 105);
@@ -2394,14 +3481,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
-    metrics = new QLabel("RX 0 B/s &nbsp;|&nbsp; TX 0 B/s &nbsp;|&nbsp; CRC errors 0 &nbsp;|&nbsp; Pending 0 B &nbsp;|&nbsp; RX overflow 0");
-    metrics->setTextFormat(Qt::RichText);
-    metrics->setContentsMargins(18, 0, 0, 0);
-    statusBar()->addWidget(metrics);
-    lastError = new QLabel("Ready");
-    lastError->setMaximumWidth(560);
-    lastError->setWordWrap(true);
-    statusBar()->addPermanentWidget(lastError, 1);
+    metricsWidget = new StatusBarMetricsWidget;
+    metricsWidget->setObjectName("statusBarMetrics");
+    lastError = new StatusBarMessageWidget("Ready", this);
+    lastError->setObjectName("statusMessage");
+    lastError->hide();
+
+    auto *statusBarCard = new QFrame;
+    statusBarCard->setObjectName("statusBarCard");
+    auto *statusLayout = new QHBoxLayout(statusBarCard);
+    statusLayout->setContentsMargins(0, 0, 0, 0);
+    statusLayout->addStretch(1);
+    statusLayout->addWidget(metricsWidget);
+    workspace->addWidget(statusBarCard);
+
+    setStatusBar(nullptr);
 
     qRegisterMetaType<PortConfig>();
     qRegisterMetaType<Mav::TxEntry>();
@@ -2412,6 +3506,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(&thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(worker, &SerialWorker::stateChanged, this, [this, refreshPortsButton](const QString &state, bool open)
     {
+        if (connectionStatusPill)
+        {
+            connectionStatusPill->setStatus(state, open);
+        }
         connected = open;
         connecting = state == "Connecting";
         reconnecting = state == "Reconnecting";
@@ -2436,6 +3534,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         if (open)
         {
+            connectingByUser = false;
             // Persist the serial port and baudrate of the last successful connection
             QSettings settings("MAVLinkSimulator", "Preferences");
             if (portBox)
@@ -2450,12 +3549,42 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
             rxTree->clear();
             inspector->setRowCount(0);
-            lastError->setText("Connected");
         }
-        else if (reconnecting)
+        updateActions();
+    });
+    connect(worker, &SerialWorker::profileImported, this, [this](int count, bool append, quint64 firstUnusedKey)
+    {
+        nextKey = std::max<uint64_t>(nextKey, firstUnusedKey);
+        profileBusy = false;
+        updateActions();
+        lastError->setText(QString("Imported %1 TX messages (%2)").arg(count).arg(append ? "Append" : "Replace"));
+    });
+    connect(worker, &SerialWorker::profileImportFailed, this, [this](const QString &error)
+    {
+        profileBusy = false;
+        updateActions();
+        showError(error);
+    });
+    connect(worker, &SerialWorker::profileExportFailed, this, [this](const QString &error)
+    {
+        profileBusy = false;
+        profileExportPath.clear();
+        updateActions();
+        showError(error);
+    });
+    connect(worker, &SerialWorker::profileExported, this, [this](const QByteArray &data)
+    {
+        QSaveFile file(profileExportPath);
+        if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         {
-            lastError->setText("Link lost. Reconnecting to " + portBox->currentText() + "...");
+            showError("Could not export profile: " + file.errorString());
         }
+        else
+        {
+            lastError->setText("Profile exported: " + QFileInfo(profileExportPath).fileName());
+        }
+        profileExportPath.clear();
+        profileBusy = false;
         updateActions();
     });
     connect(worker, &SerialWorker::failure, this, &MainWindow::showError);
@@ -2759,6 +3888,358 @@ void MainWindow::saveSettings()
     settings.sync();
 }
 
+/** @brief Import all definitions atomically; Append defaults to off for every dialog. */
+void MainWindow::importProfile()
+{
+    if (profileBusy)
+    {
+        return;
+    }
+    ProfileImportDialog dialog(this);
+    dialog.setObjectName("importProfileDialog");
+    dialog.setWindowTitle("Import Profile");
+    dialog.setMinimumWidth(560);
+    dialog.resize(600, 420);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 16, 20, 20);
+    layout->setSpacing(16);
+    layout = addDialogTitleBar(&dialog, layout);
+    auto *subtitle = new QLabel("Load saved TX messages into your workspace.", &dialog);
+    subtitle->setObjectName("secondaryText");
+    subtitle->setWordWrap(true);
+    layout->addWidget(subtitle);
+
+    auto *fileCard = new QFrame(&dialog);
+    fileCard->setObjectName("profileFileCard");
+    auto *fileLayout = new QVBoxLayout(fileCard);
+    fileLayout->setContentsMargins(16, 16, 16, 16);
+    fileLayout->setSpacing(12);
+    auto *fileHeading = new QHBoxLayout;
+    fileHeading->setSpacing(12);
+    fileHeading->addWidget(new ProfileDocumentIcon(fileCard));
+    auto *caption = new QLabel("Profile file", fileCard);
+    caption->setObjectName("profileSectionTitle");
+    fileHeading->addWidget(caption, 1);
+    auto *extension = new QLabel(".mavprofile", fileCard);
+    extension->setObjectName("profileFileType");
+    fileHeading->addWidget(extension, 0, Qt::AlignVCenter);
+    fileLayout->addLayout(fileHeading);
+    auto *fileRow = new QHBoxLayout;
+    fileRow->setSpacing(8);
+    auto *path = new WorkbenchLineEdit(fileCard);
+    path->setObjectName("profilePath");
+    path->setAccessibleName("Profile file");
+    path->setPlaceholderText("Select a profile");
+    path->setMinimumWidth(0);
+    path->setMinimumHeight(36);
+    caption->setBuddy(path);
+    fileRow->addWidget(path, 1);
+    auto *browse = new QPushButton("Browse…", fileCard);
+    browse->setObjectName("browseProfile");
+    browse->setMinimumHeight(36);
+    browse->setMinimumWidth(96);
+    fileRow->addWidget(browse);
+    fileLayout->addLayout(fileRow);
+    layout->addWidget(fileCard);
+
+    auto *modeCard = new QFrame(&dialog);
+    modeCard->setObjectName("profileModeCard");
+    auto *modeLayout = new QVBoxLayout(modeCard);
+    modeLayout->setContentsMargins(16, 14, 16, 14);
+    modeLayout->setSpacing(10);
+    auto *modeHeading = new QHBoxLayout;
+    auto *modeTitle = new QLabel("Import mode", modeCard);
+    modeTitle->setObjectName("profileSectionTitle");
+    modeHeading->addWidget(modeTitle, 1);
+    auto *modeBadge = new QLabel("Replace", modeCard);
+    modeBadge->setObjectName("profileModeBadge");
+    modeBadge->setAlignment(Qt::AlignCenter);
+    modeHeading->addWidget(modeBadge);
+    modeLayout->addLayout(modeHeading);
+    auto *append = new WorkbenchCheckBox("Append", modeCard);
+    append->setObjectName("appendProfile");
+    append->setChecked(false);
+    append->setAccessibleName("Append imported TX messages");
+    modeLayout->addWidget(append);
+    auto *description = new QLabel("Current TX messages will be replaced.", modeCard);
+    description->setObjectName("profileHint");
+    description->setWordWrap(true);
+    modeLayout->addWidget(description);
+    layout->addWidget(modeCard);
+
+    auto *error = new QLabel(&dialog);
+    error->setObjectName("profileError");
+    error->setWordWrap(true);
+    error->setTextFormat(Qt::PlainText);
+    error->setAccessibleName("Profile import error");
+    error->hide();
+    layout->addWidget(error);
+    layout->addStretch(1);
+    auto *divider = new QFrame(&dialog);
+    divider->setObjectName("profileFooterDivider");
+    divider->setFixedHeight(1);
+    layout->addWidget(divider);
+    auto *footer = new QHBoxLayout;
+    footer->setSpacing(16);
+    auto *safetyHint = new QLabel("Imported messages always start stopped.", &dialog);
+    safetyHint->setObjectName("profileSafetyHint");
+    safetyHint->setWordWrap(true);
+    footer->addWidget(safetyHint, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    buttons->setLayoutDirection(Qt::RightToLeft);
+    auto *confirm = buttons->addButton("Import", QDialogButtonBox::AcceptRole);
+    confirm->setObjectName("confirmImportProfile");
+    confirm->setProperty("role", "primary");
+    confirm->setMinimumSize(96, 36);
+    buttons->button(QDialogButtonBox::Cancel)->setMinimumHeight(36);
+    confirm->setEnabled(false);
+    footer->addWidget(buttons);
+    layout->addLayout(footer);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(path, &QLineEdit::textChanged, &dialog, [confirm, error](const QString &text)
+    {
+        confirm->setEnabled(!text.trimmed().isEmpty());
+        error->hide();
+    });
+    connect(append, &QCheckBox::toggled, &dialog, [description, modeBadge](bool enabled)
+    {
+        modeBadge->setText(enabled ? "Append" : "Replace");
+        description->setText(enabled ? "Current TX messages will be kept. New messages are added at the end."
+                                     : "Current TX messages will be replaced.");
+    });
+    connect(browse, &QPushButton::clicked, &dialog, [&dialog, path]()
+    {
+        const QString fileName = QFileDialog::getOpenFileName(&dialog, "Import Profile", QString(),
+                                                            "MAVLinkLab profiles (*.mavprofile)");
+        if (!fileName.isEmpty())
+        {
+            path->setText(fileName);
+        }
+    });
+    connect(worker, &SerialWorker::profileImported, &dialog, [&dialog](int, bool, quint64)
+    {
+        dialog.accept();
+    });
+    connect(worker, &SerialWorker::profileImportFailed, &dialog, [&, error](const QString &reason)
+    {
+        dialog.applying = false;
+        confirm->setText("Import");
+        error->setText(reason);
+        error->show();
+        path->setEnabled(true);
+        browse->setEnabled(true);
+        append->setEnabled(true);
+        buttons->setEnabled(true);
+        confirm->setEnabled(!path->text().trimmed().isEmpty());
+    });
+    connect(confirm, &QPushButton::clicked, &dialog, [&, error]()
+    {
+        const QString fileName = path->text().trimmed();
+        if (!QFileInfo(fileName).isFile())
+        {
+            error->setText("Select an existing regular profile file.");
+            error->show();
+            return;
+        }
+        QFile file(fileName);
+        if (!file.open(QIODevice::ReadOnly))
+        {
+            error->setText("Could not open profile: " + file.errorString());
+            error->show();
+            return;
+        }
+        const QByteArray data = file.read(Profile::MaxFileSize + 1);
+        if (file.error() != QFileDevice::NoError || data.size() > Profile::MaxFileSize)
+        {
+            error->setText("Could not read profile or file exceeds the 1 MiB limit.");
+            error->show();
+            return;
+        }
+        error->hide();
+        dialog.applying = true;
+        confirm->setText("Importing…");
+        profileBusy = true;
+        updateActions();
+        path->setEnabled(false);
+        browse->setEnabled(false);
+        append->setEnabled(false);
+        buttons->setEnabled(false);
+        QMetaObject::invokeMethod(worker, "importProfile", Qt::QueuedConnection,
+                                  Q_ARG(QByteArray, data), Q_ARG(bool, append->isChecked()),
+                                  Q_ARG(quint64, nextKey));
+    });
+    dialog.exec();
+}
+
+/** @brief Export an authoritative worker snapshot using an atomic file replacement. */
+void MainWindow::exportProfile()
+{
+    if (profileBusy)
+    {
+        return;
+    }
+    QString path = QFileDialog::getSaveFileName(this, "Export Profile", "TX messages.mavprofile",
+                                               "MAVLinkLab profiles (*.mavprofile)");
+    if (path.isEmpty())
+    {
+        return;
+    }
+    if (!path.endsWith(".mavprofile", Qt::CaseInsensitive))
+    {
+        path += ".mavprofile";
+        if (QFileInfo::exists(path) && QMessageBox::question(this, "Replace Profile",
+                "The destination already exists. Replace it?", QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No) != QMessageBox::Yes)
+        {
+            return;
+        }
+    }
+    profileExportPath = path;
+    profileBusy = true;
+    updateActions();
+    QMetaObject::invokeMethod(worker, "exportProfile", Qt::QueuedConnection);
+}
+
+/** @brief Display a popup menu with preset frequencies and custom rate input. */
+void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos)
+{
+    auto *menu = new QMenu(this);
+    menu->setObjectName("quickRateMenu");
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    const std::vector<double> presets = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0};
+    for (double hz : presets)
+    {
+        const QString label = QString("%1 Hz").arg(hz, 0, 'f', (hz < 1.0) ? 1 : 0);
+        auto *action = menu->addAction(label, this, [this, key, hz]()
+        {
+            QMetaObject::invokeMethod(worker, "setRate", Qt::QueuedConnection,
+                                      Q_ARG(quint64, key), Q_ARG(double, hz));
+            saveTxMessages();
+        });
+        if (std::abs(hz - currentHz) < 0.05)
+        {
+            action->setCheckable(true);
+            action->setChecked(true);
+        }
+    }
+    menu->addSeparator();
+    menu->addAction("Custom…", this, [this, key, currentHz]()
+    {
+        QDialog dialog(this);
+        dialog.setObjectName("customRateDialog");
+        dialog.setWindowTitle("Custom Rate");
+        dialog.setMinimumWidth(320);
+        auto *dialogLayout = new QVBoxLayout(&dialog);
+        dialogLayout->setContentsMargins(20, 16, 20, 16);
+        dialogLayout->setSpacing(14);
+        dialogLayout = addDialogTitleBar(&dialog, dialogLayout);
+
+        auto *label = new QLabel("Target transmission rate:", &dialog);
+        label->setObjectName("secondaryText");
+        dialogLayout->addWidget(label);
+
+        auto *spin = new WorkbenchDoubleSpinBox(&dialog);
+        spin->setObjectName("customRateSpin");
+        spin->setRange(0.1, 1000.0);
+        spin->setDecimals(1);
+        spin->setSuffix(" Hz");
+        spin->setValue(currentHz);
+        spin->setMinimumHeight(36);
+        spin->selectAll();
+        dialogLayout->addWidget(spin);
+
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        buttons->button(QDialogButtonBox::Ok)->setText("Apply");
+        buttons->button(QDialogButtonBox::Ok)->setProperty("role", "primary");
+        buttons->button(QDialogButtonBox::Ok)->setMinimumHeight(36);
+        buttons->button(QDialogButtonBox::Cancel)->setMinimumHeight(36);
+        dialogLayout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+        if (dialog.exec() == QDialog::Accepted)
+        {
+            const double newHz = spin->value();
+            QMetaObject::invokeMethod(worker, "setRate", Qt::QueuedConnection,
+                                      Q_ARG(quint64, key), Q_ARG(double, newHz));
+            saveTxMessages();
+        }
+    });
+    menu->popup(globalPos);
+}
+
+/** @brief Display transient confirmation badge and cell flash when copying a field value. */
+void MainWindow::showCopiedFeedback(int row)
+{
+    if (!inspector || row < 0 || row >= inspector->rowCount())
+    {
+        return;
+    }
+    auto *valItem = inspector->item(row, 2);
+    if (!valItem)
+    {
+        return;
+    }
+
+    if (copiedInspectorRow >= 0 && copiedInspectorRow < inspector->rowCount() && copiedInspectorRow != row)
+    {
+        if (auto *prev = inspector->item(copiedInspectorRow, 2))
+        {
+            prev->setData(Qt::UserRole + 6, false);
+        }
+    }
+
+    copiedInspectorRow = row;
+    valItem->setData(Qt::UserRole + 6, true);
+
+    if (!copyFeedbackBadge)
+    {
+        copyFeedbackBadge = new CopyFeedbackBadge(inspector->viewport());
+    }
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
+    copyFeedbackBadge->setText("✓ Copied");
+    copyFeedbackBadge->adjustSize();
+
+    const QRect cellRect = inspector->visualItemRect(valItem);
+    const QRect input(cellRect.left() + 8, cellRect.top() + 6, cellRect.width() - 16, 28);
+    const int badgeWidth = copyFeedbackBadge->width();
+    const int badgeHeight = 22;
+    const int x = input.right() - badgeWidth - 4;
+    const int y = input.top() + (input.height() - badgeHeight) / 2;
+    copyFeedbackBadge->setGeometry(x, y, badgeWidth, badgeHeight);
+    copyFeedbackBadge->show();
+    copyFeedbackBadge->raise();
+
+    inspector->viewport()->update();
+
+    if (!copyFeedbackTimer)
+    {
+        copyFeedbackTimer = new QTimer(this);
+        copyFeedbackTimer->setSingleShot(true);
+        connect(copyFeedbackTimer, &QTimer::timeout, this, [this]()
+        {
+            if (copiedInspectorRow >= 0 && copiedInspectorRow < inspector->rowCount())
+            {
+                if (auto *item = inspector->item(copiedInspectorRow, 2))
+                {
+                    item->setData(Qt::UserRole + 6, false);
+                }
+            }
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
+            if (inspector && inspector->viewport())
+            {
+                inspector->viewport()->update();
+            }
+        });
+    }
+    copyFeedbackTimer->start(800);
+}
+
 /** @brief Restore configured TX messages from workspace storage. */
 void MainWindow::restoreTxMessages()
 {
@@ -2885,6 +4366,7 @@ void MainWindow::toggleConnection()
 {
     if (connected || reconnecting)
     {
+        connectingByUser = false;
         QMetaObject::invokeMethod(worker, "closePort", Qt::QueuedConnection);
         return;
     }
@@ -2892,9 +4374,16 @@ void MainWindow::toggleConnection()
     PortConfig config;
     config.port = portBox->currentText().trimmed();
     config.baud = baudBox->currentText().toInt(&ok);
-    if (!ok || config.baud <= 0 || config.baud > 12000000 || config.port.isEmpty())
+    if (config.port.isEmpty())
     {
-        showError("Select a port and a baud rate from 1 to 12000000");
+        showConnectionError("No Port Selected", "Please select an available serial port before connecting.");
+        return;
+    }
+    if (!ok || config.baud <= 0 || config.baud > 12000000)
+    {
+        showConnectionError("Invalid Baud Rate",
+                            QString("Baud rate '%1' is invalid. Please select or enter a rate from 1 to 12,000,000.")
+                                .arg(baudBox->currentText()));
         return;
     }
     config.autoReconnect = autoReconnectBox ? autoReconnectBox->isChecked() : false;
@@ -2907,6 +4396,9 @@ void MainWindow::toggleConnection()
                   stopBox->currentIndex() == 1 ? QSerialPort::TwoStop : QSerialPort::OneAndHalfStop;
     config.flow = static_cast<QSerialPort::FlowControl>(flowBox->currentIndex());
     connectButton->setEnabled(false);
+    connectingByUser = true;
+    connectingPort = config.port;
+    connectingBaud = config.baud;
     QMetaObject::invokeMethod(worker, "openPort", Qt::QueuedConnection, Q_ARG(PortConfig, config));
 }
 
@@ -2918,13 +4410,17 @@ uint64_t MainWindow::selectedTx() const
 
 void MainWindow::updateActions()
 {
-    const bool selected = selectedTx() != 0;
+    importProfileAction->setEnabled(!profileBusy);
+    exportProfileAction->setEnabled(!profileBusy);
+    findChild<QPushButton *>("addMessage")->setEnabled(!profileBusy);
+    txTable->setEnabled(!profileBusy);
+    const bool selected = !profileBusy && selectedTx() != 0;
     editAction->setEnabled(selected);
     removeAction->setEnabled(selected);
     onceAction->setEnabled(selected && connected);
     startAction->setEnabled(selected && connected);
     stopAction->setEnabled(selected && connected);
-    const bool hasEntries = txTable->rowCount() > 0;
+    const bool hasEntries = !profileBusy && txTable->rowCount() > 0;
     runAllButton->setEnabled(connected && hasEntries);
     stopAllButton->setEnabled(connected && hasEntries);
     deleteAllButton->setEnabled(hasEntries);
@@ -3835,8 +5331,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     {
         return view.entry.active;
     });
-    txSummary->setText(QString("%1 %2  ·  %3 running").arg(latest->tx.size())
-                       .arg(latest->tx.size() == 1 ? "message" : "messages").arg(running));
+    txSummary->setStats(int(latest->tx.size()), int(running));
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
@@ -3850,7 +5345,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         // Cards use the interface font rather than the numeric cell font.
         txTable->item(row, 1)->setFont(txTable->font());
         cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
-        cell(txTable, row, 3, QString::number(entry.hz, 'f', 0));
+        cell(txTable, row, 3, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0 && entry.hz != std::floor(entry.hz)) ? 1 : 0));
         cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
         cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
         cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
@@ -3869,21 +5364,15 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     updateTxHeights();
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
-    const QString alertColor = dark ? "#f87171" : "#dc2626";
-    const QString warnColor = dark ? "#fbbf24" : "#d97706";
-    const QString textCrc = latest->crcErrors > 0 ?
-        QString("<span style='color:%1; font-weight:bold;'>CRC errors %2</span>").arg(alertColor).arg(qulonglong(latest->crcErrors)) :
-        QString("CRC errors %1").arg(qulonglong(latest->crcErrors));
-    const QString textPending = latest->pending > 4096 ?
-        QString("<span style='color:%1; font-weight:bold;'>Pending %2 B</span>").arg(warnColor).arg(qulonglong(latest->pending)) :
-        QString("Pending %1 B").arg(qulonglong(latest->pending));
-    const QString textOverflow = latest->overflow > 0 ?
-        QString("<span style='color:%1; font-weight:bold;'>RX overflow %2</span>").arg(alertColor).arg(qulonglong(latest->overflow)) :
-        QString("RX overflow %1").arg(qulonglong(latest->overflow));
-    metrics->setText(QString("RX %1 B/s &nbsp;|&nbsp; TX %2 B/s &nbsp;|&nbsp; %3 &nbsp;|&nbsp; %4 &nbsp;|&nbsp; %5")
-                    .arg(latest->rxBytesPerSecond, 0, 'f', 0)
-                    .arg(latest->txBytesPerSecond, 0, 'f', 0)
-                    .arg(textCrc, textPending, textOverflow));
+    if (metricsWidget)
+    {
+        metricsWidget->updateMetrics(latest->rxBytesPerSecond,
+                                     latest->txBytesPerSecond,
+                                     latest->crcErrors,
+                                     latest->pending,
+                                     latest->overflow,
+                                     dark);
+    }
     if (!paused)
     {
         const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -3963,6 +5452,38 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     updateActions();
 }
 
+void MainWindow::setTxSummaryMode(int mode)
+{
+    Q_UNUSED(mode);
+}
+
+void MainWindow::setTxSummaryStats(int total, int running)
+{
+    if (txSummary)
+    {
+        txSummary->setStats(total, running);
+    }
+}
+
+void MainWindow::setConnectionStatus(const QString &state, bool open)
+{
+    if (connectionStatusPill)
+    {
+        connectionStatusPill->setStatus(state, open);
+    }
+}
+
+void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow)
+{
+    if (metricsWidget)
+    {
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (themeBox && themeBox->currentIndex() == 2);
+        metricsWidget->updateMetrics(rxBps, txBps, crc, pending, overflow, dark);
+    }
+}
+
 void MainWindow::updateInspector()
 {
     if (paused || !latest)
@@ -3976,6 +5497,11 @@ void MainWindow::updateInspector()
     if (!item || !item->parent())
     {
         inspector->setRowCount(0);
+        copiedInspectorRow = -1;
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
         return;
     }
     const uint32_t id = item->data(0, Qt::UserRole).toUInt();
@@ -3992,9 +5518,22 @@ void MainWindow::updateInspector()
         if (!info)
         {
             inspector->setRowCount(0);
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
             return;
         }
         inspector->setRowCount(int(info->num_fields));
+        if (copiedInspectorRow >= int(info->num_fields))
+        {
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
+        }
         inspectorTitle->setText(QString("[%1] %2").arg(id).arg(messageName(id)));
         inspectorSource->setText(QString("System %1 · Component %2").arg(system).arg(component));
         inspectorSource->show();
@@ -4023,6 +5562,10 @@ void MainWindow::updateInspector()
             cell(inspector, int(i), 2, valStr);
             auto *valItem = inspector->item(int(i), 2);
             valItem->setData(Qt::UserRole + 5, changed);
+            if (int(i) == copiedInspectorRow)
+            {
+                valItem->setData(Qt::UserRole + 6, true);
+            }
             if (changed)
             {
                 valItem->setForeground(QColor(dark ? "#58a6ff" : "#0969da"));
@@ -4064,10 +5607,44 @@ void MainWindow::filterRx()
                        QString("%1 / %2 streams").arg(matched).arg(total));
 }
 
+/**
+ * @brief Display a compact alert dialog when serial port connection fails.
+ * @param title Headline summarizing the failure.
+ * @param message Detailed reason or actionable instruction.
+ */
+void MainWindow::showConnectionError(const QString &title, const QString &message)
+{
+    if (connectButton)
+    {
+        connectButton->setEnabled(true);
+        connectButton->setText("Connect");
+    }
+    ConnectionErrorDialog dialog(title, message, this);
+    dialog.exec();
+    if (connectButton)
+    {
+        connectButton->setEnabled(true);
+        connectButton->setText("Connect");
+    }
+}
+
 void MainWindow::showError(const QString &message)
 {
-    lastError->setText("Error: " + message);
-    lastError->setToolTip(message);
+    if (connectingByUser)
+    {
+        connectingByUser = false;
+        const QString text = QString("Could not open %1 (%2 baud): %3")
+                                 .arg(connectingPort)
+                                 .arg(connectingBaud)
+                                 .arg(message.isEmpty() ? "Unknown I/O error." : message);
+        showConnectionError("Connection Failed", text);
+        return;
+    }
+    if (lastError)
+    {
+        lastError->setText("Error: " + message);
+        lastError->setToolTip(message);
+    }
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -4133,7 +5710,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseButtonRelease)
         {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
-            if (mouseEvent->button() == Qt::LeftButton && connected)
+            if (mouseEvent->button() == Qt::LeftButton)
             {
                 const QModelIndex index = txTable->indexAt(mouseEvent->pos());
                 if (index.isValid() && index.column() == 1)
@@ -4141,7 +5718,18 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     const QRect rect = txTable->visualRect(index);
                     const QRect card = rect.adjusted(1, 5, -2, -5);
                     const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
-                    if (badge.contains(mouseEvent->pos()))
+                    const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
+                                                          txTable->item(index.row(), 1)->text(),
+                                                          txTable->item(index.row(), 3)->text(),
+                                                          txTable->font());
+                    if (ratePill.contains(mouseEvent->pos()))
+                    {
+                        const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
+                        const double currentHz = txTable->item(index.row(), 3)->text().toDouble();
+                        showQuickRateMenu(key, currentHz, txTable->viewport()->mapToGlobal(ratePill.bottomLeft() + QPoint(0, 2)));
+                        return true;
+                    }
+                    if (badge.contains(mouseEvent->pos()) && connected)
                     {
                         const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
                         const bool running = txTable->item(index.row(), 6)->text() == "Running";
@@ -4161,8 +5749,25 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 const QRect rect = txTable->visualRect(index);
                 const QRect card = rect.adjusted(1, 5, -2, -5);
                 const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
-                txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
-                                               Qt::PointingHandCursor : Qt::ArrowCursor);
+                const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
+                                                      txTable->item(index.row(), 1)->text(),
+                                                      txTable->item(index.row(), 3)->text(),
+                                                      txTable->font());
+                const bool onRate = ratePill.contains(mouseEvent->pos());
+                const bool onBadge = badge.contains(mouseEvent->pos()) && connected;
+                if (onRate || onBadge)
+                {
+                    txTable->viewport()->setCursor(Qt::PointingHandCursor);
+                    if (onRate)
+                    {
+                        QToolTip::showText(mouseEvent->globalPosition().toPoint(), "Change transmission rate",
+                                           txTable->viewport(), ratePill);
+                    }
+                }
+                else
+                {
+                    txTable->viewport()->setCursor(Qt::ArrowCursor);
+                }
             }
             else
             {
@@ -4230,6 +5835,7 @@ void MainWindow::applyTheme()
     const QString surface = dark ? "#1b2333" : "#ffffff";
     const QString foreground = dark ? "#edf0fa" : "#20263b";
     const QString muted = dark ? "#aab4cd" : "#626c84";
+    const QString hintForeground = dark ? "#606d88" : "#8893a7";
     const QString border = dark ? "#40506a" : "#d0d9e7";
     const QString alternate = dark ? "#212c40" : "#f7f8fc";
     const QString controlBorder = dark ? "#667595" : "#929db3";
@@ -4245,6 +5851,7 @@ void MainWindow::applyTheme()
     colors.setColor(QPalette::HighlightedText, QColor(foreground));
     colors.setColor(QPalette::Disabled, QPalette::Text, QColor(muted));
     colors.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(muted));
+    colors.setColor(QPalette::PlaceholderText, QColor(hintForeground));
     setPalette(colors);
     qApp->setPalette(colors);
     const QString baseStyle = QString(
@@ -4275,13 +5882,28 @@ void MainWindow::applyTheme()
         "QSplitter#messageSplitter::handle { background:transparent; border-left:1px solid %4; margin:0 7px; }"
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
+        "QLabel#profileHint,QLabel#profileSafetyHint { color:%9; font-size:12px; }"
+        "QFrame#profileFileCard,QFrame#profileModeCard { background:%2; border:1px solid %4; border-radius:10px; }"
+        "QLabel#profileSectionTitle { color:%3; font-size:13px; font-weight:600; background:transparent; }"
+        "QLabel#profileFileType { color:%5; background:%6; border-radius:5px; padding:4px 7px; font-size:11px; }"
+        "QLabel#profileModeBadge { color:%5; background:%6; border-radius:5px; padding:4px 9px; font-size:11px; font-weight:600; }"
+        "QFrame#profileFooterDivider { background:%4; border:0; }"
+        "QDialog#importProfileDialog QLabel#profileError { background:%6; border:1px solid %4; border-radius:6px; padding:10px 12px; font-size:12px; }"
+        "QDialog#connectionErrorDialog { background:transparent; border:0; }"
+        "QFrame#connectionErrorCard { background:%2; border:1px solid %4; border-radius:10px; }"
+        "QLabel#dialogHeadline { color:%3; font-size:13px; font-weight:600; background:transparent; }"
+        "QLabel#connectionErrorMessage { color:%5; background:transparent; font-size:12px; }"
+        "QPushButton#dismissConnectionError { background:#4f46e5; color:white; border:1px solid #4338ca; border-radius:5px; font-size:12px; font-weight:500; }"
+        "QPushButton#dismissConnectionError:hover { background:#4338ca; }"
+        "QPushButton#dismissConnectionError:pressed { background:#3730a3; }"
+        "QPushButton#dismissConnectionError:focus { outline:none; border-color:#818cf8; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
         "QFrame#connectionBar { background:transparent; border:0; }"
         "QFrame#connectionCard { background:transparent; border:0; }"
         "QFrame#connectionCardDivider { background:%4; border:0; }"
         "QLabel#serialSummary { color:%5; background:%6; border:1px solid %4; border-radius:7px; padding:0 10px; font-size:12px; font-weight:500; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
-        "QFrame#serialDivider,QFrame#txDivider,QFrame#txBatchDivider { background:%4; border:0; }"
+        "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
         "QMenu#serialMenu { background:%6; border:1px solid %4; border-radius:7px; padding:0; }"
         "QFrame#serialAdvanced { background:transparent; border:0; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
@@ -4336,15 +5958,14 @@ void MainWindow::applyTheme()
         "QLineEdit#payloadValueEditor { padding:0 8px; border-radius:5px; font-size:13px; selection-background-color:#4f46e5; selection-color:white; }"
         "QComboBox QLineEdit#payloadValueEditor { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QSplitter::handle { background:transparent; }"
-        "QStatusBar { color:%5; background:transparent; border:0; }"
-        "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"
+        "QFrame#statusBarCard { background:transparent; border:0; min-height:26px; }"
         "QScrollBar:vertical { background:%6; width:6px; } QScrollBar:horizontal { background:%6; height:6px; }"
         "QScrollBar::handle { background:%8; border-radius:3px; }"
         "QScrollBar::handle:vertical { min-height:24px; } QScrollBar::handle:horizontal { min-width:24px; }"
         "QScrollBar::handle:hover { background:#818cf8; } QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; }"
-        "QLabel#validationError { color:%7; }"
+        "QLabel#validationError, QLabel#profileError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
-          dark ? "#fca5a5" : "#b91c1c", controlBorder);
+          dark ? "#fca5a5" : "#b91c1c", controlBorder, hintForeground);
     const QString connectionStyle = QString(
         "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
@@ -4403,5 +6024,27 @@ void MainWindow::applyTheme()
         icon.addPixmap(actionIcon(name, QColor(muted)).pixmap(16, 16), QIcon::Disabled);
         control->setIcon(icon);
         control->setIconSize(QSize(16, 16));
+    }
+    if (txSummary)
+    {
+        txSummary->setProperty("darkTheme", dark);
+        txSummary->update();
+    }
+    if (connectionStatusPill)
+    {
+        connectionStatusPill->setProperty("darkTheme", dark);
+        connectionStatusPill->update();
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setDarkTheme(dark);
+    }
+    if (lastError)
+    {
+        lastError->setDarkTheme(dark);
+    }
+    if (copyFeedbackBadge)
+    {
+        static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
     }
 }

@@ -484,3 +484,13 @@ The Port popup keeps the active-row highlight without a checkmark. Other dropdow
 CMake project, application metadata, main heading/window title, About and CLI branding now use `MAVLinkLab`. The build/install executable is `mavlink-lab`; the launcher and documented commands use that name. Explicit `MAVLinkSimulator` QSettings scopes remain for compatibility with existing preferences, layouts and optional TX workspaces.
 
 **Verification:** configure/build passed; full CTest **3/3 passed in 24.37 s**, including existing settings/workspace checks. Install to `/tmp/mavlinklab-install` produced `bin/mavlink-lab`. CLI syntax/help, interactive selection retention, and single/two-instance launches using a stub executable passed. Reviewed regenerated populated Light/Dark offscreen dashboards with the new heading. Native desktop and physical UART were not retested.
+
+## Portable CBOR TX profiles
+
+**Behavior:** File → Import Profile… / Export Profile… use versioned `.mavprofile` CBOR files. Append defaults off on every opening. Replace cancels old pending output; Append preserves existing entries, their runtime state and pending output. Imported entries always start stopped with zero counters and fresh keys. Files are validated completely before mutation; exports use atomic replacement. See [Profile format](PROFILES.md).
+
+**Verification:** configure/build passed with Qt 6.2.4; full CTest **6/6 passed in 25.52 s** (core, desktop, profile, profile-worker, profile-ui, control-lines). Profile checks cover binary payload preservation, malformed/truncated/trailing CBOR, invalid schema/dialect/types/ranges, duplicate keys, file/message limits and failed-import atomicity. Worker tests cover Replace, Append while an existing PTY entry is running, counter preservation, authoritative export and key exhaustion. UI tests cover Replace/Append/Cancel/error, default checkbox reset, adding a message after import without key collision, and export/decode round trip.
+
+**Rendered GUI:** reviewed retained Light/Dark File menu and Import dialog screenshots in `build/qa/profile-*.png`, including checkbox normal/pressed/checked/focus/hover/disabled states, disabled Import, inline errors, resize and theme changes in one session. Qt offscreen file-dialog automation was used. Native desktop file dialogs, physical UART delivery and DMA were not verified.
+
+**Import dialog redesign:** separated file/mode cards, theme-aware vector document icon, dynamic Replace/Append badge, muted tips and a distinct Cancel/Import footer. Build and full CTest **6/6 passed in 25.75 s**. Reviewed Light/Dark empty, selected Replace/Append, pressed/focus/hover/disabled, error and resized renders; retained `build/qa/profile-*.png`. Existing import/export behavior is unchanged.
