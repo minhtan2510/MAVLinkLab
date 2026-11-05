@@ -1445,7 +1445,15 @@ private slots:
         QVERIFY(runAll->text().isEmpty());
         QVERIFY(stopAll->text().isEmpty());
         QVERIFY(deleteAll->text().isEmpty());
-        QVERIFY(stopAll->geometry().top() > tx->geometry().bottom());
+        QVERIFY(stopAll->geometry().bottom() < tx->geometry().top());
+        QCOMPARE(runAll->geometry().top(), stopAll->geometry().top());
+        QCOMPARE(deleteAll->geometry().top(), stopAll->geometry().top());
+        auto *addButton = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(addButton);
+        QVERIFY(runAll->geometry().top() >= addButton->geometry().bottom() + 8);
+        QCOMPARE(runAll->geometry().left(), addButton->geometry().left());
+        QCOMPARE(deleteAll->geometry().right(), addButton->geometry().right());
+        QVERIFY(stopAll->geometry().right() < deleteAll->geometry().left());
         stopAll->click();
         for (int row = 0; row < tx->rowCount(); ++row)
         {

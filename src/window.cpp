@@ -2326,22 +2326,51 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *txLayout = new QVBoxLayout(txGroup);
     txLayout->setContentsMargins(16, 16, 16, 12);
     txLayout->setSpacing(12);
-    auto *txHeader = new QHBoxLayout;
+    auto *txHeading = new QGridLayout;
+    txHeading->setContentsMargins(0, 0, 0, 0);
+    txHeading->setHorizontalSpacing(8);
+    txHeading->setVerticalSpacing(10);
+
     auto *txTitle = new QLabel("TX Dashboard");
     txTitle->setObjectName("panelTitle");
-    txHeader->addWidget(txTitle);
-    txHeader->addStretch();
-    auto *addButton = button("Add message", "addMessage", txHeader);
-    addButton->setProperty("role", "primary");
-    auto *txHeading = new QVBoxLayout;
-    txHeading->setSpacing(6);
-    txHeading->addLayout(txHeader);
+    txHeading->addWidget(txTitle, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
     txSummary = new QLabel("0 messages  ·  0 running");
     txSummary->setObjectName("secondaryText");
-    auto *txOverview = new QHBoxLayout;
-    txOverview->addWidget(txSummary);
-    txOverview->addStretch();
-    txHeading->addLayout(txOverview);
+    txHeading->addWidget(txSummary, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
+    txHeading->setColumnStretch(1, 1);
+
+    auto *addButton = new QPushButton("Add message");
+    addButton->setObjectName("addMessage");
+    addButton->setProperty("role", "primary");
+    txHeading->addWidget(addButton, 0, 2);
+
+    auto *batchActions = new QHBoxLayout;
+    batchActions->setContentsMargins(0, 0, 0, 0);
+    batchActions->setSpacing(4);
+
+    runAllButton = button("", "runAll", batchActions);
+    runAllButton->setProperty("role", "success");
+    runAllButton->setFixedSize(28, 28);
+    runAllButton->setToolTip("Run all");
+    runAllButton->setAccessibleName("Run all messages");
+
+    stopAllButton = button("", "stopAll", batchActions);
+    stopAllButton->setProperty("role", "danger");
+    stopAllButton->setFixedSize(28, 28);
+    stopAllButton->setToolTip("Stop all");
+    stopAllButton->setAccessibleName("Stop all messages");
+
+    batchActions->addStretch();
+
+    deleteAllButton = button("", "deleteAll", batchActions);
+    deleteAllButton->setProperty("role", "danger");
+    deleteAllButton->setFixedSize(28, 28);
+    deleteAllButton->setToolTip("Delete all");
+    deleteAllButton->setAccessibleName("Delete all messages");
+
+    txHeading->addLayout(batchActions, 1, 2);
     txLayout->addLayout(txHeading);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
@@ -2394,33 +2423,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         const QPoint anchor = keyboard ? txTable->visualItemRect(txTable->item(row, 1)).center() : position;
         txMenu->popup(txTable->viewport()->mapToGlobal(anchor));
     });
-    auto *batchDivider = new QFrame;
-    batchDivider->setObjectName("txBatchDivider");
-    batchDivider->setFixedHeight(1);
-    txLayout->addWidget(batchDivider);
-    auto *batchActions = new QHBoxLayout;
-    batchActions->setSpacing(4);
-    runAllButton = button("", "runAll", batchActions);
-    runAllButton->setProperty("role", "success");
-    runAllButton->setFixedSize(28, 28);
-    runAllButton->setToolTip("Run all");
-    runAllButton->setAccessibleName("Run all messages");
-
-    stopAllButton = button("", "stopAll", batchActions);
-    stopAllButton->setProperty("role", "danger");
-    stopAllButton->setFixedSize(28, 28);
-    stopAllButton->setToolTip("Stop all");
-    stopAllButton->setAccessibleName("Stop all messages");
-
-    batchActions->addStretch();
-
-    deleteAllButton = button("", "deleteAll", batchActions);
-    deleteAllButton->setProperty("role", "danger");
-    deleteAllButton->setFixedSize(28, 28);
-    deleteAllButton->setToolTip("Delete all");
-    deleteAllButton->setAccessibleName("Delete all messages");
-
-    txLayout->addLayout(batchActions);
     dashboards->addWidget(txGroup);
 
     auto *rxGroup = new QFrame;
@@ -4821,7 +4823,7 @@ void MainWindow::applyTheme()
         "QFrame#connectionCardDivider { background:%4; border:0; }"
         "QLabel#serialSummary { color:%5; background:%6; border:1px solid %4; border-radius:7px; padding:0 10px; font-size:12px; font-weight:500; }"
         "QLabel#serialFieldLabel { color:%5; font-size:12px; }"
-        "QFrame#serialDivider,QFrame#txDivider,QFrame#txBatchDivider { background:%4; border:0; }"
+        "QFrame#serialDivider,QFrame#txDivider { background:%4; border:0; }"
         "QMenu#serialMenu { background:%6; border:1px solid %4; border-radius:7px; padding:0; }"
         "QFrame#serialAdvanced { background:transparent; border:0; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
