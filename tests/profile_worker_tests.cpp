@@ -146,6 +146,33 @@ private slots:
         ::close(master);
         ::close(slave);
     }
+
+    /** @brief setRate updates transmission frequency and validates range and link capacity. */
+    void setRateUpdatesFrequencyAndValidatesBounds()
+    {
+        SerialWorker worker;
+        worker.initialize();
+        worker.saveEntry(heartbeat(1));
+
+        // Test valid rate update when stopped
+        worker.setRate(1, 10.0);
+        auto current = snapshot(worker);
+        QCOMPARE(current->tx.size(), size_t(1));
+        QCOMPARE(current->tx[0].entry.hz, 10.0);
+
+        // Test out-of-range rates trigger failure signal
+        QSignalSpy failedSpy(&worker, &SerialWorker::failure);
+        worker.setRate(1, 0.05);
+        QCOMPARE(failedSpy.size(), 1);
+        worker.setRate(1, 1500.0);
+        QCOMPARE(failedSpy.size(), 2);
+        worker.setRate(1, std::numeric_limits<double>::quiet_NaN());
+        QCOMPARE(failedSpy.size(), 3);
+
+        // Verify frequency unchanged after failed attempts
+        current = snapshot(worker);
+        QCOMPARE(current->tx[0].entry.hz, 10.0);
+    }
 };
 
 QTEST_GUILESS_MAIN(ProfileWorkerTests)

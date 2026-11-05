@@ -71,6 +71,8 @@ private:
     void importProfile();
     /** @brief Choose a destination and export the worker's current TX definitions. */
     void exportProfile();
+    /** @brief Display a popup menu with preset frequencies and custom rate input. */
+    void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;

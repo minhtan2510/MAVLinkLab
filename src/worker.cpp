@@ -236,6 +236,43 @@ void SerialWorker::setActive(quint64 key, bool active)
     }
 }
 
+void SerialWorker::setRate(quint64 key, double hz)
+{
+    if (!std::isfinite(hz) || hz < 0.1 || hz > 1000.0)
+    {
+        fail("Target rate must be between 0.1 and 1000 Hz");
+        return;
+    }
+    for (auto &entry : entries)
+    {
+        if (entry.key != key)
+        {
+            continue;
+        }
+        if (entry.active)
+        {
+            const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
+                                (config.stop == QSerialPort::TwoStop ? 2.0 :
+                                 config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+            Mav::TxEntry candidate = entry;
+            candidate.hz = hz;
+            if (!port->isOpen() || !Mav::fitsLink(entries, candidate, config.baud, bits))
+            {
+                fail("Offered load exceeds link capacity");
+                return;
+            }
+            entry.hz = hz;
+            entry.deadline = clock.nsecsElapsed() / 1000 + static_cast<int64_t>(1000000.0 / hz);
+        }
+        else
+        {
+            entry.hz = hz;
+        }
+        requestSnapshot();
+        return;
+    }
+}
+
 void SerialWorker::sendOnce(quint64 key)
 {
     for (auto &entry : entries)

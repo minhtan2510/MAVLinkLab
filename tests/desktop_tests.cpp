@@ -2082,6 +2082,81 @@ private slots:
 
         add->click();
     }
+
+    /** @brief Exercise quick rate switcher popup and rate modifications from TX cards. */
+    void quickRateSwitcherUi()
+    {
+        for (int mode = 0; mode < 2; ++mode)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(mode);
+            QTest::qWait(30);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(tx && add);
+
+            // Add a HEARTBEAT message at 1.0 Hz
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                catalog->setCurrentRow(0);
+                dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 1);
+            QCOMPARE(tx->item(0, 3)->text(), QString("1"));
+
+            // Locate rate pill position on card 0
+            const QRect rect = tx->visualRect(tx->model()->index(0, 0));
+            const QRect card = rect.adjusted(1, 5, -2, -5);
+            QFont titleFont = tx->font();
+            titleFont.setPixelSize(13);
+            titleFont.setWeight(QFont::Normal);
+            const int advance = QFontMetrics(titleFont).horizontalAdvance("[0] HEARTBEAT");
+            const int pillLeft = card.left() + 24 + advance + 8;
+            const QPoint pillClickPos(pillLeft + 10, card.top() + 8 + 3 + 9);
+
+            QTimer::singleShot(100, [&window, mode]()
+            {
+                auto *menu = window.findChild<QMenu *>("quickRateMenu");
+                if (menu)
+                {
+                    menu->grab().save(mode == 0 ? "qa/quick-rate-menu-dark.png" : "qa/quick-rate-menu-light.png");
+                    for (auto *action : menu->actions())
+                    {
+                        if (action->text() == "5 Hz")
+                        {
+                            action->trigger();
+                            break;
+                        }
+                    }
+                }
+            });
+
+            QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
+
+            QTRY_COMPARE_WITH_TIMEOUT(tx->item(0, 3)->text(), QString("5"), 3000);
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

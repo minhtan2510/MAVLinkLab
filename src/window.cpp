@@ -647,6 +647,8 @@ protected:
     }
 };
 
+using WorkbenchDoubleSpinBox = WorkbenchSpinBox<QDoubleSpinBox>;
+
 /** @brief Custom theme-aware checkbox with a crisp vector checkmark and focus indicator. */
 class WorkbenchCheckBox : public QCheckBox
 {
@@ -880,6 +882,44 @@ static QStringList txTitleLines(const QString &text, const QFont &font, int widt
     return lines;
 }
 
+/** @brief Calculate the clickable target-rate pill rectangle on a TX card. */
+static QRect txRatePillRect(const QRect &card, const QString &idStr, const QString &nameStr, const QString &hzStr, const QFont &baseFont)
+{
+    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+    const int textLeft = card.left() + 24;
+    QFont titleFont = baseFont;
+    titleFont.setPixelSize(13);
+    titleFont.setWeight(QFont::Normal);
+    const int maxTitleWidth = badge.left() - textLeft - 8;
+    const QString title = QString("[%1] %2").arg(idStr, nameStr);
+    const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
+
+    QFont pillFont = baseFont;
+    pillFont.setPixelSize(11);
+    pillFont.setWeight(QFont::Medium);
+    const QString rateText = hzStr + " Hz";
+    const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
+    const int pillWidth = rateAdvance + 22;
+
+    if (lines.size() > 1)
+    {
+        const int lastAdvance = QFontMetrics(titleFont).horizontalAdvance(lines.last());
+        const int pillLeft = textLeft + lastAdvance + 8;
+        if (pillLeft + pillWidth <= card.right() - 8)
+        {
+            return QRect(pillLeft, badge.top() + 16 + 2, pillWidth, 18);
+        }
+        return {};
+    }
+    const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
+    const int pillLeft = textLeft + titleAdvance + 8;
+    if (pillLeft + pillWidth <= badge.left() - 8)
+    {
+        return QRect(pillLeft, badge.top() + 3, pillWidth, 18);
+    }
+    return {};
+}
+
 /** @brief Present each TX entry as a readable card backed by the existing row model. */
 class TxCardDelegate : public QStyledItemDelegate
 {
@@ -990,25 +1030,29 @@ public:
             const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
             painter->drawText(QRect(textLeft, badge.top(), titleAdvance, badge.height()),
                               Qt::AlignVCenter | Qt::AlignLeft, title);
+        }
 
-            // Draw compact Target Hz pill next to title if space allows
+        // Draw compact interactive Target Hz pill with dropdown chevron
+        const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
+        if (pillRect.isValid())
+        {
             const QString rateText = value(3) + " Hz";
             QFont pillFont = option.font;
             pillFont.setPixelSize(11);
             pillFont.setWeight(QFont::Medium);
-            const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
-            const int pillWidth = rateAdvance + 12;
-            const int pillLeft = textLeft + titleAdvance + 8;
-            if (pillLeft + pillWidth <= badge.left() - 8)
-            {
-                const QRect pillRect(pillLeft, badge.top() + 3, pillWidth, 18);
-                painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
-                painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
-                painter->drawRoundedRect(pillRect, 4, 4);
-                painter->setFont(pillFont);
-                painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
-                painter->drawText(pillRect, Qt::AlignCenter, rateText);
-            }
+            painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+            painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
+            painter->drawRoundedRect(pillRect, 4, 4);
+            painter->setFont(pillFont);
+            painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
+            painter->drawText(pillRect.adjusted(6, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
+
+            // Draw crisp vector down-chevron indicating dropdown switcher
+            painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const int cx = pillRect.right() - 8;
+            const int cy = pillRect.center().y();
+            painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
+            painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
         }
 
         // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
@@ -3146,6 +3190,74 @@ void MainWindow::exportProfile()
     QMetaObject::invokeMethod(worker, "exportProfile", Qt::QueuedConnection);
 }
 
+/** @brief Display a popup menu with preset frequencies and custom rate input. */
+void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos)
+{
+    auto *menu = new QMenu(this);
+    menu->setObjectName("quickRateMenu");
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    const std::vector<double> presets = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0};
+    for (double hz : presets)
+    {
+        const QString label = QString("%1 Hz").arg(hz, 0, 'f', (hz < 1.0) ? 1 : 0);
+        auto *action = menu->addAction(label, this, [this, key, hz]()
+        {
+            QMetaObject::invokeMethod(worker, "setRate", Qt::QueuedConnection,
+                                      Q_ARG(quint64, key), Q_ARG(double, hz));
+            saveTxMessages();
+        });
+        if (std::abs(hz - currentHz) < 0.05)
+        {
+            action->setCheckable(true);
+            action->setChecked(true);
+        }
+    }
+    menu->addSeparator();
+    menu->addAction("Custom…", this, [this, key, currentHz]()
+    {
+        QDialog dialog(this);
+        dialog.setObjectName("customRateDialog");
+        dialog.setWindowTitle("Custom Rate");
+        dialog.setMinimumWidth(320);
+        auto *dialogLayout = new QVBoxLayout(&dialog);
+        dialogLayout->setContentsMargins(20, 16, 20, 16);
+        dialogLayout->setSpacing(14);
+        dialogLayout = addDialogTitleBar(&dialog, dialogLayout);
+
+        auto *label = new QLabel("Target transmission rate:", &dialog);
+        label->setObjectName("secondaryText");
+        dialogLayout->addWidget(label);
+
+        auto *spin = new WorkbenchDoubleSpinBox(&dialog);
+        spin->setObjectName("customRateSpin");
+        spin->setRange(0.1, 1000.0);
+        spin->setDecimals(1);
+        spin->setSuffix(" Hz");
+        spin->setValue(currentHz);
+        spin->setMinimumHeight(36);
+        spin->selectAll();
+        dialogLayout->addWidget(spin);
+
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        buttons->button(QDialogButtonBox::Ok)->setText("Apply");
+        buttons->button(QDialogButtonBox::Ok)->setProperty("role", "primary");
+        buttons->button(QDialogButtonBox::Ok)->setMinimumHeight(36);
+        buttons->button(QDialogButtonBox::Cancel)->setMinimumHeight(36);
+        dialogLayout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+        if (dialog.exec() == QDialog::Accepted)
+        {
+            const double newHz = spin->value();
+            QMetaObject::invokeMethod(worker, "setRate", Qt::QueuedConnection,
+                                      Q_ARG(quint64, key), Q_ARG(double, newHz));
+            saveTxMessages();
+        }
+    });
+    menu->popup(globalPos);
+}
+
 /** @brief Restore configured TX messages from workspace storage. */
 void MainWindow::restoreTxMessages()
 {
@@ -4241,7 +4353,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         // Cards use the interface font rather than the numeric cell font.
         txTable->item(row, 1)->setFont(txTable->font());
         cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
-        cell(txTable, row, 3, QString::number(entry.hz, 'f', 0));
+        cell(txTable, row, 3, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0 && entry.hz != std::floor(entry.hz)) ? 1 : 0));
         cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
         cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
         cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
@@ -4524,7 +4636,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseButtonRelease)
         {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
-            if (mouseEvent->button() == Qt::LeftButton && connected)
+            if (mouseEvent->button() == Qt::LeftButton)
             {
                 const QModelIndex index = txTable->indexAt(mouseEvent->pos());
                 if (index.isValid() && index.column() == 1)
@@ -4532,7 +4644,18 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     const QRect rect = txTable->visualRect(index);
                     const QRect card = rect.adjusted(1, 5, -2, -5);
                     const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
-                    if (badge.contains(mouseEvent->pos()))
+                    const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
+                                                          txTable->item(index.row(), 1)->text(),
+                                                          txTable->item(index.row(), 3)->text(),
+                                                          txTable->font());
+                    if (ratePill.contains(mouseEvent->pos()))
+                    {
+                        const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
+                        const double currentHz = txTable->item(index.row(), 3)->text().toDouble();
+                        showQuickRateMenu(key, currentHz, txTable->viewport()->mapToGlobal(ratePill.bottomLeft() + QPoint(0, 2)));
+                        return true;
+                    }
+                    if (badge.contains(mouseEvent->pos()) && connected)
                     {
                         const auto key = txTable->item(index.row(), 0)->data(Qt::UserRole).toULongLong();
                         const bool running = txTable->item(index.row(), 6)->text() == "Running";
@@ -4552,8 +4675,25 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 const QRect rect = txTable->visualRect(index);
                 const QRect card = rect.adjusted(1, 5, -2, -5);
                 const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
-                txTable->viewport()->setCursor(badge.contains(mouseEvent->pos()) && connected ?
-                                               Qt::PointingHandCursor : Qt::ArrowCursor);
+                const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
+                                                      txTable->item(index.row(), 1)->text(),
+                                                      txTable->item(index.row(), 3)->text(),
+                                                      txTable->font());
+                const bool onRate = ratePill.contains(mouseEvent->pos());
+                const bool onBadge = badge.contains(mouseEvent->pos()) && connected;
+                if (onRate || onBadge)
+                {
+                    txTable->viewport()->setCursor(Qt::PointingHandCursor);
+                    if (onRate)
+                    {
+                        QToolTip::showText(mouseEvent->globalPosition().toPoint(), "Change transmission rate",
+                                           txTable->viewport(), ratePill);
+                    }
+                }
+                else
+                {
+                    txTable->viewport()->setCursor(Qt::ArrowCursor);
+                }
             }
             else
             {

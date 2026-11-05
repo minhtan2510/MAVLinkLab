@@ -66,6 +66,12 @@ public slots:
     void removeEntry(quint64 key);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
+    /**
+     * @brief Update the target transmission frequency for an entry.
+     * @param key Identifier of the entry to modify.
+     * @param hz New target frequency in Hertz (0.1 to 1000).
+     */
+    void setRate(quint64 key, double hz);
     /** @brief Serialize and queue one explicitly requested message. */
     void sendOnce(quint64 key);
     /** @brief Stop all periodic transmission and cancel pending output. */
