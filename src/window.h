@@ -86,6 +86,8 @@ private:
     void exportProfile();
     /** @brief Display a popup menu with preset frequencies and custom rate input. */
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
+    /** @brief Display transient confirmation badge and cell flash when copying a field value. */
+    void showCopiedFeedback(int row);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -136,6 +138,9 @@ private:
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
     QLabel *inspectorSource = nullptr;
+    QLabel *copyFeedbackBadge = nullptr;
+    QTimer *copyFeedbackTimer = nullptr;
+    int copiedInspectorRow = -1;
     QLabel *pausedLabel = nullptr;
     std::map<QString, QString> lastFieldValues;
 };

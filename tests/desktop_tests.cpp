@@ -2316,11 +2316,9 @@ private slots:
 
             auto *statusBar = window.findChild<QFrame *>("statusBarCard");
             auto *metricsWidget = window.findChild<QWidget *>("statusBarMetrics");
-            auto *statusMessage = window.findChild<QLabel *>("statusMessage");
             auto *dashboards = window.findChild<QSplitter *>("dashboards");
             QVERIFY(statusBar);
             QVERIFY(metricsWidget);
-            QVERIFY(statusMessage);
             QVERIFY(dashboards);
 
             const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
@@ -2329,39 +2327,126 @@ private slots:
             const int dashRight = dashLeft + dashboards->width();
             const int barLeft = statusBar->mapTo(&window, QPoint(0, 0)).x();
             const int barRight = barLeft + statusBar->width();
-            auto *firstChip = metricsWidget->findChild<QLabel *>();
-            QVERIFY(firstChip);
-            const int chipLeft = firstChip->mapTo(&window, QPoint(0, 0)).x();
-            const int messageRight = statusMessage->mapTo(&window, QPoint(0, 0)).x() + statusMessage->width();
+
+            const auto chips = metricsWidget->findChildren<QLabel *>();
+            QVERIFY(chips.size() >= 5);
+            auto *lastChip = chips.last();
+            QVERIFY(lastChip);
+
+            const int metricsRight = metricsWidget->mapTo(&window, QPoint(0, 0)).x() + metricsWidget->width();
+            const int lastChipRight = lastChip->mapTo(&window, QPoint(0, 0)).x() + lastChip->width();
 
             qDebug() << "STATUS BAR ALIGNMENT [" << themeSuffix << "]:"
-                     << "dashLeft=" << dashLeft << "barLeft=" << barLeft << "chipLeft=" << chipLeft
-                     << "dashRight=" << dashRight << "barRight=" << barRight << "messageRight=" << messageRight
+                     << "dashLeft=" << dashLeft << "barLeft=" << barLeft
+                     << "dashRight=" << dashRight << "barRight=" << barRight
+                     << "metricsRight=" << metricsRight << "lastChipRight=" << lastChipRight
                      << "windowWidth=" << window.width();
 
             QCOMPARE(barLeft, dashLeft);
             QCOMPARE(barRight, dashRight);
-            QCOMPARE(chipLeft, dashLeft);
-            QCOMPARE(messageRight, dashRight);
+            QCOMPARE(metricsRight, dashRight);
+            QCOMPARE(lastChipRight, dashRight);
 
             // 1. Idle state
             window.setStatusMetrics(0, 0, 0, 0, 0);
-            statusMessage->setText("Ready");
             QTest::qWait(30);
             QVERIFY(statusBar->grab().save(QString("qa/statusbar-idle-%1.png").arg(themeSuffix)));
 
             // 2. Active stream state
             window.setStatusMetrics(1250, 480, 0, 128, 0);
-            statusMessage->setText("Connected");
             QTest::qWait(30);
             QVERIFY(statusBar->grab().save(QString("qa/statusbar-active-%1.png").arg(themeSuffix)));
             QVERIFY(window.grab().save(QString("qa/window-statusbar-active-%1.png").arg(themeSuffix)));
 
             // 3. Alert & warning state
             window.setStatusMetrics(2400, 960, 4, 5200, 2);
-            statusMessage->setText("Error: Serial write backpressure high (5200 B)");
             QTest::qWait(30);
             QVERIFY(statusBar->grab().save(QString("qa/statusbar-alert-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Test transient visual confirmation badge and cell flash when copying field values. */
+    void copyValueVisualFeedback()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            Pty pty;
+            QVERIFY(pty.master >= 0);
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            // Connect to Pty
+            auto *port = window.findChild<QComboBox *>("port");
+            QVERIFY(port);
+            port->addItem(pty.name);
+            port->setCurrentText(pty.name);
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            QVERIFY(connectBtn);
+            connectBtn->click();
+            QTRY_COMPARE(connectBtn->text(), QString("Disconnect"));
+
+            // Feed an ATTITUDE message (id 30)
+            mavlink_status_t status{};
+            Mav::Bytes payload(mavlink_get_msg_entry(30)->max_msg_len);
+            const auto frame = Mav::encode(30, 1, 1, false, payload, status);
+            QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
+
+            auto *rx = window.findChild<QTreeWidget *>("rxTree");
+            QVERIFY(rx);
+            QTRY_VERIFY(rx->topLevelItemCount() > 0 && rx->topLevelItem(0)->childCount() > 0);
+            rx->setCurrentItem(rx->topLevelItem(0)->child(0));
+
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            QVERIFY(inspector);
+            QTRY_VERIFY(inspector->rowCount() > 0);
+
+            // Select row 1 to copy
+            const int targetRow = 1;
+            auto *valItem = inspector->item(targetRow, 2);
+            QVERIFY(valItem);
+            const QString expectedValue = valItem->text();
+            const QPoint valuePosition = inspector->visualItemRect(valItem).center();
+
+            // Trigger context menu
+            QVERIFY(QMetaObject::invokeMethod(inspector, "customContextMenuRequested", Qt::DirectConnection,
+                                              Q_ARG(QPoint, valuePosition)));
+            auto *valueMenu = window.findChild<QMenu *>("inspectorMenu");
+            auto *copyAction = window.findChild<QAction *>("copyInspectorValue");
+            QVERIFY(valueMenu && copyAction && valueMenu->isVisible());
+
+            // Trigger copy
+            copyAction->trigger();
+            valueMenu->hide();
+
+            // 1. Verify clipboard content
+            QCOMPARE(QApplication::clipboard()->text(), expectedValue);
+
+            // 2. Verify cell copied state and badge visibility
+            auto *badge = inspector->viewport()->findChild<QLabel *>("copyFeedbackBadge");
+            QVERIFY(badge);
+            QVERIFY(badge->isVisible());
+            QCOMPARE(badge->text(), QString("✓ Copied"));
+            QVERIFY(valItem->data(Qt::UserRole + 6).toBool());
+
+            // Capture screenshot of inspector showing the copied badge & highlight
+            QTest::qWait(30);
+            QVERIFY(inspector->grab().save(QString("qa/inspector-copied-%1.png").arg(themeSuffix)));
+            auto *inspectorPane = inspector->parentWidget();
+            if (inspectorPane)
+            {
+                QVERIFY(inspectorPane->grab().save(QString("qa/pane-inspector-copied-%1.png").arg(themeSuffix)));
+            }
+            QVERIFY(window.grab().save(QString("qa/window-copied-%1.png").arg(themeSuffix)));
+
+            // 3. Verify transient timeout: after 850ms, badge disappears and cell state resets
+            QTest::qWait(850);
+            QVERIFY(!badge->isVisible());
+            QVERIFY(!valItem->data(Qt::UserRole + 6).toBool());
         }
     }
 };

@@ -1385,7 +1385,8 @@ private:
 
 /**
  * @brief Modern status bar pill badge for application messages and alerts.
- * Automatically adapts visual tone (Neutral, Success, Warning, Error) based on content.
+ * Automatically adapts visual tone (Neutral, Success, Warning, Error) based on content
+ * and elides long text safely without clipping or word-wrap truncation.
  */
 class StatusBarMessageWidget : public QLabel
 {
@@ -1401,17 +1402,19 @@ public:
         setFixedHeight(24);
         setAlignment(Qt::AlignCenter);
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-        applyTone();
+        setToolTip(text);
     }
 
     /**
-     * @brief Update status text and adapt visual badge tone.
+     * @brief Update status text, refresh tooltip, and adapt visual badge tone.
      * @param text Message text string.
      */
     void setText(const QString &text)
     {
         QLabel::setText(text);
-        applyTone();
+        setToolTip(text);
+        updateGeometry();
+        update();
     }
 
     /**
@@ -1423,47 +1426,106 @@ public:
         if (m_dark != dark)
         {
             m_dark = dark;
-            applyTone();
+            update();
         }
     }
 
-private:
     /**
-     * @brief Apply contextual style based on message semantics.
+     * @brief Provide dynamic width based on message text length, bound within status bar space.
+     * @return Ideal size for the pill badge.
      */
-    void applyTone()
+    QSize sizeHint() const override
     {
+        QFont f = font();
+        f.setPixelSize(11);
         const QString txt = text();
-        QString style;
+        const bool error = txt.startsWith("Error:", Qt::CaseInsensitive);
+        f.setWeight(error ? QFont::DemiBold : QFont::Medium);
+        const QFontMetrics fm(f);
+        const int textWidth = fm.horizontalAdvance(txt);
+        const int width = qBound(60, textWidth + 24, 880);
+        return QSize(width, 24);
+    }
+
+    /**
+     * @brief Minimum size ensuring badge presence.
+     * @return Minimum dimensions.
+     */
+    QSize minimumSizeHint() const override
+    {
+        return QSize(60, 24);
+    }
+
+protected:
+    /**
+     * @brief Render rounded vector pill surface and elided text with antialiasing.
+     * @param event Paint event parameters.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        const QString txt = text();
+        if (toolTip() != txt)
+        {
+            const_cast<StatusBarMessageWidget *>(this)->setToolTip(txt);
+        }
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        QColor bg;
+        QColor border;
+        QColor textCol;
+        bool bold = false;
 
         if (txt.startsWith("Error:", Qt::CaseInsensitive))
         {
-            style = m_dark ?
-                "QLabel { background: #2e1215; color: #f87171; border: 1px solid #7f1d1d; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
-                "QLabel { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
+            bg = m_dark ? QColor("#2e1215") : QColor("#fef2f2");
+            border = m_dark ? QColor("#7f1d1d") : QColor("#fecaca");
+            textCol = m_dark ? QColor("#f87171") : QColor("#dc2626");
+            bold = true;
+        }
+        else if (txt.startsWith("Warning:", Qt::CaseInsensitive) ||
+                 txt.startsWith("Link lost", Qt::CaseInsensitive) ||
+                 txt.contains("Reconnecting", Qt::CaseInsensitive))
+        {
+            bg = m_dark ? QColor("#2b1a07") : QColor("#fffbeb");
+            border = m_dark ? QColor("#78350f") : QColor("#fde68a");
+            textCol = m_dark ? QColor("#fbbf24") : QColor("#d97706");
+            bold = true;
         }
         else if (txt.compare("Connected", Qt::CaseInsensitive) == 0)
         {
-            style = m_dark ?
-                "QLabel { background: #09231b; color: #34d399; border: 1px solid #0f5945; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
-                "QLabel { background: #e6f9ee; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
-        }
-        else if (txt.startsWith("Link lost", Qt::CaseInsensitive) || txt.contains("Reconnecting", Qt::CaseInsensitive))
-        {
-            style = m_dark ?
-                "QLabel { background: #2b1a07; color: #fbbf24; border: 1px solid #78350f; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
-                "QLabel { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
+            bg = m_dark ? QColor("#09231b") : QColor("#e6f9ee");
+            border = m_dark ? QColor("#0f5945") : QColor("#bbf7d0");
+            textCol = m_dark ? QColor("#34d399") : QColor("#16a34a");
+            bold = true;
         }
         else
         {
-            style = m_dark ?
-                "QLabel { background: #141c2b; color: #8896b3; border: 1px solid #233047; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 500; }" :
-                "QLabel { background: #e2e8f2; color: #55627a; border: 1px solid #d0d9e7; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 500; }";
+            bg = m_dark ? QColor("#141c2b") : QColor("#e2e8f2");
+            border = m_dark ? QColor("#233047") : QColor("#d0d9e7");
+            textCol = m_dark ? QColor("#8896b3") : QColor("#55627a");
+            bold = false;
         }
 
-        setStyleSheet(style);
+        painter.setPen(QPen(border, 1));
+        painter.setBrush(bg);
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 5, 5);
+
+        QFont f = font();
+        f.setPixelSize(11);
+        f.setWeight(bold ? QFont::DemiBold : QFont::Medium);
+        painter.setFont(f);
+        painter.setPen(textCol);
+
+        const QFontMetrics fm(f);
+        const QRect textRect = rect().adjusted(10, 0, -10, 0);
+        const QString visibleText = fm.elidedText(txt, Qt::ElideRight, textRect.width());
+        painter.drawText(textRect, Qt::AlignCenter, visibleText);
     }
 
+private:
     bool m_dark = false;
 };
 
@@ -1864,6 +1926,48 @@ public:
     }
 };
 
+/** @brief Floating badge providing transient visual feedback when copying decoded MAVLink values. */
+class CopyFeedbackBadge : public QLabel
+{
+public:
+    explicit CopyFeedbackBadge(QWidget *parent = nullptr) : QLabel(parent)
+    {
+        setObjectName("copyFeedbackBadge");
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAlignment(Qt::AlignCenter);
+        hide();
+    }
+
+    /** @brief Refresh badge styling according to the active theme palette. */
+    void refreshTheme(bool dark)
+    {
+        if (dark)
+        {
+            setStyleSheet("QLabel#copyFeedbackBadge {"
+                          "  background: #064e3b;"
+                          "  color: #6ee7b7;"
+                          "  border: 1px solid #10b981;"
+                          "  border-radius: 4px;"
+                          "  padding: 1px 7px;"
+                          "  font-size: 11px;"
+                          "  font-weight: 600;"
+                          "}");
+        }
+        else
+        {
+            setStyleSheet("QLabel#copyFeedbackBadge {"
+                          "  background: #ecfdf5;"
+                          "  color: #065f46;"
+                          "  border: 1px solid #059669;"
+                          "  border-radius: 4px;"
+                          "  padding: 1px 7px;"
+                          "  font-size: 11px;"
+                          "  font-weight: 600;"
+                          "}");
+        }
+    }
+};
+
 /** @brief Give decoded and editable values a distinct visual column without changing data. */
 class ValueDelegate : public QStyledItemDelegate
 {
@@ -1887,6 +1991,7 @@ public:
         const bool editable = isPayload && (index.flags() & Qt::ItemIsEditable);
         const bool hovered = isPayload && (option.state & QStyle::State_MouseOver);
         const bool changed = isInspector && index.data(Qt::UserRole + 5).toBool();
+        const bool copied = isInspector && index.data(Qt::UserRole + 6).toBool();
         const QColor rowSurface = styled.palette.color(QPalette::Base);
         const QColor border(dark ? "#2d3a4e" : "#e5eaf2");
         const QRect input(option.rect.left() + 8, option.rect.top() + 6, option.rect.width() - 16, 28);
@@ -1898,10 +2003,12 @@ public:
 
         // Draw input box (either editable for payload or clean view-only pill for inspector/readonly)
         const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
+                               copied ? QColor(dark ? "#34d399" : "#059669") :
                                changed ? QColor(dark ? "#388bfd" : "#0969da") :
                                selected || hovered ? QColor("#939bf0") : border;
-        painter->setPen(QPen(outline, selected || invalid || changed ? 1.5 : 1.0));
+        painter->setPen(QPen(outline, selected || invalid || changed || copied ? 1.5 : 1.0));
         const QColor boxBg = invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                             copied ? QColor(dark ? "#0f2e24" : "#ecfdf5") :
                              selected ? QColor(dark ? "#293451" : "#f2f1ff") :
                              editable ? QColor(dark ? "#1e293b" : "#fafbfd") :
                              QColor(dark ? "#1b283d" : "#f4f7fb");
@@ -1909,11 +2016,13 @@ public:
         painter->drawRoundedRect(input, 5, 5);
 
         painter->setFont(styled.font);
-        const QColor textColor = changed ? QColor(dark ? "#58a6ff" : "#0969da") :
+        const QColor textColor = copied ? QColor(dark ? "#6ee7b7" : "#065f46") :
+                                 changed ? QColor(dark ? "#58a6ff" : "#0969da") :
                                  isInspector ? QColor(dark ? "#c9d8eb" : "#24324a") :
                                  styled.palette.color(QPalette::Text);
         painter->setPen(textColor);
-        const QRect textRect = input.adjusted(8, 0, -8, 0);
+        const int rightPadding = copied ? 75 : 8;
+        const QRect textRect = input.adjusted(8, 0, -rightPadding, 0);
         painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
 
@@ -3136,9 +3245,30 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     valueMenu->installEventFilter(this);
     auto *copyValue = valueMenu->addAction("Copy value");
     copyValue->setObjectName("copyInspectorValue");
-    connect(copyValue, &QAction::triggered, this, [copyValue]()
+    connect(copyValue, &QAction::triggered, this, [this, copyValue]()
     {
-        QApplication::clipboard()->setText(copyValue->data().toString());
+        const QString text = copyValue->data().toString();
+        QApplication::clipboard()->setText(text);
+        int row = copyValue->property("targetRow").isValid() ? copyValue->property("targetRow").toInt() : -1;
+        if (row < 0 || row >= inspector->rowCount())
+        {
+            row = inspector->currentRow();
+        }
+        if (row < 0 || row >= inspector->rowCount())
+        {
+            for (int i = 0; i < inspector->rowCount(); ++i)
+            {
+                if (auto *item = inspector->item(i, 2))
+                {
+                    if (item->text() == text)
+                    {
+                        row = i;
+                        break;
+                    }
+                }
+            }
+        }
+        showCopiedFeedback(row);
     });
     connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue](const QPoint &position)
     {
@@ -3150,8 +3280,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             return;
         }
         copyValue->setData(value->text());
+        copyValue->setProperty("targetRow", row);
         const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
         valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
+    });
+    connect(inspector->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]()
+    {
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
+    });
+    connect(inspector->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]()
+    {
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
     });
     inspector->setColumnWidth(0, 190);
     inspector->setColumnWidth(1, 105);
@@ -3215,18 +3360,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     workspace->addWidget(dashboards, 1);
     metricsWidget = new StatusBarMetricsWidget;
     metricsWidget->setObjectName("statusBarMetrics");
-    lastError = new StatusBarMessageWidget("Ready");
+    lastError = new StatusBarMessageWidget("Ready", this);
     lastError->setObjectName("statusMessage");
-    lastError->setMaximumWidth(560);
-    lastError->setWordWrap(true);
+    lastError->hide();
 
     auto *statusBarCard = new QFrame;
     statusBarCard->setObjectName("statusBarCard");
     auto *statusLayout = new QHBoxLayout(statusBarCard);
     statusLayout->setContentsMargins(0, 0, 0, 0);
-    statusLayout->addWidget(metricsWidget);
     statusLayout->addStretch(1);
-    statusLayout->addWidget(lastError);
+    statusLayout->addWidget(metricsWidget);
     workspace->addWidget(statusBarCard);
 
     setStatusBar(nullptr);
@@ -3282,11 +3425,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
             rxTree->clear();
             inspector->setRowCount(0);
-            lastError->setText("Connected");
-        }
-        else if (reconnecting)
-        {
-            lastError->setText("Link lost. Reconnecting to " + portBox->currentText() + "...");
         }
         updateActions();
     });
@@ -3904,6 +4042,78 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
         }
     });
     menu->popup(globalPos);
+}
+
+/** @brief Display transient confirmation badge and cell flash when copying a field value. */
+void MainWindow::showCopiedFeedback(int row)
+{
+    if (!inspector || row < 0 || row >= inspector->rowCount())
+    {
+        return;
+    }
+    auto *valItem = inspector->item(row, 2);
+    if (!valItem)
+    {
+        return;
+    }
+
+    if (copiedInspectorRow >= 0 && copiedInspectorRow < inspector->rowCount() && copiedInspectorRow != row)
+    {
+        if (auto *prev = inspector->item(copiedInspectorRow, 2))
+        {
+            prev->setData(Qt::UserRole + 6, false);
+        }
+    }
+
+    copiedInspectorRow = row;
+    valItem->setData(Qt::UserRole + 6, true);
+
+    if (!copyFeedbackBadge)
+    {
+        copyFeedbackBadge = new CopyFeedbackBadge(inspector->viewport());
+    }
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
+    copyFeedbackBadge->setText("✓ Copied");
+    copyFeedbackBadge->adjustSize();
+
+    const QRect cellRect = inspector->visualItemRect(valItem);
+    const QRect input(cellRect.left() + 8, cellRect.top() + 6, cellRect.width() - 16, 28);
+    const int badgeWidth = copyFeedbackBadge->width();
+    const int badgeHeight = 22;
+    const int x = input.right() - badgeWidth - 4;
+    const int y = input.top() + (input.height() - badgeHeight) / 2;
+    copyFeedbackBadge->setGeometry(x, y, badgeWidth, badgeHeight);
+    copyFeedbackBadge->show();
+    copyFeedbackBadge->raise();
+
+    inspector->viewport()->update();
+
+    if (!copyFeedbackTimer)
+    {
+        copyFeedbackTimer = new QTimer(this);
+        copyFeedbackTimer->setSingleShot(true);
+        connect(copyFeedbackTimer, &QTimer::timeout, this, [this]()
+        {
+            if (copiedInspectorRow >= 0 && copiedInspectorRow < inspector->rowCount())
+            {
+                if (auto *item = inspector->item(copiedInspectorRow, 2))
+                {
+                    item->setData(Qt::UserRole + 6, false);
+                }
+            }
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
+            if (inspector && inspector->viewport())
+            {
+                inspector->viewport()->update();
+            }
+        });
+    }
+    copyFeedbackTimer->start(800);
 }
 
 /** @brief Restore configured TX messages from workspace storage. */
@@ -5152,6 +5362,11 @@ void MainWindow::updateInspector()
     if (!item || !item->parent())
     {
         inspector->setRowCount(0);
+        copiedInspectorRow = -1;
+        if (copyFeedbackBadge)
+        {
+            copyFeedbackBadge->hide();
+        }
         return;
     }
     const uint32_t id = item->data(0, Qt::UserRole).toUInt();
@@ -5168,9 +5383,22 @@ void MainWindow::updateInspector()
         if (!info)
         {
             inspector->setRowCount(0);
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
             return;
         }
         inspector->setRowCount(int(info->num_fields));
+        if (copiedInspectorRow >= int(info->num_fields))
+        {
+            copiedInspectorRow = -1;
+            if (copyFeedbackBadge)
+            {
+                copyFeedbackBadge->hide();
+            }
+        }
         inspectorTitle->setText(QString("[%1] %2").arg(id).arg(messageName(id)));
         inspectorSource->setText(QString("System %1 · Component %2").arg(system).arg(component));
         inspectorSource->show();
@@ -5199,6 +5427,10 @@ void MainWindow::updateInspector()
             cell(inspector, int(i), 2, valStr);
             auto *valItem = inspector->item(int(i), 2);
             valItem->setData(Qt::UserRole + 5, changed);
+            if (int(i) == copiedInspectorRow)
+            {
+                valItem->setData(Qt::UserRole + 6, true);
+            }
             if (changed)
             {
                 valItem->setForeground(QColor(dark ? "#58a6ff" : "#0969da"));
@@ -5633,5 +5865,9 @@ void MainWindow::applyTheme()
     if (lastError)
     {
         lastError->setDarkTheme(dark);
+    }
+    if (copyFeedbackBadge)
+    {
+        static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
     }
 }
