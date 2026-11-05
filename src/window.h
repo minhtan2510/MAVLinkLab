@@ -19,6 +19,8 @@
 
 class TxSummaryWidget;
 class ConnectionStatusWidget;
+class StatusBarMetricsWidget;
+class StatusBarMessageWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -34,6 +36,8 @@ public:
     void setTxSummaryStats(int total, int running);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
     void setConnectionStatus(const QString &state, bool open);
+    /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
+    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -112,8 +116,8 @@ private:
     QDialog *settingsDialog = nullptr;
     ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
-    QLabel *metrics = nullptr;
-    QLabel *lastError = nullptr;
+    StatusBarMetricsWidget *metricsWidget = nullptr;
+    StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;

@@ -22,6 +22,8 @@
 #include <QMouseEvent>
 #include <QContextMenuEvent>
 #include <QWindow>
+#include <QStatusBar>
+#include <QLayout>
 #include <array>
 #include <fcntl.h>
 #include <pty.h>
@@ -2296,6 +2298,70 @@ private slots:
             window.setConnectionStatus("Reconnecting", false);
             QTest::qWait(30);
             QVERIFY(uartBar->grab().save(QString("qa/uart-status-reconnecting-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Test modern status bar segmented metric chips and message badges across states and themes. */
+    void modernStatusBar()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *statusBar = window.findChild<QFrame *>("statusBarCard");
+            auto *metricsWidget = window.findChild<QWidget *>("statusBarMetrics");
+            auto *statusMessage = window.findChild<QLabel *>("statusMessage");
+            auto *dashboards = window.findChild<QSplitter *>("dashboards");
+            QVERIFY(statusBar);
+            QVERIFY(metricsWidget);
+            QVERIFY(statusMessage);
+            QVERIFY(dashboards);
+
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            const int dashLeft = dashboards->mapTo(&window, QPoint(0, 0)).x();
+            const int dashRight = dashLeft + dashboards->width();
+            const int barLeft = statusBar->mapTo(&window, QPoint(0, 0)).x();
+            const int barRight = barLeft + statusBar->width();
+            auto *firstChip = metricsWidget->findChild<QLabel *>();
+            QVERIFY(firstChip);
+            const int chipLeft = firstChip->mapTo(&window, QPoint(0, 0)).x();
+            const int messageRight = statusMessage->mapTo(&window, QPoint(0, 0)).x() + statusMessage->width();
+
+            qDebug() << "STATUS BAR ALIGNMENT [" << themeSuffix << "]:"
+                     << "dashLeft=" << dashLeft << "barLeft=" << barLeft << "chipLeft=" << chipLeft
+                     << "dashRight=" << dashRight << "barRight=" << barRight << "messageRight=" << messageRight
+                     << "windowWidth=" << window.width();
+
+            QCOMPARE(barLeft, dashLeft);
+            QCOMPARE(barRight, dashRight);
+            QCOMPARE(chipLeft, dashLeft);
+            QCOMPARE(messageRight, dashRight);
+
+            // 1. Idle state
+            window.setStatusMetrics(0, 0, 0, 0, 0);
+            statusMessage->setText("Ready");
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-idle-%1.png").arg(themeSuffix)));
+
+            // 2. Active stream state
+            window.setStatusMetrics(1250, 480, 0, 128, 0);
+            statusMessage->setText("Connected");
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-active-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("qa/window-statusbar-active-%1.png").arg(themeSuffix)));
+
+            // 3. Alert & warning state
+            window.setStatusMetrics(2400, 960, 4, 5200, 2);
+            statusMessage->setText("Error: Serial write backpressure high (5200 B)");
+            QTest::qWait(30);
+            QVERIFY(statusBar->grab().save(QString("qa/statusbar-alert-%1.png").arg(themeSuffix)));
         }
     }
 };

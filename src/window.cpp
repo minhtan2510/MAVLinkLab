@@ -1247,6 +1247,226 @@ private:
     State m_state = State::Disconnected;
 };
 
+/**
+ * @brief Modern status bar widget displaying segmented metric chips.
+ * Visualizes RX/TX throughput, CRC health, queue backpressure, and overflow.
+ */
+class StatusBarMetricsWidget : public QWidget
+{
+public:
+    /**
+     * @brief Construct segmented metrics bar.
+     * @param parent Optional parent widget.
+     */
+    explicit StatusBarMetricsWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        auto *layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(6);
+
+        rxChip = createChip("RX ↓ 0 B/s", "Incoming serial throughput (bytes/second)");
+        txChip = createChip("TX ↑ 0 B/s", "Outgoing serial throughput (bytes/second)");
+        crcChip = createChip("CRC 0", "MAVLink CRC checksum errors detected");
+        pendingChip = createChip("Pending 0 B", "Outbound serial write queue backlog");
+        overflowChip = createChip("Overflow 0", "Serial RX buffer hardware/kernel drops");
+
+        layout->addWidget(rxChip);
+        layout->addWidget(txChip);
+        layout->addWidget(crcChip);
+        layout->addWidget(pendingChip);
+        layout->addWidget(overflowChip);
+
+        setFixedHeight(26);
+        applyStyles();
+    }
+
+    /**
+     * @brief Update metrics and refresh chip visual states.
+     * @param rxBps Incoming bytes per second.
+     * @param txBps Outgoing bytes per second.
+     * @param crc CRC errors count.
+     * @param pending Pending write queue bytes.
+     * @param overflow Buffer overflow drop count.
+     * @param dark True if dark theme is active.
+     */
+    void updateMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow, bool dark)
+    {
+        m_dark = dark;
+        m_rxBps = rxBps;
+        m_txBps = txBps;
+        m_crc = crc;
+        m_pending = pending;
+        m_overflow = overflow;
+
+        rxChip->setText(QString("RX ↓ %1 B/s").arg(rxBps, 0, 'f', 0));
+        txChip->setText(QString("TX ↑ %1 B/s").arg(txBps, 0, 'f', 0));
+        crcChip->setText(QString("CRC %1").arg(crc));
+        pendingChip->setText(QString("Pending %1 B").arg(pending));
+        overflowChip->setText(QString("Overflow %1").arg(overflow));
+
+        applyStyles();
+    }
+
+    /**
+     * @brief Update theme mode and re-apply styles.
+     * @param dark True for dark theme, false for light theme.
+     */
+    void setDarkTheme(bool dark)
+    {
+        if (m_dark != dark)
+        {
+            m_dark = dark;
+            applyStyles();
+        }
+    }
+
+private:
+    /**
+     * @brief Helper to initialize a styled metric chip.
+     * @param text Initial text.
+     * @param tooltip Informative tooltip.
+     * @return Configured QLabel pointer.
+     */
+    QLabel *createChip(const QString &text, const QString &tooltip)
+    {
+        auto *label = new QLabel(text, this);
+        label->setFixedHeight(24);
+        label->setAlignment(Qt::AlignCenter);
+        label->setToolTip(tooltip);
+        return label;
+    }
+
+    /**
+     * @brief Apply contextual stylesheets to all metric chips based on health thresholds.
+     */
+    void applyStyles()
+    {
+        const QString neutralStyle = m_dark ?
+            "QLabel { background: #141c2b; color: #8896b3; border: 1px solid #233047; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 500; }" :
+            "QLabel { background: #e2e8f2; color: #55627a; border: 1px solid #d0d9e7; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 500; }";
+
+        const QString rxActiveStyle = m_dark ?
+            "QLabel { background: #09231b; color: #34d399; border: 1px solid #0f5945; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #e6f9ee; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString txActiveStyle = m_dark ?
+            "QLabel { background: #161636; color: #93c5fd; border: 1px solid #3730a3; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #eff4ff; color: #4f46e5; border: 1px solid #c7d2fe; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString alertStyle = m_dark ?
+            "QLabel { background: #2e1215; color: #f87171; border: 1px solid #7f1d1d; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        const QString warnStyle = m_dark ?
+            "QLabel { background: #2b1a07; color: #fbbf24; border: 1px solid #78350f; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+            "QLabel { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+
+        rxChip->setStyleSheet(m_rxBps > 0 ? rxActiveStyle : neutralStyle);
+        txChip->setStyleSheet(m_txBps > 0 ? txActiveStyle : neutralStyle);
+        crcChip->setStyleSheet(m_crc > 0 ? alertStyle : neutralStyle);
+        pendingChip->setStyleSheet(m_pending > 4096 ? warnStyle : neutralStyle);
+        overflowChip->setStyleSheet(m_overflow > 0 ? alertStyle : neutralStyle);
+    }
+
+    QLabel *rxChip = nullptr;
+    QLabel *txChip = nullptr;
+    QLabel *crcChip = nullptr;
+    QLabel *pendingChip = nullptr;
+    QLabel *overflowChip = nullptr;
+
+    double m_rxBps = 0;
+    double m_txBps = 0;
+    uint64_t m_crc = 0;
+    uint64_t m_pending = 0;
+    uint64_t m_overflow = 0;
+    bool m_dark = false;
+};
+
+/**
+ * @brief Modern status bar pill badge for application messages and alerts.
+ * Automatically adapts visual tone (Neutral, Success, Warning, Error) based on content.
+ */
+class StatusBarMessageWidget : public QLabel
+{
+public:
+    /**
+     * @brief Construct status message pill.
+     * @param text Initial text message.
+     * @param parent Optional parent widget.
+     */
+    explicit StatusBarMessageWidget(const QString &text = "Ready", QWidget *parent = nullptr)
+        : QLabel(text, parent)
+    {
+        setFixedHeight(24);
+        setAlignment(Qt::AlignCenter);
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        applyTone();
+    }
+
+    /**
+     * @brief Update status text and adapt visual badge tone.
+     * @param text Message text string.
+     */
+    void setText(const QString &text)
+    {
+        QLabel::setText(text);
+        applyTone();
+    }
+
+    /**
+     * @brief Update theme mode and refresh styles.
+     * @param dark True for dark theme, false for light theme.
+     */
+    void setDarkTheme(bool dark)
+    {
+        if (m_dark != dark)
+        {
+            m_dark = dark;
+            applyTone();
+        }
+    }
+
+private:
+    /**
+     * @brief Apply contextual style based on message semantics.
+     */
+    void applyTone()
+    {
+        const QString txt = text();
+        QString style;
+
+        if (txt.startsWith("Error:", Qt::CaseInsensitive))
+        {
+            style = m_dark ?
+                "QLabel { background: #2e1215; color: #f87171; border: 1px solid #7f1d1d; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
+                "QLabel { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
+        }
+        else if (txt.compare("Connected", Qt::CaseInsensitive) == 0)
+        {
+            style = m_dark ?
+                "QLabel { background: #09231b; color: #34d399; border: 1px solid #0f5945; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
+                "QLabel { background: #e6f9ee; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
+        }
+        else if (txt.startsWith("Link lost", Qt::CaseInsensitive) || txt.contains("Reconnecting", Qt::CaseInsensitive))
+        {
+            style = m_dark ?
+                "QLabel { background: #2b1a07; color: #fbbf24; border: 1px solid #78350f; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }" :
+                "QLabel { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 600; }";
+        }
+        else
+        {
+            style = m_dark ?
+                "QLabel { background: #141c2b; color: #8896b3; border: 1px solid #233047; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 500; }" :
+                "QLabel { background: #e2e8f2; color: #55627a; border: 1px solid #d0d9e7; border-radius: 5px; padding: 2px 10px; font-size: 11px; font-weight: 500; }";
+        }
+
+        setStyleSheet(style);
+    }
+
+    bool m_dark = false;
+};
+
 /** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
 static QStringList txTitleLines(const QString &text, const QFont &font, int width)
 {
@@ -2993,14 +3213,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
-    metrics = new QLabel("RX 0 B/s &nbsp;|&nbsp; TX 0 B/s &nbsp;|&nbsp; CRC errors 0 &nbsp;|&nbsp; Pending 0 B &nbsp;|&nbsp; RX overflow 0");
-    metrics->setTextFormat(Qt::RichText);
-    metrics->setContentsMargins(18, 0, 0, 0);
-    statusBar()->addWidget(metrics);
-    lastError = new QLabel("Ready");
+    metricsWidget = new StatusBarMetricsWidget;
+    metricsWidget->setObjectName("statusBarMetrics");
+    lastError = new StatusBarMessageWidget("Ready");
+    lastError->setObjectName("statusMessage");
     lastError->setMaximumWidth(560);
     lastError->setWordWrap(true);
-    statusBar()->addPermanentWidget(lastError, 1);
+
+    auto *statusBarCard = new QFrame;
+    statusBarCard->setObjectName("statusBarCard");
+    auto *statusLayout = new QHBoxLayout(statusBarCard);
+    statusLayout->setContentsMargins(0, 0, 0, 0);
+    statusLayout->addWidget(metricsWidget);
+    statusLayout->addStretch(1);
+    statusLayout->addWidget(lastError);
+    workspace->addWidget(statusBarCard);
+
+    setStatusBar(nullptr);
 
     qRegisterMetaType<PortConfig>();
     qRegisterMetaType<Mav::TxEntry>();
@@ -4790,21 +5019,15 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     updateTxHeights();
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
-    const QString alertColor = dark ? "#f87171" : "#dc2626";
-    const QString warnColor = dark ? "#fbbf24" : "#d97706";
-    const QString textCrc = latest->crcErrors > 0 ?
-        QString("<span style='color:%1; font-weight:bold;'>CRC errors %2</span>").arg(alertColor).arg(qulonglong(latest->crcErrors)) :
-        QString("CRC errors %1").arg(qulonglong(latest->crcErrors));
-    const QString textPending = latest->pending > 4096 ?
-        QString("<span style='color:%1; font-weight:bold;'>Pending %2 B</span>").arg(warnColor).arg(qulonglong(latest->pending)) :
-        QString("Pending %1 B").arg(qulonglong(latest->pending));
-    const QString textOverflow = latest->overflow > 0 ?
-        QString("<span style='color:%1; font-weight:bold;'>RX overflow %2</span>").arg(alertColor).arg(qulonglong(latest->overflow)) :
-        QString("RX overflow %1").arg(qulonglong(latest->overflow));
-    metrics->setText(QString("RX %1 B/s &nbsp;|&nbsp; TX %2 B/s &nbsp;|&nbsp; %3 &nbsp;|&nbsp; %4 &nbsp;|&nbsp; %5")
-                    .arg(latest->rxBytesPerSecond, 0, 'f', 0)
-                    .arg(latest->txBytesPerSecond, 0, 'f', 0)
-                    .arg(textCrc, textPending, textOverflow));
+    if (metricsWidget)
+    {
+        metricsWidget->updateMetrics(latest->rxBytesPerSecond,
+                                     latest->txBytesPerSecond,
+                                     latest->crcErrors,
+                                     latest->pending,
+                                     latest->overflow,
+                                     dark);
+    }
     if (!paused)
     {
         const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -4902,6 +5125,17 @@ void MainWindow::setConnectionStatus(const QString &state, bool open)
     if (connectionStatusPill)
     {
         connectionStatusPill->setStatus(state, open);
+    }
+}
+
+void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow)
+{
+    if (metricsWidget)
+    {
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (themeBox && themeBox->currentIndex() == 2);
+        metricsWidget->updateMetrics(rxBps, txBps, crc, pending, overflow, dark);
     }
 }
 
@@ -5315,8 +5549,7 @@ void MainWindow::applyTheme()
         "QLineEdit#payloadValueEditor { padding:0 8px; border-radius:5px; font-size:13px; selection-background-color:#4f46e5; selection-color:white; }"
         "QComboBox QLineEdit#payloadValueEditor { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QSplitter::handle { background:transparent; }"
-        "QStatusBar { color:%5; background:transparent; border:0; }"
-        "QStatusBar QLabel { color:%5; font-size:12px; } QStatusBar::item { border:0; }"
+        "QFrame#statusBarCard { background:transparent; border:0; min-height:26px; }"
         "QScrollBar:vertical { background:%6; width:6px; } QScrollBar:horizontal { background:%6; height:6px; }"
         "QScrollBar::handle { background:%8; border-radius:3px; }"
         "QScrollBar::handle:vertical { min-height:24px; } QScrollBar::handle:horizontal { min-width:24px; }"
@@ -5392,5 +5625,13 @@ void MainWindow::applyTheme()
     {
         connectionStatusPill->setProperty("darkTheme", dark);
         connectionStatusPill->update();
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setDarkTheme(dark);
+    }
+    if (lastError)
+    {
+        lastError->setDarkTheme(dark);
     }
 }
