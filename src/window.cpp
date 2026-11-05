@@ -211,6 +211,146 @@ static QVBoxLayout *addDialogTitleBar(QDialog *dialog, QVBoxLayout *layout)
     return content;
 }
 
+/** @brief Paint a compact theme-aware alert icon. */
+class ConnectionAlertIcon : public QWidget
+{
+public:
+    explicit ConnectionAlertIcon(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(32, 32);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#3b1e26" : "#fef2f2"));
+        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 8, 8);
+
+        // Warning triangle
+        painter.setPen(QPen(QColor(dark ? "#f87171" : "#dc2626"), 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath triangle;
+        triangle.moveTo(16, 7);
+        triangle.lineTo(25, 24);
+        triangle.lineTo(7, 24);
+        triangle.closeSubpath();
+        painter.drawPath(triangle);
+
+        // Exclamation mark
+        painter.drawLine(QPointF(16, 13), QPointF(16, 18));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#f87171" : "#dc2626"));
+        painter.drawEllipse(QRectF(15, 20.5, 2, 2));
+    }
+};
+
+/** @brief Compact modal dialog presenting connection failure directly and cleanly. */
+class ConnectionErrorDialog : public QDialog
+{
+public:
+    explicit ConnectionErrorDialog(const QString &titleText, const QString &messageText, QWidget *parent = nullptr)
+        : QDialog(parent)
+    {
+        setObjectName("connectionErrorDialog");
+        setWindowTitle(titleText);
+        setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+        setAttribute(Qt::WA_TranslucentBackground);
+        setFixedWidth(380);
+
+        auto *rootLayout = new QVBoxLayout(this);
+        rootLayout->setContentsMargins(4, 4, 4, 4);
+
+        auto *card = new QFrame(this);
+        card->setObjectName("connectionErrorCard");
+        auto *layout = new QVBoxLayout(card);
+        layout->setContentsMargins(18, 18, 18, 16);
+        layout->setSpacing(14);
+
+        // Content row: Icon + Text
+        auto *contentRow = new QHBoxLayout;
+        contentRow->setSpacing(12);
+        contentRow->setAlignment(Qt::AlignTop);
+
+        contentRow->addWidget(new ConnectionAlertIcon(card), 0, Qt::AlignTop);
+
+        auto *textLayout = new QVBoxLayout;
+        textLayout->setSpacing(4);
+
+        auto *headline = new QLabel(titleText, card);
+        headline->setObjectName("dialogHeadline");
+        QFont f = font();
+        f.setPixelSize(14);
+        f.setWeight(QFont::DemiBold);
+        headline->setFont(f);
+        textLayout->addWidget(headline);
+
+        auto *message = new QLabel(messageText, card);
+        message->setObjectName("connectionErrorMessage");
+        message->setWordWrap(true);
+        QFont mf = font();
+        mf.setPixelSize(12);
+        message->setFont(mf);
+        textLayout->addWidget(message);
+
+        contentRow->addLayout(textLayout, 1);
+        layout->addLayout(contentRow);
+
+        // Button row: right-aligned compact OK button
+        auto *buttonRow = new QHBoxLayout;
+        buttonRow->addStretch(1);
+        auto *okButton = new QPushButton("OK", card);
+        okButton->setObjectName("dismissConnectionError");
+        okButton->setFixedSize(72, 28);
+        okButton->setDefault(true);
+        connect(okButton, &QPushButton::clicked, this, &QDialog::accept);
+        buttonRow->addWidget(okButton);
+        layout->addLayout(buttonRow);
+
+        rootLayout->addWidget(card);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            offset = event->globalPosition().toPoint() - frameGeometry().topLeft();
+            dragging = !windowHandle() || !windowHandle()->startSystemMove();
+            event->accept();
+            return;
+        }
+        QDialog::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (dragging && (event->buttons() & Qt::LeftButton))
+        {
+            move(event->globalPosition().toPoint() - offset);
+            event->accept();
+            return;
+        }
+        QDialog::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        dragging = false;
+        QDialog::mouseReleaseEvent(event);
+    }
+
+private:
+    QPoint offset;
+    bool dragging = false;
+};
+
 /**
  * @brief Check whether a serial port represents an actively connected hardware device.
  * @param info Serial port metadata.
@@ -1035,8 +1175,7 @@ public:
         Disconnected,
         Connecting,
         Connected,
-        Reconnecting,
-        Error
+        Reconnecting
     };
 
     /**
@@ -1071,10 +1210,6 @@ public:
         else if (state == "Reconnecting")
         {
             nextState = State::Reconnecting;
-        }
-        else if (state == "Error")
-        {
-            nextState = State::Error;
         }
         else
         {
@@ -1126,8 +1261,6 @@ public:
             return "Connecting...";
         case State::Reconnecting:
             return "Reconnecting...";
-        case State::Error:
-            return "Error";
         case State::Disconnected:
         default:
             return "Disconnected";
@@ -1193,13 +1326,6 @@ protected:
             textColor = dark ? QColor("#fb923c") : QColor("#c2410c");
             break;
 
-        case State::Error:
-            statusFont.setWeight(QFont::DemiBold);
-            bgColor = dark ? QColor("#321417") : QColor("#fee2e2");
-            borderColor = dark ? QColor("#991b1b") : QColor("#fecaca");
-            textColor = dark ? QColor("#f87171") : QColor("#b91c1c");
-            break;
-
         case State::Disconnected:
         default:
             statusFont.setWeight(QFont::Medium);
@@ -1233,9 +1359,6 @@ private:
             break;
         case State::Reconnecting:
             setToolTip("Serial link lost. Attempting reconnection...");
-            break;
-        case State::Error:
-            setToolTip("Serial link error");
             break;
         case State::Disconnected:
         default:
@@ -3411,6 +3534,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         if (open)
         {
+            connectingByUser = false;
             // Persist the serial port and baudrate of the last successful connection
             QSettings settings("MAVLinkSimulator", "Preferences");
             if (portBox)
@@ -4242,6 +4366,7 @@ void MainWindow::toggleConnection()
 {
     if (connected || reconnecting)
     {
+        connectingByUser = false;
         QMetaObject::invokeMethod(worker, "closePort", Qt::QueuedConnection);
         return;
     }
@@ -4249,9 +4374,16 @@ void MainWindow::toggleConnection()
     PortConfig config;
     config.port = portBox->currentText().trimmed();
     config.baud = baudBox->currentText().toInt(&ok);
-    if (!ok || config.baud <= 0 || config.baud > 12000000 || config.port.isEmpty())
+    if (config.port.isEmpty())
     {
-        showError("Select a port and a baud rate from 1 to 12000000");
+        showConnectionError("No Port Selected", "Please select an available serial port before connecting.");
+        return;
+    }
+    if (!ok || config.baud <= 0 || config.baud > 12000000)
+    {
+        showConnectionError("Invalid Baud Rate",
+                            QString("Baud rate '%1' is invalid. Please select or enter a rate from 1 to 12,000,000.")
+                                .arg(baudBox->currentText()));
         return;
     }
     config.autoReconnect = autoReconnectBox ? autoReconnectBox->isChecked() : false;
@@ -4264,6 +4396,9 @@ void MainWindow::toggleConnection()
                   stopBox->currentIndex() == 1 ? QSerialPort::TwoStop : QSerialPort::OneAndHalfStop;
     config.flow = static_cast<QSerialPort::FlowControl>(flowBox->currentIndex());
     connectButton->setEnabled(false);
+    connectingByUser = true;
+    connectingPort = config.port;
+    connectingBaud = config.baud;
     QMetaObject::invokeMethod(worker, "openPort", Qt::QueuedConnection, Q_ARG(PortConfig, config));
 }
 
@@ -5472,10 +5607,44 @@ void MainWindow::filterRx()
                        QString("%1 / %2 streams").arg(matched).arg(total));
 }
 
+/**
+ * @brief Display a compact alert dialog when serial port connection fails.
+ * @param title Headline summarizing the failure.
+ * @param message Detailed reason or actionable instruction.
+ */
+void MainWindow::showConnectionError(const QString &title, const QString &message)
+{
+    if (connectButton)
+    {
+        connectButton->setEnabled(true);
+        connectButton->setText("Connect");
+    }
+    ConnectionErrorDialog dialog(title, message, this);
+    dialog.exec();
+    if (connectButton)
+    {
+        connectButton->setEnabled(true);
+        connectButton->setText("Connect");
+    }
+}
+
 void MainWindow::showError(const QString &message)
 {
-    lastError->setText("Error: " + message);
-    lastError->setToolTip(message);
+    if (connectingByUser)
+    {
+        connectingByUser = false;
+        const QString text = QString("Could not open %1 (%2 baud): %3")
+                                 .arg(connectingPort)
+                                 .arg(connectingBaud)
+                                 .arg(message.isEmpty() ? "Unknown I/O error." : message);
+        showConnectionError("Connection Failed", text);
+        return;
+    }
+    if (lastError)
+    {
+        lastError->setText("Error: " + message);
+        lastError->setToolTip(message);
+    }
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -5720,6 +5889,14 @@ void MainWindow::applyTheme()
         "QLabel#profileModeBadge { color:%5; background:%6; border-radius:5px; padding:4px 9px; font-size:11px; font-weight:600; }"
         "QFrame#profileFooterDivider { background:%4; border:0; }"
         "QDialog#importProfileDialog QLabel#profileError { background:%6; border:1px solid %4; border-radius:6px; padding:10px 12px; font-size:12px; }"
+        "QDialog#connectionErrorDialog { background:transparent; border:0; }"
+        "QFrame#connectionErrorCard { background:%2; border:1px solid %4; border-radius:10px; }"
+        "QLabel#dialogHeadline { color:%3; font-size:13px; font-weight:600; background:transparent; }"
+        "QLabel#connectionErrorMessage { color:%5; background:transparent; font-size:12px; }"
+        "QPushButton#dismissConnectionError { background:#4f46e5; color:white; border:1px solid #4338ca; border-radius:5px; font-size:12px; font-weight:500; }"
+        "QPushButton#dismissConnectionError:hover { background:#4338ca; }"
+        "QPushButton#dismissConnectionError:pressed { background:#3730a3; }"
+        "QPushButton#dismissConnectionError:focus { outline:none; border-color:#818cf8; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
         "QFrame#connectionBar { background:transparent; border:0; }"
         "QFrame#connectionCard { background:transparent; border:0; }"

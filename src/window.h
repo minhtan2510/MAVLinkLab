@@ -60,6 +60,8 @@ private:
     void applyTheme();
     /** @brief Display a persistent actionable error in the status bar. */
     void showError(const QString &message);
+    /** @brief Display a compact alert dialog when serial port connection fails. */
+    void showConnectionError(const QString &title, const QString &message);
     /** @brief Return the stable identity of the selected TX row, or zero. */
     uint64_t selectedTx() const;
     /** @brief Enable actions according to connection and selection state. */
@@ -99,6 +101,9 @@ private:
     bool connected = false;
     bool connecting = false;
     bool reconnecting = false;
+    bool connectingByUser = false;
+    QString connectingPort;
+    int connectingBaud = 0;
     bool paused = false;
     uint64_t nextKey = 1;
     SnapshotPtr latest;

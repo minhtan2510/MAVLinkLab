@@ -2449,6 +2449,69 @@ private slots:
             QVERIFY(!valItem->data(Qt::UserRole + 6).toBool());
         }
     }
+
+    /** @brief Test error dialog prompt when attempting to connect to an invalid or unavailable COM port. */
+    void serialConnectionErrorDialog()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            auto *portBox = window.findChild<QComboBox *>("port");
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            QVERIFY(portBox && connectBtn);
+
+            // 1. Case A: Empty port selection
+            portBox->clear();
+            QTimer::singleShot(50, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("connectionErrorDialog");
+                QVERIFY(dialog);
+                auto *msg = dialog->findChild<QLabel *>("connectionErrorMessage");
+                QVERIFY(msg && msg->text().contains("Please select an available serial port"));
+                auto *btn = dialog->findChild<QPushButton *>("dismissConnectionError");
+                QVERIFY(btn);
+                btn->click();
+            });
+            connectBtn->click();
+            QTest::qWait(80);
+
+            // 2. Case B: Hardware open failure (unavailable/nonexistent port)
+            const QString badPort = "/dev/nonexistent_serial_device_xyz";
+            portBox->addItem(badPort);
+            portBox->setCurrentText(badPort);
+
+            QTimer::singleShot(150, [&window, badPort, themeSuffix]()
+            {
+                auto *dialog = window.findChild<QDialog *>("connectionErrorDialog");
+                QVERIFY(dialog);
+                QCOMPARE(dialog->windowTitle(), QString("Connection Failed"));
+                auto *headline = dialog->findChild<QLabel *>("dialogHeadline");
+                QVERIFY(headline && headline->text() == "Connection Failed");
+                auto *msg = dialog->findChild<QLabel *>("connectionErrorMessage");
+                QVERIFY(msg);
+                QVERIFY(dialog->grab().save(QString("qa/dialog-connection-error-%1.png").arg(themeSuffix)));
+                auto *btn = dialog->findChild<QPushButton *>("dismissConnectionError");
+                QVERIFY(btn);
+                btn->click();
+            });
+            connectBtn->click();
+            QTRY_VERIFY_WITH_TIMEOUT(!window.findChild<QDialog *>("connectionErrorDialog"), 2000);
+
+            // Verify button is restored to enabled Connect state and status remains Disconnected
+            QTRY_COMPARE(connectBtn->text(), QString("Connect"));
+            QTRY_VERIFY(connectBtn->isEnabled());
+            auto *statusPill = window.findChild<QWidget *>("connectionStatusPill");
+            QVERIFY(statusPill);
+            QTRY_COMPARE(statusPill->toolTip(), QString("Serial link disconnected"));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
