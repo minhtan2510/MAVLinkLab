@@ -1,5 +1,6 @@
 #pragma once
 #include "core.h"
+#include <QByteArray>
 #include <QObject>
 #include <QElapsedTimer>
 #include <QSerialPort>
@@ -73,6 +74,14 @@ public slots:
     void runAll();
     /** @brief Stop transmission, discard pending output and remove all TX entries. */
     void deleteAll();
+    /** @brief Validate and atomically import stopped TX definitions using fresh keys.
+     * @param data Encoded profile contents.
+     * @param append Preserve existing entries when true; otherwise replace them.
+     * @param minimumKey First key not yet allocated by queued GUI commands.
+     */
+    void importProfile(QByteArray data, bool append, quint64 minimumKey = 1);
+    /** @brief Export authoritative TX definitions without runtime state. */
+    void exportProfile();
     /** @brief Clear RX statistics and parser state. */
     void clearStatistics();
     /** @brief Emit one bounded snapshot in response to a GUI request. */
@@ -88,6 +97,10 @@ signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);
     void snapshotReady(SnapshotPtr snapshot);
+    void profileExported(QByteArray data);
+    void profileExportFailed(QString error);
+    void profileImportFailed(QString error);
+    void profileImported(int count, bool append, quint64 nextKey);
 private:
     /** @brief Deassert and verify host control lines; return an error or an empty string.
      * @note Hardware flow control retains driver ownership of RTS. PTYs have no modem lines.

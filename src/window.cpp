@@ -1,4 +1,7 @@
 #include "window.h"
+#include "profile.h"
+#include <QFileDialog>
+#include <QSaveFile>
 #include "mavlink_enums.h"
 #include <QApplication>
 #include <QCloseEvent>
@@ -46,6 +49,74 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+
+/** @brief Keep an accepted import visible until the worker reports its outcome. */
+class ProfileImportDialog : public QDialog
+{
+public:
+    using QDialog::QDialog;
+    bool applying = false;
+
+    /** @brief Allow cancellation only before an import has been submitted. */
+    void reject() override
+    {
+        if (!applying)
+        {
+            QDialog::reject();
+        }
+    }
+
+protected:
+    /** @brief Prevent window-manager close while a submitted import is pending. */
+    void closeEvent(QCloseEvent *event) override
+    {
+        if (applying)
+        {
+            event->ignore();
+            return;
+        }
+        QDialog::closeEvent(event);
+    }
+};
+
+/** @brief Paint a small theme-aware document mark for the profile picker. */
+class ProfileDocumentIcon : public QWidget
+{
+public:
+    /** @brief Reserve a compact decorative area without adding a keyboard stop. */
+    explicit ProfileDocumentIcon(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(40, 40);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    /** @brief Draw the document with antialiased vector paths in the current theme. */
+    void paintEvent(QPaintEvent *) override
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(dark ? "#30355d" : "#eeedff"));
+        painter.drawRoundedRect(QRectF(0, 0, 40, 40), 10, 10);
+        painter.setPen(QPen(QColor(dark ? "#b4adff" : "#6254d8"), 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath page;
+        page.moveTo(13, 9);
+        page.lineTo(22, 9);
+        page.lineTo(28, 15);
+        page.lineTo(28, 30);
+        page.lineTo(13, 30);
+        page.closeSubpath();
+        painter.drawPath(page);
+        painter.drawLine(QPointF(22, 9), QPointF(22, 15));
+        painter.drawLine(QPointF(22, 15), QPointF(28, 15));
+        painter.drawLine(QPointF(17, 21), QPointF(24, 21));
+        painter.drawLine(QPointF(17, 25), QPointF(22, 25));
+    }
+};
 
 /** @brief Provide a themeable dialog title bar with native system dragging where available. */
 class DialogTitleBar : public QFrame
@@ -699,6 +770,70 @@ protected:
             painter.setPen(textColor);
             painter.setFont(font());
             painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text());
+        }
+    }
+};
+
+/** @brief Line edit that maintains a theme-aware dimmed placeholder text color. */
+class WorkbenchLineEdit : public QLineEdit
+{
+public:
+    /**
+     * @brief Construct an input line edit with subdued placeholder support.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchLineEdit(QWidget *parent = nullptr) : QLineEdit(parent)
+    {
+        updatePlaceholderColor();
+    }
+
+    /**
+     * @brief Construct an input line edit with initial text.
+     * @param contents Initial text string.
+     * @param parent Optional parent widget.
+     */
+    explicit WorkbenchLineEdit(const QString &contents, QWidget *parent = nullptr) : QLineEdit(contents, parent)
+    {
+        updatePlaceholderColor();
+    }
+
+protected:
+    /**
+     * @brief Ensure placeholder color persists when the widget is shown.
+     * @param event Show event from Qt.
+     */
+    void showEvent(QShowEvent *event) override
+    {
+        QLineEdit::showEvent(event);
+        updatePlaceholderColor();
+    }
+
+    /**
+     * @brief Keep placeholder hints subdued when the palette or style changes.
+     * @param event Change event from Qt.
+     */
+    void changeEvent(QEvent *event) override
+    {
+        QLineEdit::changeEvent(event);
+        if (event && (event->type() == QEvent::PaletteChange ||
+                      event->type() == QEvent::ApplicationPaletteChange ||
+                      event->type() == QEvent::StyleChange))
+        {
+            updatePlaceholderColor();
+        }
+    }
+
+    /** @brief Apply the dimmed hint color to the placeholder text role. */
+    void updatePlaceholderColor()
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        const QColor hint(dark ? "#606d88" : "#8893a7");
+        QPalette colors = palette();
+        if (colors.color(QPalette::PlaceholderText) != hint)
+        {
+            colors.setResolveMask(0);
+            colors.setColor(QPalette::PlaceholderText, hint);
+            setPalette(colors);
         }
     }
 };
@@ -1901,6 +2036,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     auto *fileMenu = appMenuBar->addMenu("File");
     fileMenu->setObjectName("fileMenu");
+    importProfileAction = fileMenu->addAction("Import Profile…", this, &MainWindow::importProfile);
+    importProfileAction->setObjectName("actionImportProfile");
+    exportProfileAction = fileMenu->addAction("Export Profile…", this, &MainWindow::exportProfile);
+    exportProfileAction->setObjectName("actionExportProfile");
+    fileMenu->addSeparator();
     auto *exitAction = fileMenu->addAction("Exit", this, &QWidget::close, QKeySequence::Quit);
     exitAction->setObjectName("actionExit");
 
@@ -2458,6 +2598,41 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         updateActions();
     });
+    connect(worker, &SerialWorker::profileImported, this, [this](int count, bool append, quint64 firstUnusedKey)
+    {
+        nextKey = std::max<uint64_t>(nextKey, firstUnusedKey);
+        profileBusy = false;
+        updateActions();
+        lastError->setText(QString("Imported %1 TX messages (%2)").arg(count).arg(append ? "Append" : "Replace"));
+    });
+    connect(worker, &SerialWorker::profileImportFailed, this, [this](const QString &error)
+    {
+        profileBusy = false;
+        updateActions();
+        showError(error);
+    });
+    connect(worker, &SerialWorker::profileExportFailed, this, [this](const QString &error)
+    {
+        profileBusy = false;
+        profileExportPath.clear();
+        updateActions();
+        showError(error);
+    });
+    connect(worker, &SerialWorker::profileExported, this, [this](const QByteArray &data)
+    {
+        QSaveFile file(profileExportPath);
+        if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
+        {
+            showError("Could not export profile: " + file.errorString());
+        }
+        else
+        {
+            lastError->setText("Profile exported: " + QFileInfo(profileExportPath).fileName());
+        }
+        profileExportPath.clear();
+        profileBusy = false;
+        updateActions();
+    });
     connect(worker, &SerialWorker::failure, this, &MainWindow::showError);
     connect(worker, &SerialWorker::snapshotReady, this, &MainWindow::applySnapshot);
     connect(refreshPortsButton, &QPushButton::clicked, this, &MainWindow::refreshPorts);
@@ -2759,6 +2934,218 @@ void MainWindow::saveSettings()
     settings.sync();
 }
 
+/** @brief Import all definitions atomically; Append defaults to off for every dialog. */
+void MainWindow::importProfile()
+{
+    if (profileBusy)
+    {
+        return;
+    }
+    ProfileImportDialog dialog(this);
+    dialog.setObjectName("importProfileDialog");
+    dialog.setWindowTitle("Import Profile");
+    dialog.setMinimumWidth(560);
+    dialog.resize(600, 420);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 16, 20, 20);
+    layout->setSpacing(16);
+    layout = addDialogTitleBar(&dialog, layout);
+    auto *subtitle = new QLabel("Load saved TX messages into your workspace.", &dialog);
+    subtitle->setObjectName("secondaryText");
+    subtitle->setWordWrap(true);
+    layout->addWidget(subtitle);
+
+    auto *fileCard = new QFrame(&dialog);
+    fileCard->setObjectName("profileFileCard");
+    auto *fileLayout = new QVBoxLayout(fileCard);
+    fileLayout->setContentsMargins(16, 16, 16, 16);
+    fileLayout->setSpacing(12);
+    auto *fileHeading = new QHBoxLayout;
+    fileHeading->setSpacing(12);
+    fileHeading->addWidget(new ProfileDocumentIcon(fileCard));
+    auto *caption = new QLabel("Profile file", fileCard);
+    caption->setObjectName("profileSectionTitle");
+    fileHeading->addWidget(caption, 1);
+    auto *extension = new QLabel(".mavprofile", fileCard);
+    extension->setObjectName("profileFileType");
+    fileHeading->addWidget(extension, 0, Qt::AlignVCenter);
+    fileLayout->addLayout(fileHeading);
+    auto *fileRow = new QHBoxLayout;
+    fileRow->setSpacing(8);
+    auto *path = new WorkbenchLineEdit(fileCard);
+    path->setObjectName("profilePath");
+    path->setAccessibleName("Profile file");
+    path->setPlaceholderText("Select a profile");
+    path->setMinimumWidth(0);
+    path->setMinimumHeight(36);
+    caption->setBuddy(path);
+    fileRow->addWidget(path, 1);
+    auto *browse = new QPushButton("Browse…", fileCard);
+    browse->setObjectName("browseProfile");
+    browse->setMinimumHeight(36);
+    browse->setMinimumWidth(96);
+    fileRow->addWidget(browse);
+    fileLayout->addLayout(fileRow);
+    layout->addWidget(fileCard);
+
+    auto *modeCard = new QFrame(&dialog);
+    modeCard->setObjectName("profileModeCard");
+    auto *modeLayout = new QVBoxLayout(modeCard);
+    modeLayout->setContentsMargins(16, 14, 16, 14);
+    modeLayout->setSpacing(10);
+    auto *modeHeading = new QHBoxLayout;
+    auto *modeTitle = new QLabel("Import mode", modeCard);
+    modeTitle->setObjectName("profileSectionTitle");
+    modeHeading->addWidget(modeTitle, 1);
+    auto *modeBadge = new QLabel("Replace", modeCard);
+    modeBadge->setObjectName("profileModeBadge");
+    modeBadge->setAlignment(Qt::AlignCenter);
+    modeHeading->addWidget(modeBadge);
+    modeLayout->addLayout(modeHeading);
+    auto *append = new WorkbenchCheckBox("Append", modeCard);
+    append->setObjectName("appendProfile");
+    append->setChecked(false);
+    append->setAccessibleName("Append imported TX messages");
+    modeLayout->addWidget(append);
+    auto *description = new QLabel("Current TX messages will be replaced.", modeCard);
+    description->setObjectName("profileHint");
+    description->setWordWrap(true);
+    modeLayout->addWidget(description);
+    layout->addWidget(modeCard);
+
+    auto *error = new QLabel(&dialog);
+    error->setObjectName("profileError");
+    error->setWordWrap(true);
+    error->setTextFormat(Qt::PlainText);
+    error->setAccessibleName("Profile import error");
+    error->hide();
+    layout->addWidget(error);
+    layout->addStretch(1);
+    auto *divider = new QFrame(&dialog);
+    divider->setObjectName("profileFooterDivider");
+    divider->setFixedHeight(1);
+    layout->addWidget(divider);
+    auto *footer = new QHBoxLayout;
+    footer->setSpacing(16);
+    auto *safetyHint = new QLabel("Imported messages always start stopped.", &dialog);
+    safetyHint->setObjectName("profileSafetyHint");
+    safetyHint->setWordWrap(true);
+    footer->addWidget(safetyHint, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    buttons->setLayoutDirection(Qt::RightToLeft);
+    auto *confirm = buttons->addButton("Import", QDialogButtonBox::AcceptRole);
+    confirm->setObjectName("confirmImportProfile");
+    confirm->setProperty("role", "primary");
+    confirm->setMinimumSize(96, 36);
+    buttons->button(QDialogButtonBox::Cancel)->setMinimumHeight(36);
+    confirm->setEnabled(false);
+    footer->addWidget(buttons);
+    layout->addLayout(footer);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(path, &QLineEdit::textChanged, &dialog, [confirm, error](const QString &text)
+    {
+        confirm->setEnabled(!text.trimmed().isEmpty());
+        error->hide();
+    });
+    connect(append, &QCheckBox::toggled, &dialog, [description, modeBadge](bool enabled)
+    {
+        modeBadge->setText(enabled ? "Append" : "Replace");
+        description->setText(enabled ? "Current TX messages will be kept. New messages are added at the end."
+                                     : "Current TX messages will be replaced.");
+    });
+    connect(browse, &QPushButton::clicked, &dialog, [&dialog, path]()
+    {
+        const QString fileName = QFileDialog::getOpenFileName(&dialog, "Import Profile", QString(),
+                                                            "MAVLinkLab profiles (*.mavprofile)");
+        if (!fileName.isEmpty())
+        {
+            path->setText(fileName);
+        }
+    });
+    connect(worker, &SerialWorker::profileImported, &dialog, [&dialog](int, bool, quint64)
+    {
+        dialog.accept();
+    });
+    connect(worker, &SerialWorker::profileImportFailed, &dialog, [&, error](const QString &reason)
+    {
+        dialog.applying = false;
+        confirm->setText("Import");
+        error->setText(reason);
+        error->show();
+        path->setEnabled(true);
+        browse->setEnabled(true);
+        append->setEnabled(true);
+        buttons->setEnabled(true);
+        confirm->setEnabled(!path->text().trimmed().isEmpty());
+    });
+    connect(confirm, &QPushButton::clicked, &dialog, [&, error]()
+    {
+        const QString fileName = path->text().trimmed();
+        if (!QFileInfo(fileName).isFile())
+        {
+            error->setText("Select an existing regular profile file.");
+            error->show();
+            return;
+        }
+        QFile file(fileName);
+        if (!file.open(QIODevice::ReadOnly))
+        {
+            error->setText("Could not open profile: " + file.errorString());
+            error->show();
+            return;
+        }
+        const QByteArray data = file.read(Profile::MaxFileSize + 1);
+        if (file.error() != QFileDevice::NoError || data.size() > Profile::MaxFileSize)
+        {
+            error->setText("Could not read profile or file exceeds the 1 MiB limit.");
+            error->show();
+            return;
+        }
+        error->hide();
+        dialog.applying = true;
+        confirm->setText("Importing…");
+        profileBusy = true;
+        updateActions();
+        path->setEnabled(false);
+        browse->setEnabled(false);
+        append->setEnabled(false);
+        buttons->setEnabled(false);
+        QMetaObject::invokeMethod(worker, "importProfile", Qt::QueuedConnection,
+                                  Q_ARG(QByteArray, data), Q_ARG(bool, append->isChecked()),
+                                  Q_ARG(quint64, nextKey));
+    });
+    dialog.exec();
+}
+
+/** @brief Export an authoritative worker snapshot using an atomic file replacement. */
+void MainWindow::exportProfile()
+{
+    if (profileBusy)
+    {
+        return;
+    }
+    QString path = QFileDialog::getSaveFileName(this, "Export Profile", "TX messages.mavprofile",
+                                               "MAVLinkLab profiles (*.mavprofile)");
+    if (path.isEmpty())
+    {
+        return;
+    }
+    if (!path.endsWith(".mavprofile", Qt::CaseInsensitive))
+    {
+        path += ".mavprofile";
+        if (QFileInfo::exists(path) && QMessageBox::question(this, "Replace Profile",
+                "The destination already exists. Replace it?", QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No) != QMessageBox::Yes)
+        {
+            return;
+        }
+    }
+    profileExportPath = path;
+    profileBusy = true;
+    updateActions();
+    QMetaObject::invokeMethod(worker, "exportProfile", Qt::QueuedConnection);
+}
+
 /** @brief Restore configured TX messages from workspace storage. */
 void MainWindow::restoreTxMessages()
 {
@@ -2918,13 +3305,17 @@ uint64_t MainWindow::selectedTx() const
 
 void MainWindow::updateActions()
 {
-    const bool selected = selectedTx() != 0;
+    importProfileAction->setEnabled(!profileBusy);
+    exportProfileAction->setEnabled(!profileBusy);
+    findChild<QPushButton *>("addMessage")->setEnabled(!profileBusy);
+    txTable->setEnabled(!profileBusy);
+    const bool selected = !profileBusy && selectedTx() != 0;
     editAction->setEnabled(selected);
     removeAction->setEnabled(selected);
     onceAction->setEnabled(selected && connected);
     startAction->setEnabled(selected && connected);
     stopAction->setEnabled(selected && connected);
-    const bool hasEntries = txTable->rowCount() > 0;
+    const bool hasEntries = !profileBusy && txTable->rowCount() > 0;
     runAllButton->setEnabled(connected && hasEntries);
     stopAllButton->setEnabled(connected && hasEntries);
     deleteAllButton->setEnabled(hasEntries);
@@ -4230,6 +4621,7 @@ void MainWindow::applyTheme()
     const QString surface = dark ? "#1b2333" : "#ffffff";
     const QString foreground = dark ? "#edf0fa" : "#20263b";
     const QString muted = dark ? "#aab4cd" : "#626c84";
+    const QString hintForeground = dark ? "#606d88" : "#8893a7";
     const QString border = dark ? "#40506a" : "#d0d9e7";
     const QString alternate = dark ? "#212c40" : "#f7f8fc";
     const QString controlBorder = dark ? "#667595" : "#929db3";
@@ -4245,6 +4637,7 @@ void MainWindow::applyTheme()
     colors.setColor(QPalette::HighlightedText, QColor(foreground));
     colors.setColor(QPalette::Disabled, QPalette::Text, QColor(muted));
     colors.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(muted));
+    colors.setColor(QPalette::PlaceholderText, QColor(hintForeground));
     setPalette(colors);
     qApp->setPalette(colors);
     const QString baseStyle = QString(
@@ -4275,6 +4668,13 @@ void MainWindow::applyTheme()
         "QSplitter#messageSplitter::handle { background:transparent; border-left:1px solid %4; margin:0 7px; }"
         "QLabel#sectionTitle { font-size:11px; font-weight:700; color:%5; }"
         "QLabel#secondaryText { color:%5; font-size:12px; }"
+        "QLabel#profileHint,QLabel#profileSafetyHint { color:%9; font-size:12px; }"
+        "QFrame#profileFileCard,QFrame#profileModeCard { background:%2; border:1px solid %4; border-radius:10px; }"
+        "QLabel#profileSectionTitle { color:%3; font-size:13px; font-weight:600; background:transparent; }"
+        "QLabel#profileFileType { color:%5; background:%6; border-radius:5px; padding:4px 7px; font-size:11px; }"
+        "QLabel#profileModeBadge { color:%5; background:%6; border-radius:5px; padding:4px 9px; font-size:11px; font-weight:600; }"
+        "QFrame#profileFooterDivider { background:%4; border:0; }"
+        "QDialog#importProfileDialog QLabel#profileError { background:%6; border:1px solid %4; border-radius:6px; padding:10px 12px; font-size:12px; }"
         "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
         "QFrame#connectionBar { background:transparent; border:0; }"
         "QFrame#connectionCard { background:transparent; border:0; }"
@@ -4342,9 +4742,9 @@ void MainWindow::applyTheme()
         "QScrollBar::handle { background:%8; border-radius:3px; }"
         "QScrollBar::handle:vertical { min-height:24px; } QScrollBar::handle:horizontal { min-width:24px; }"
         "QScrollBar::handle:hover { background:#818cf8; } QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; }"
-        "QLabel#validationError { color:%7; }"
+        "QLabel#validationError, QLabel#profileError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
-          dark ? "#fca5a5" : "#b91c1c", controlBorder);
+          dark ? "#fca5a5" : "#b91c1c", controlBorder, hintForeground);
     const QString connectionStyle = QString(
         "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"

@@ -67,6 +67,14 @@ private:
     void restoreTxMessages();
     /** @brief Save configured TX messages to workspace storage. */
     void saveTxMessages();
+    /** @brief Import a validated TX profile with an explicit append option. */
+    void importProfile();
+    /** @brief Choose a destination and export the worker's current TX definitions. */
+    void exportProfile();
+    bool profileBusy = false;
+    QString profileExportPath;
+    QAction *importProfileAction = nullptr;
+    QAction *exportProfileAction = nullptr;
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;

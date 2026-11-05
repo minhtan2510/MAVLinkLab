@@ -13,6 +13,7 @@ Previously named MAVLinkSimulator. Existing preferences, layouts and optional TX
 | **Serial** | Configurable port, baud rate, framing and flow control; optional auto-reconnect |
 | **TX Dashboard** | Search messages, edit payloads, send once or periodically at 1–1000 Hz |
 | **RX Dashboard** | Browse streams grouped by System/Component, view rates and counts, inspect decoded fields |
+| **Profiles** | Import/export portable CBOR TX profiles (`.mavprofile`), Replace or Append |
 | **Workspace** | System/Light/Dark themes, saved layout and optional TX message restoration |
 
 ## Build & run
@@ -45,6 +46,16 @@ Run `./cli.sh` for the interactive workbench menu. Each menu remembers its last 
 3. **Control TX:** use a card's start/stop button or right-click for **Send once**, **Start/Stop**, **Edit message…** and **Remove message**. Batch controls run, stop or delete all entries.
 4. **Inspect RX:** select a message under its System/Component group to view decoded fields. Search filters streams; **Pause display** freezes the view while parsing and counters continue. Right-click a field to **Copy value**.
 5. **Customize:** open **Tool → Settings…** for theme, MAVLink defaults, serial options and workspace restoration.
+
+## TX profiles
+
+1. Choose **File → Export Profile…** to save all current TX message definitions to a **`.mavprofile`** file.
+2. Choose **File → Import Profile…**, select the file with **Browse…** (or enter its path), then click **Import**.
+3. **Append** is unchecked every time the dialog opens: import replaces all TX messages and cancels their pending output. Check **Append** to retain current messages and append the file contents, including duplicates.
+
+Imported messages preserve order, IDs, sender identity, MAVLink version, rate and exact payload bytes. They always start **Stopped** with zero counters. Append preserves existing messages' running state and counters. Profiles exclude connection settings, RX data and runtime state, and work independently of startup restoration preferences.
+
+The entire file is validated before changes are applied; malformed/incompatible files or imports exceeding **128 total messages** leave the current TX list unchanged. Empty profiles are valid; importing one with Append off clears the list. Export writes atomically. See [Profile format](docs/PROFILES.md) for the CBOR schema and compatibility limits.
 
 ## Important behavior
 
