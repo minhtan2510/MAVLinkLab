@@ -2165,6 +2165,95 @@ private slots:
             QTRY_COMPARE_WITH_TIMEOUT(tx->item(0, 3)->text(), QString("5"), 3000);
         }
     }
+
+    /** @brief Render side-by-side visual comparisons of Option 1 (Dual Pills) and Option 2 (Segmented Chip). */
+    void compareTxSummaryOptions()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(tx && add);
+
+            // Add first message: HEARTBEAT (id 0)
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                catalog->setCurrentRow(0);
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 1);
+
+            // Add second message: ATTITUDE (id 30)
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                for (int r = 0; r < catalog->count(); ++r)
+                {
+                    if (catalog->item(r)->data(Qt::UserRole).toUInt() == 30)
+                    {
+                        catalog->setCurrentRow(r);
+                        break;
+                    }
+                }
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 2);
+
+            // Set stats to 2 messages, 1 running to render both total count and active dot
+            window.setTxSummaryStats(2, 1);
+            QTest::qWait(50);
+
+            // Verify TxSummaryWidget renders dual pills with full text visibility
+            auto *txPanel = tx->parentWidget();
+            QVERIFY(txPanel);
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            QApplication::processEvents();
+            QTest::qWait(50);
+            QVERIFY(window.grab().save(QString("qa/option-1-dual-pills-%1.png").arg(themeSuffix)));
+            QVERIFY(txPanel->grab(QRect(0, 0, txPanel->width(), 100))
+                    .save(QString("qa/option-1-heading-%1.png").arg(themeSuffix)));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

@@ -38,6 +38,7 @@
   * Batch action buttons use 28x28 px compact icon buttons with semantic tooltips (`Run all`, `Stop all`, `Delete all`).
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
   * Batch action buttons are located in the TX Dashboard header overview row (`txOverview`), vertically aligned with `txSummary` (`X messages · Y running`) and right-aligned beneath `+ Add message`. This consolidates action triggers into a natural top-down flow and removes redundant footer dividers (`txBatchDivider`), reclaiming full vertical space for the TX cards list.
+  * TX Status indicator (`TxSummaryWidget`) uses Dual Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with an antialiased vector LED dot (glowing green when running, neutral hollow when idle). Text measurement uses the matching DemiBold font metrics to prevent text clipping on `running`.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.

@@ -840,6 +840,189 @@ protected:
     }
 };
 
+/**
+ * @brief Dynamic visual status indicator for configured and active TX messages.
+ * Renders dual rounded pill badges: total messages count and live running state.
+ */
+class TxSummaryWidget : public QWidget
+{
+public:
+    /**
+     * @brief Construct a summary widget with dual-pills appearance.
+     * @param parent Optional parent widget.
+     */
+    explicit TxSummaryWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        setFixedHeight(26);
+    }
+
+    /**
+     * @brief Update message counts and request visual repaint.
+     * @param total Total number of configured TX messages.
+     * @param running Number of currently transmitting messages.
+     */
+    void setStats(int total, int running)
+    {
+        if (totalCount != total || runningCount != running)
+        {
+            totalCount = total;
+            runningCount = running;
+            updateGeometry();
+            update();
+        }
+    }
+
+    /**
+     * @brief Get total number of configured messages.
+     * @return Message count.
+     */
+    int total() const
+    {
+        return totalCount;
+    }
+
+    /**
+     * @brief Get number of running messages.
+     * @return Running message count.
+     */
+    int running() const
+    {
+        return runningCount;
+    }
+
+    /**
+     * @brief Formatted accessible summary text.
+     * @return Accessible status description string.
+     */
+    QString text() const
+    {
+        return QString("%1 %2  ·  %3 running")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages")
+            .arg(runningCount);
+    }
+
+    /**
+     * @brief Calculate recommended dimensions matching badge text and geometry.
+     * @return Layout size hint.
+     */
+    QSize sizeHint() const override
+    {
+        QFont baseFont = font();
+        baseFont.setPixelSize(11);
+        baseFont.setWeight(QFont::Medium);
+        QFont boldFont = baseFont;
+        boldFont.setWeight(QFont::DemiBold);
+
+        const QString totalText = QString("%1 %2")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages");
+        const QString runningText = QString("%1 running").arg(runningCount);
+
+        const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
+        const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
+
+        const int pill1Width = totalTextWidth + 20;
+        const int pill2Width = runningTextWidth + 34;
+        return QSize(pill1Width + 6 + pill2Width, 26);
+    }
+
+protected:
+    /**
+     * @brief Paint dual status pills using crisp vector antialiasing.
+     * @param event Paint event from Qt.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (window() && window()->property("darkTheme").isValid() ?
+                           window()->property("darkTheme").toBool() :
+                           (palette().color(QPalette::Window).lightness() < 128));
+
+        QFont baseFont = font();
+        baseFont.setPixelSize(11);
+        baseFont.setWeight(QFont::Medium);
+
+        QFont boldFont = baseFont;
+        boldFont.setWeight(QFont::DemiBold);
+
+        const QString totalText = QString("%1 %2")
+            .arg(totalCount)
+            .arg(totalCount == 1 ? "message" : "messages");
+        const QString runningText = QString("%1 running").arg(runningCount);
+
+        const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
+        const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
+
+        const int pillHeight = 24;
+        const int y = (height() - pillHeight) / 2;
+
+        // --- Pill 1: Total Configured Messages ---
+        const int pill1Width = totalTextWidth + 20;
+        const QRect pill1Rect(0, y, pill1Width, pillHeight);
+
+        painter.setPen(QPen(QColor(dark ? "#334155" : "#cbd5e1"), 1.0));
+        painter.setBrush(QColor(dark ? "#1e293b" : "#f1f5f9"));
+        painter.drawRoundedRect(pill1Rect, 6.0, 6.0);
+
+        painter.setFont(baseFont);
+        painter.setPen(QColor(dark ? "#94a3b8" : "#475569"));
+        painter.drawText(pill1Rect, Qt::AlignCenter, totalText);
+
+        // --- Pill 2: Running State Indicator ---
+        const int pill2Left = pill1Width + 6;
+        const int pill2Width = runningTextWidth + 34;
+        const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
+
+        const int dotX = pill2Left + 9;
+        const int dotY = y + (pillHeight - 6) / 2;
+        const int textLeft = dotX + 6 + 6;
+        const QRect textRect(textLeft, y, runningTextWidth + 6, pillHeight);
+
+        if (runningCount > 0)
+        {
+            painter.setPen(QPen(QColor(dark ? "#0d7a5f" : "#86efac"), 1.0));
+            painter.setBrush(QColor(dark ? "#0a2e23" : "#dcfce7"));
+            painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+
+            // Antialiased active LED dot
+            painter.setPen(QPen(QColor(dark ? "#059669" : "#16a34a"), 1.0));
+            painter.setBrush(QColor(dark ? "#34d399" : "#16a34a"));
+            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
+
+            painter.setFont(boldFont);
+            painter.setPen(QColor(dark ? "#34d399" : "#15803d"));
+            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+        }
+        else
+        {
+            painter.setPen(QPen(QColor(dark ? "#334155" : "#e2e8f0"), 1.0));
+            painter.setBrush(QColor(dark ? "#1e293b" : "#f8fafc"));
+            painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+
+            // Neutral hollow idle dot
+            painter.setPen(QPen(QColor(dark ? "#64748b" : "#94a3b8"), 1.2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
+
+            painter.setFont(baseFont);
+            painter.setPen(QColor(dark ? "#64748b" : "#94a3b8"));
+            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+        }
+    }
+
+private:
+    int totalCount = 0;
+    int runningCount = 0;
+};
+
 /** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
 static QStringList txTitleLines(const QString &text, const QFont &font, int width)
 {
@@ -2335,8 +2518,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTitle->setObjectName("panelTitle");
     txHeading->addWidget(txTitle, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
 
-    txSummary = new QLabel("0 messages  ·  0 running");
-    txSummary->setObjectName("secondaryText");
+    txSummary = new TxSummaryWidget;
+    txSummary->setObjectName("txSummary");
     txHeading->addWidget(txSummary, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
 
     txHeading->setColumnStretch(1, 1);
@@ -4340,8 +4523,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     {
         return view.entry.active;
     });
-    txSummary->setText(QString("%1 %2  ·  %3 running").arg(latest->tx.size())
-                       .arg(latest->tx.size() == 1 ? "message" : "messages").arg(running));
+    txSummary->setStats(int(latest->tx.size()), int(running));
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
@@ -4466,6 +4648,19 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         updateInspector();
     }
     updateActions();
+}
+
+void MainWindow::setTxSummaryMode(int mode)
+{
+    Q_UNUSED(mode);
+}
+
+void MainWindow::setTxSummaryStats(int total, int running)
+{
+    if (txSummary)
+    {
+        txSummary->setStats(total, running);
+    }
 }
 
 void MainWindow::updateInspector()
@@ -4945,5 +5140,9 @@ void MainWindow::applyTheme()
         icon.addPixmap(actionIcon(name, QColor(muted)).pixmap(16, 16), QIcon::Disabled);
         control->setIcon(icon);
         control->setIconSize(QSize(16, 16));
+    }
+    if (txSummary)
+    {
+        txSummary->update();
     }
 }

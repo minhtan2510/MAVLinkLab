@@ -17,6 +17,8 @@
 #include <QCheckBox>
 #include <map>
 
+class TxSummaryWidget;
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -25,6 +27,10 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     /** @brief Close the serial port in its owning thread and join the worker. */
     ~MainWindow() override;
+    /** @brief Select display mode for the TX status indicator (0: DualPills, 1: SegmentedChip). */
+    void setTxSummaryMode(int mode);
+    /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
+    void setTxSummaryStats(int total, int running);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -118,7 +124,7 @@ private:
     QPushButton *stopAllButton = nullptr;
     QPushButton *deleteAllButton = nullptr;
     QLabel *serialSummary = nullptr;
-    QLabel *txSummary = nullptr;
+    TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
     QLabel *inspectorTitle = nullptr;
     QLabel *inspectorSource = nullptr;
