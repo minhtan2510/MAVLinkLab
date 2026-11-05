@@ -18,6 +18,7 @@
 #include <map>
 
 class TxSummaryWidget;
+class ConnectionStatusWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -31,6 +32,8 @@ public:
     void setTxSummaryMode(int mode);
     /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
     void setTxSummaryStats(int total, int running);
+    /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
+    void setConnectionStatus(const QString &state, bool open);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -107,6 +110,7 @@ private:
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QDialog *settingsDialog = nullptr;
+    ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
     QLabel *metrics = nullptr;
     QLabel *lastError = nullptr;

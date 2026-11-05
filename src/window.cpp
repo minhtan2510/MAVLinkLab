@@ -1023,6 +1023,230 @@ private:
     int runningCount = 0;
 };
 
+/**
+ * @brief Visual status badge next to the serial connection controls.
+ * Renders an antialiased LED indicator and status text for link states.
+ */
+class ConnectionStatusWidget : public QWidget
+{
+public:
+    enum class State
+    {
+        Disconnected,
+        Connecting,
+        Connected,
+        Reconnecting,
+        Error
+    };
+
+    /**
+     * @brief Construct connection status badge.
+     * @param parent Optional parent widget.
+     */
+    explicit ConnectionStatusWidget(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        setFixedSize(116, 32);
+        setAccessibleName("Connection status");
+        updateTooltip();
+    }
+
+    /**
+     * @brief Update status from worker state name and open flag.
+     * @param state State name string from SerialWorker.
+     * @param open True if serial port is open.
+     */
+    void setStatus(const QString &state, bool open)
+    {
+        State nextState = State::Disconnected;
+        if (open)
+        {
+            nextState = State::Connected;
+        }
+        else if (state == "Connecting")
+        {
+            nextState = State::Connecting;
+        }
+        else if (state == "Reconnecting")
+        {
+            nextState = State::Reconnecting;
+        }
+        else if (state == "Error")
+        {
+            nextState = State::Error;
+        }
+        else
+        {
+            nextState = State::Disconnected;
+        }
+
+        if (m_state != nextState)
+        {
+            m_state = nextState;
+            updateTooltip();
+            update();
+        }
+    }
+
+    /**
+     * @brief Set direct state enum (convenient for testing).
+     * @param state New connection state.
+     */
+    void setState(State state)
+    {
+        if (m_state != state)
+        {
+            m_state = state;
+            updateTooltip();
+            update();
+        }
+    }
+
+    /**
+     * @brief Get current connection state.
+     * @return State enum value.
+     */
+    State state() const
+    {
+        return m_state;
+    }
+
+    /**
+     * @brief Human-readable text for current state.
+     * @return Text label.
+     */
+    QString text() const
+    {
+        switch (m_state)
+        {
+        case State::Connected:
+            return "Connected";
+        case State::Connecting:
+            return "Connecting...";
+        case State::Reconnecting:
+            return "Reconnecting...";
+        case State::Error:
+            return "Error";
+        case State::Disconnected:
+        default:
+            return "Disconnected";
+        }
+    }
+
+    /**
+     * @brief Recommended dimensions for the status badge.
+     * @return 116x32 size hint.
+     */
+    QSize sizeHint() const override
+    {
+        return QSize(116, 32);
+    }
+
+protected:
+    /**
+     * @brief Paint status badge with antialiased LED indicator.
+     * @param event Paint event from Qt.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const bool dark = property("darkTheme").isValid() ?
+                          property("darkTheme").toBool() :
+                          (window() && window()->property("darkTheme").isValid() ?
+                           window()->property("darkTheme").toBool() :
+                           (palette().color(QPalette::Window).lightness() < 128));
+
+        const QRect r = rect().adjusted(0, 0, -1, -1);
+        const qreal radius = 7.0;
+
+        QFont statusFont = font();
+        statusFont.setPixelSize(11);
+
+        QColor bgColor;
+        QColor borderColor;
+        QColor textColor;
+
+        switch (m_state)
+        {
+        case State::Connected:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#0a2e23") : QColor("#dcfce7");
+            borderColor = dark ? QColor("#0d7a5f") : QColor("#86efac");
+            textColor = dark ? QColor("#34d399") : QColor("#15803d");
+            break;
+
+        case State::Connecting:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#2d2006") : QColor("#fef3c7");
+            borderColor = dark ? QColor("#854d0e") : QColor("#fde68a");
+            textColor = dark ? QColor("#fbbf24") : QColor("#b45309");
+            break;
+
+        case State::Reconnecting:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#341a08") : QColor("#ffedd5");
+            borderColor = dark ? QColor("#9a3412") : QColor("#fed7aa");
+            textColor = dark ? QColor("#fb923c") : QColor("#c2410c");
+            break;
+
+        case State::Error:
+            statusFont.setWeight(QFont::DemiBold);
+            bgColor = dark ? QColor("#321417") : QColor("#fee2e2");
+            borderColor = dark ? QColor("#991b1b") : QColor("#fecaca");
+            textColor = dark ? QColor("#f87171") : QColor("#b91c1c");
+            break;
+
+        case State::Disconnected:
+        default:
+            statusFont.setWeight(QFont::Medium);
+            bgColor = dark ? QColor("#1e293b") : QColor("#f1f5f9");
+            borderColor = dark ? QColor("#334155") : QColor("#cbd5e1");
+            textColor = dark ? QColor("#94a3b8") : QColor("#64748b");
+            break;
+        }
+
+        // Draw pill background and border
+        painter.setPen(QPen(borderColor, 1.0));
+        painter.setBrush(bgColor);
+        painter.drawRoundedRect(r, radius, radius);
+
+        // Draw centered status label
+        painter.setFont(statusFont);
+        painter.setPen(textColor);
+        painter.drawText(r, Qt::AlignCenter, text());
+    }
+
+private:
+    void updateTooltip()
+    {
+        switch (m_state)
+        {
+        case State::Connected:
+            setToolTip("Serial link connected and active");
+            break;
+        case State::Connecting:
+            setToolTip("Opening serial connection...");
+            break;
+        case State::Reconnecting:
+            setToolTip("Serial link lost. Attempting reconnection...");
+            break;
+        case State::Error:
+            setToolTip("Serial link error");
+            break;
+        case State::Disconnected:
+        default:
+            setToolTip("Serial link disconnected");
+            break;
+        }
+    }
+
+    State m_state = State::Disconnected;
+};
+
 /** @brief Wrap a TX identity into at most two lines, eliding only the final overflow. */
 static QStringList txTitleLines(const QString &text, const QFont &font, int width)
 {
@@ -2410,10 +2634,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settings->setAccessibleName("Advanced UART settings");
     settings->setToolTip("UART settings");
 
+    uartRow->addSpacing(8);
+    connectionStatusPill = new ConnectionStatusWidget;
+    connectionStatusPill->setObjectName("connectionStatusPill");
+    uartRow->addWidget(connectionStatusPill);
+
+    uartRow->addSpacing(20);
     auto *connectionCard = new QFrame;
     connectionCard->setObjectName("connectionCard");
     auto *cardLayout = new QVBoxLayout(connectionCard);
-    cardLayout->setContentsMargins(8, 0, 0, 0);
+    cardLayout->setContentsMargins(0, 0, 0, 0);
     cardLayout->setSpacing(4);
     auto *connectRow = new QHBoxLayout;
     connectRow->setContentsMargins(0, 0, 0, 0);
@@ -2490,7 +2720,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     }
     updateSerialSummary();
     uart->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-    uart->setMaximumWidth(700);
+    uart->setMaximumWidth(820);
     uart->setFixedHeight(uartLayout->sizeHint().height());
     auto *workspace = new QVBoxLayout;
     workspace->setSpacing(8);
@@ -2781,6 +3011,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(&thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(worker, &SerialWorker::stateChanged, this, [this, refreshPortsButton](const QString &state, bool open)
     {
+        if (connectionStatusPill)
+        {
+            connectionStatusPill->setStatus(state, open);
+        }
         connected = open;
         connecting = state == "Connecting";
         reconnecting = state == "Reconnecting";
@@ -4663,6 +4897,14 @@ void MainWindow::setTxSummaryStats(int total, int running)
     }
 }
 
+void MainWindow::setConnectionStatus(const QString &state, bool open)
+{
+    if (connectionStatusPill)
+    {
+        connectionStatusPill->setStatus(state, open);
+    }
+}
+
 void MainWindow::updateInspector()
 {
     if (paused || !latest)
@@ -5143,6 +5385,12 @@ void MainWindow::applyTheme()
     }
     if (txSummary)
     {
+        txSummary->setProperty("darkTheme", dark);
         txSummary->update();
+    }
+    if (connectionStatusPill)
+    {
+        connectionStatusPill->setProperty("darkTheme", dark);
+        connectionStatusPill->update();
     }
 }

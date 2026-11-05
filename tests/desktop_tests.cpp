@@ -2254,6 +2254,50 @@ private slots:
                     .save(QString("qa/option-1-heading-%1.png").arg(themeSuffix)));
         }
     }
+
+    /** @brief Test connection status indicator states and render QA snapshots. */
+    void connectionStatusIndicator()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            const int themeIndex = (themeIdx == 0 ? 2 : 1); // 2: Dark, 1: Light
+            theme->setCurrentIndex(themeIndex);
+            QTest::qWait(30);
+
+            auto *statusPill = window.findChild<QWidget *>("connectionStatusPill");
+            auto *connectBtn = window.findChild<QPushButton *>("connect");
+            auto *uartBar = window.findChild<QFrame *>("connectionBar");
+            QVERIFY(statusPill);
+            QVERIFY(connectBtn);
+            QVERIFY(uartBar);
+
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+
+            // 1. Initial Disconnected state
+            QCOMPARE(statusPill->accessibleName(), QString("Connection status"));
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-disconnected-%1.png").arg(themeSuffix)));
+
+            // 2. Connecting state
+            window.setConnectionStatus("Connecting", false);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-connecting-%1.png").arg(themeSuffix)));
+
+            // 3. Connected state
+            window.setConnectionStatus("Connected", true);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-connected-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("qa/window-status-connected-%1.png").arg(themeSuffix)));
+
+            // 4. Reconnecting state
+            window.setConnectionStatus("Reconnecting", false);
+            QTest::qWait(30);
+            QVERIFY(uartBar->grab().save(QString("qa/uart-status-reconnecting-%1.png").arg(themeSuffix)));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
