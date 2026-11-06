@@ -59,6 +59,9 @@
   * Proactively distribute multi-step or technically involved tasks across specialized **Subagents** (Research, Developer, Review, QA) for parallel execution, cross-checking, and time optimization.
 * **QA Artifacts Retention:**
   * Do NOT clean up or delete generated verification images/screenshots in `qa/` or `build/qa/`; retain them for user inspection and visual regression review.
+* **Unit Test Snapshot Injection vs. Worker Polling Timer:**
+  * `MainWindow` maintains a 200ms `refresh` timer triggering `worker->requestSnapshot()`. In unit tests injecting synthetic snapshots directly via `window.applySnapshot(snapshot)`, call `window.stopRefreshTimer()` to prevent worker's empty periodic snapshots from overwriting test state.
+  * Conversely, in integration tests relying on worker thread events (e.g. TX queue additions, PTY real transmission), keep the refresh timer active so worker snapshots flow naturally to the GUI.
 * **Linux X11 Popups & Rounded Window Masks:**
   * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
 * **Editable ComboBox Text Clipping, Alignment & Inner Padding:**
@@ -75,6 +78,9 @@
   * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
 * **TX Card Deselection on Clicking Elsewhere:**
   * Only classify mouse presses delivered to `QWidget` receivers. Application event filters also see the popup's `QWindow` event before widget delivery; treating that non-widget receiver as an outside click clears the TX selection and disables context-menu actions before activation.
+* **IME Bypass for Technical Search and Code Inputs:**
+  * Technical inputs and filter fields (`CatalogSearch` used for `rxFilter`, catalog message search, parameter catalog filter; `paramFilter`; `inputEdit` parameter value editor) explicitly set `setAttribute(Qt::WA_InputMethodEnabled, false)` and `setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText)`.
+  * This bypasses OS-level IME composition (e.g. Vietnamese IBus/Fcitx Telex/VNI pre-edit buffers), ensuring instantaneous single-character key dispatch and immediate `textChanged` emission without requiring trailing space or underscore keys.
 * **QLineEdit Placeholder Text & QSS Palette Override:**
   * In Qt6, QSS `color` on `QLineEdit` automatically resets `QPalette::PlaceholderText` to the primary text color during widget polish and show events, causing placeholder text to render at full foreground brightness instead of muted.
   * `WorkbenchLineEdit` intercepts `showEvent()` and `changeEvent()` (`PaletteChange`, `ApplicationPaletteChange`, `StyleChange`) and explicitly clears resolve masks (`colors.setResolveMask(0)`) to preserve the theme-aware dimmed placeholder color (`#606d88` in Dark, `#8893a7` in Light).
@@ -104,6 +110,15 @@
   * Focus Rect & Outline Suppression: `RxItemDelegate` strips `State_HasFocus` while QSS enforces `outline: none; border: none;` on selected and focused items, providing clean full-row solid highlight without distracting dotted frames.
   * Inline Status Dots: `RxItemDelegate` uses `RxStatusIcon` vector decorations before Message text on leaf rows only. Freshness is stored in column0 at `Qt::UserRole + 2`, leaving identity roles untouched. Green Active at age<=1.2s, amber Stale through3.0s, muted Inactive afterward; no visible age or separate Status column. Device groups are identity-only.
   * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
+* **MAVLink Parameter Protocol Collection & Dual-Mode Inspector:**
+  * Parameter Protocol encodes all distinct parameters under a single stream identity `[22] PARAM_VALUE`. The core `Mav::Receiver` aggregates parameter values into `params[{sysid, compid}]` maps rather than discarding previous entries.
+  * Wire format packs numeric parameter values into a 32-bit `float param_value`. Type conversion for integers (`UINT8`, `INT8`, `UINT16`, `INT16`, `UINT32`, `INT32`) must strictly use standard type-punning via `mavlink_param_union_t` to avoid IEEE-754 precision loss and NaN conversion errors.
+  * The Inspector pane dynamically toggles between standard **Decoded Fields View** and **Parameter View**:
+    * Selecting `[22] PARAM_VALUE` activates Parameter View, displaying full table columns: `Name` (monospace), `Type` (`UINT8`, `FLOAT`, etc.), `Value` (decoded string), and `Index` (`#<index>`).
+    * Displays loading progress header: `PARAMETERS (<loaded_count> / <total_count>)`.
+    * Provides inline real-time parameter search via `paramFilter` (`QLineEdit`).
+    * Parameter modification: Double-clicking any parameter row or right-clicking to select "Edit parameter…" opens a modal dialog validating input against the parameter type, and immediately dispatches `PARAM_SET` (msgid 23) via worker slots.
+    * Selecting any other message automatically restores standard `DECODED FIELDS` and hides parameter controls.
 
 ---
 

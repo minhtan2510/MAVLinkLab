@@ -2573,6 +2573,118 @@ private slots:
             QVERIFY(window.grab().save("qa/window-debug-bar-visible.png"));
         }
     }
+
+    /** @brief Test MAVLink parameter manager collection, display, filtering, and inspection. */
+    void parameterProtocolInspectionAndEditing()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            MainWindow window;
+            window.show();
+            window.stopRefreshTimer();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            auto *inspectorTitle = window.findChild<QLabel *>("inspectorMessageTitle");
+            auto *paramFilter = window.findChild<QLineEdit *>("paramFilter");
+
+            QVERIFY(rxTree && inspector && inspectorTitle && paramFilter);
+
+            // Construct snapshot with PARAM_VALUE stream and 3 distinct parameters
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = true;
+
+            const uint32_t sysid = 1;
+            const uint8_t compid = 154; // Gimbal
+            const uint16_t totalParams = 3;
+
+            mavlink_message_t msg1, msg2, msg3;
+            mavlink_param_union_t uBaud{};
+            mavlink_param_union_t uSysId{};
+
+            mavlink_msg_param_value_pack(sysid, compid, &msg1, "GMB_PITCH_P", 1.5f, MAV_PARAM_TYPE_REAL32, totalParams, 0);
+
+            uBaud.param_uint32 = 115200;
+            mavlink_msg_param_value_pack(sysid, compid, &msg2, "GMB_BAUD", uBaud.param_float, MAV_PARAM_TYPE_UINT32, totalParams, 1);
+
+            uSysId.param_uint8 = 1;
+            mavlink_msg_param_value_pack(sysid, compid, &msg3, "GMB_SYSID", uSysId.param_float, MAV_PARAM_TYPE_UINT8, totalParams, 2);
+
+            // RxView stream
+            snapshot->rx.push_back({msg3, 3, 2.0, 0.1});
+
+            // Populate param collection
+            Mav::ParamCollection col;
+            col.totalCount = totalParams;
+
+            Mav::ParamItem item1{"GMB_PITCH_P", 1.5f, MAV_PARAM_TYPE_REAL32, 0, totalParams};
+            Mav::ParamItem item2{"GMB_BAUD", uBaud.param_float, MAV_PARAM_TYPE_UINT32, 1, totalParams};
+            Mav::ParamItem item3{"GMB_SYSID", uSysId.param_float, MAV_PARAM_TYPE_UINT8, 2, totalParams};
+
+            col.byId[item1.id] = item1;
+            col.byId[item2.id] = item2;
+            col.byId[item3.id] = item3;
+            col.byIndex[0] = item1.id;
+            col.byIndex[1] = item2.id;
+            col.byIndex[2] = item3.id;
+
+            snapshot->params[{sysid, compid}] = col;
+
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            // Find the PARAM_VALUE leaf in rxTree and select it
+            QCOMPARE(rxTree->topLevelItemCount(), 1);
+            auto *deviceItem = rxTree->topLevelItem(0);
+            QCOMPARE(deviceItem->childCount(), 1);
+            auto *paramMsgItem = deviceItem->child(0);
+            QCOMPARE(paramMsgItem->data(0, Qt::UserRole).toUInt(), 22u);
+
+            rxTree->setCurrentItem(paramMsgItem);
+            QTest::qWait(30);
+
+            // Verify parameter manager UI activated
+            QVERIFY(paramFilter->isVisible());
+            QCOMPARE(inspectorTitle->text(), QString("PARAMETERS (3 / 3)"));
+            QCOMPARE(inspector->rowCount(), 3);
+
+            // Check row contents (std::map is sorted by id: GMB_BAUD, GMB_PITCH_P, GMB_SYSID)
+            QCOMPARE(inspector->item(0, 0)->text(), QString("GMB_BAUD"));
+            QCOMPARE(inspector->item(0, 1)->text(), QString("UINT32"));
+            QCOMPARE(inspector->item(0, 2)->text(), QString("115200"));
+            QCOMPARE(inspector->item(0, 3)->text(), QString("#1"));
+
+            QCOMPARE(inspector->item(1, 0)->text(), QString("GMB_PITCH_P"));
+            QCOMPARE(inspector->item(1, 1)->text(), QString("FLOAT"));
+            QCOMPARE(inspector->item(1, 2)->text(), QString("1.5"));
+            QCOMPARE(inspector->item(1, 3)->text(), QString("#0"));
+
+            QCOMPARE(inspector->item(2, 0)->text(), QString("GMB_SYSID"));
+            QCOMPARE(inspector->item(2, 1)->text(), QString("UINT8"));
+            QCOMPARE(inspector->item(2, 2)->text(), QString("1"));
+            QCOMPARE(inspector->item(2, 3)->text(), QString("#2"));
+
+            // Save QA snapshot of Parameter Manager
+            auto *dashboards = window.findChild<QSplitter *>("dashboards");
+            QVERIFY(dashboards);
+            QVERIFY(dashboards->grab().save(QString("qa/parameter-manager-%1.png").arg(themeSuffix)));
+
+            // Test Search / Filter
+            paramFilter->setText("PITCH");
+            QTest::qWait(30);
+            QCOMPARE(inspector->rowCount(), 1);
+            QCOMPARE(inspector->item(0, 0)->text(), QString("GMB_PITCH_P"));
+
+            paramFilter->clear();
+            QTest::qWait(30);
+            QCOMPARE(inspector->rowCount(), 3);
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

@@ -37,6 +37,7 @@ struct Snapshot
 {
     std::vector<RxView> rx;
     std::vector<TxView> tx;
+    std::map<std::pair<uint32_t, uint8_t>, Mav::ParamCollection> params;
     bool connected = false;
     uint64_t crcErrors = 0;
     uint64_t overflow = 0;
@@ -74,6 +75,12 @@ public slots:
     void setRate(quint64 key, double hz);
     /** @brief Serialize and queue one explicitly requested message. */
     void sendOnce(quint64 key);
+    /** @brief Send raw MAVLink message immediately over the serial port. */
+    void sendRawMessage(mavlink_message_t message);
+    /** @brief Request all parameters from the specified system/component. */
+    void requestParameters(uint8_t targetSystem, uint8_t targetComponent);
+    /** @brief Set an individual parameter on the target system/component. */
+    void setParameter(uint8_t targetSystem, uint8_t targetComponent, const QString &paramId, float wireValue, uint8_t paramType);
     /** @brief Stop all periodic transmission and cancel pending output. */
     void stopAll();
     /** @brief Start every entry only if the complete periodic load fits the open link. */

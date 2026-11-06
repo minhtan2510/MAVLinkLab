@@ -1912,6 +1912,8 @@ public:
     {
         setTextMargins(22, 0, 0, 0);
         setClearButtonEnabled(true);
+        setAttribute(Qt::WA_InputMethodEnabled, false);
+        setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText);
         updatePlaceholderColor();
     }
 
@@ -3404,7 +3406,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         showCopiedFeedback(row);
     });
-    connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue](const QPoint &position)
+    auto *editParamAction = valueMenu->addAction("Edit parameter…");
+    editParamAction->setObjectName("editParamAction");
+    connect(editParamAction, &QAction::triggered, this, [this, editParamAction]()
+    {
+        const int row = editParamAction->property("targetRow").toInt();
+        editParameter(row);
+    });
+    connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue, editParamAction](const QPoint &position)
     {
         const bool keyboard = position.x() < 0 || position.y() < 0;
         const int row = keyboard ? inspector->currentRow() : inspector->indexAt(position).row();
@@ -3415,8 +3424,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         copyValue->setData(value->text());
         copyValue->setProperty("targetRow", row);
+        editParamAction->setVisible(isParamView);
+        editParamAction->setProperty("targetRow", row);
         const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
         valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
+    });
+    connect(inspector, &QTableWidget::cellDoubleClicked, this, [this](int row, int col)
+    {
+        Q_UNUSED(col);
+        if (isParamView)
+        {
+            editParameter(row);
+        }
     });
     connect(inspector->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]()
     {
@@ -3474,6 +3493,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     inspectorSource->setObjectName("inspectorSource");
     inspectorSource->hide();
     headerLayout->addWidget(inspectorSource);
+
+    paramFilter = new QLineEdit;
+    paramFilter->setObjectName("paramFilter");
+    paramFilter->setPlaceholderText("Search parameters…");
+    paramFilter->setFixedWidth(160);
+    paramFilter->setFixedHeight(26);
+    paramFilter->setClearButtonEnabled(true);
+    paramFilter->setAttribute(Qt::WA_InputMethodEnabled, false);
+    paramFilter->setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText);
+    paramFilter->hide();
+    headerLayout->addWidget(paramFilter);
+
+    connect(paramFilter, &QLineEdit::textChanged, this, [this]()
+    {
+        updateInspector();
+    });
 
     headerLayout->addStretch(1);
 
@@ -5476,7 +5511,26 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             item->setText(2, QString::number(qulonglong(entry.count)));
             item->setData(2, Qt::UserRole, qulonglong(entry.count));
             item->setData(0, Qt::UserRole + 2, entry.age);
-            item->setToolTip(0, rxStatus(entry.age));
+            if (message.msgid == 22 && latest)
+            {
+                const auto devKey = std::make_pair(sysid, compid);
+                const auto paramIt = latest->params.find(devKey);
+                if (paramIt != latest->params.end() && paramIt->second.totalCount > 0)
+                {
+                    item->setToolTip(0, QString("Parameters: %1 / %2 loaded · %3")
+                                            .arg(paramIt->second.byId.size())
+                                            .arg(paramIt->second.totalCount)
+                                            .arg(rxStatus(entry.age)));
+                }
+                else
+                {
+                    item->setToolTip(0, rxStatus(entry.age));
+                }
+            }
+            else
+            {
+                item->setToolTip(0, rxStatus(entry.age));
+            }
             item->setData(0, Qt::AccessibleTextRole, item->text(0) + ", " + rxStatus(entry.age));
         }
         filterRx();
@@ -5506,6 +5560,11 @@ void MainWindow::setConnectionStatus(const QString &state, bool open)
     }
 }
 
+void MainWindow::stopRefreshTimer()
+{
+    refresh.stop();
+}
+
 void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow)
 {
     if (metricsWidget)
@@ -5514,6 +5573,83 @@ void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint
                           property("darkTheme").toBool() :
                           (themeBox && themeBox->currentIndex() == 2);
         metricsWidget->updateMetrics(rxBps, txBps, crc, pending, overflow, dark);
+    }
+}
+
+/**
+ * @brief Open parameter value modification dialog and dispatch PARAM_SET upon confirmation.
+ * @param row Index of the parameter row in the inspector table.
+ */
+void MainWindow::editParameter(int row)
+{
+    if (!isParamView || row < 0 || row >= inspector->rowCount())
+    {
+        return;
+    }
+    auto *nameItem = inspector->item(row, 0);
+    auto *typeItem = inspector->item(row, 1);
+    auto *valItem = inspector->item(row, 2);
+    if (!nameItem || !typeItem || !valItem)
+    {
+        return;
+    }
+
+    const QString paramId = nameItem->text();
+    const QString paramTypeStr = typeItem->text();
+    const QString currentVal = valItem->text();
+    const uint8_t paramType = static_cast<uint8_t>(valItem->data(Qt::UserRole + 10).toUInt());
+
+    QDialog dialog(this);
+    dialog.setObjectName("editParamDialog");
+    dialog.setWindowTitle(QString("Edit %1").arg(paramId));
+    dialog.setMinimumWidth(340);
+
+    auto *dialogLayout = new QVBoxLayout(&dialog);
+    dialogLayout->setContentsMargins(20, 16, 20, 16);
+    dialogLayout->setSpacing(14);
+    dialogLayout = addDialogTitleBar(&dialog, dialogLayout);
+
+    auto *descLabel = new QLabel(QString("Set new value for <b>%1</b> (%2):").arg(paramId, paramTypeStr), &dialog);
+    descLabel->setObjectName("secondaryText");
+    dialogLayout->addWidget(descLabel);
+
+    auto *inputEdit = new QLineEdit(&dialog);
+    inputEdit->setObjectName("paramValueInput");
+    inputEdit->setAttribute(Qt::WA_InputMethodEnabled, false);
+    inputEdit->setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText);
+    inputEdit->setText(currentVal);
+    inputEdit->selectAll();
+    inputEdit->setFixedHeight(34);
+    dialogLayout->addWidget(inputEdit);
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText("Apply");
+    buttonBox->button(QDialogButtonBox::Ok)->setProperty("role", "primary");
+    buttonBox->button(QDialogButtonBox::Ok)->setFixedHeight(34);
+    buttonBox->button(QDialogButtonBox::Cancel)->setFixedHeight(34);
+    dialogLayout->addWidget(buttonBox);
+
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        const QString newText = inputEdit->text().trimmed();
+        float outWireValue = 0.0f;
+        if (!Mav::encodeParamValue(newText.toStdString(), paramType, outWireValue))
+        {
+            showConnectionError("Invalid Value", QString("Value '%1' is not valid for type %2.").arg(newText, paramTypeStr));
+            return;
+        }
+
+        QMetaObject::invokeMethod(worker, "setParameter", Qt::QueuedConnection,
+                                  Q_ARG(uint8_t, static_cast<uint8_t>(activeParamSysId)),
+                                  Q_ARG(uint8_t, activeParamCompId),
+                                  Q_ARG(QString, paramId),
+                                  Q_ARG(float, outWireValue),
+                                  Q_ARG(uint8_t, paramType));
+
+        cell(inspector, row, 2, QString::fromStdString(Mav::formatParamValue(outWireValue, paramType)));
     }
 }
 
@@ -5535,11 +5671,92 @@ void MainWindow::updateInspector()
         {
             copyFeedbackBadge->hide();
         }
+        if (paramFilter)
+        {
+            paramFilter->hide();
+        }
+        isParamView = false;
         return;
     }
     const uint32_t id = item->data(0, Qt::UserRole).toUInt();
     const uint32_t system = item->parent()->data(0, Qt::UserRole).toUInt();
     const uint8_t component = uint8_t(item->parent()->data(0, Qt::UserRole + 1).toUInt());
+
+    if (id == 22)
+    {
+        isParamView = true;
+        activeParamSysId = system;
+        activeParamCompId = component;
+        if (paramFilter)
+        {
+            paramFilter->show();
+        }
+
+        const auto devKey = std::make_pair(system, component);
+        const auto it = latest->params.find(devKey);
+        const auto &collection = (it != latest->params.end()) ? it->second : Mav::ParamCollection{};
+        const uint16_t loaded = static_cast<uint16_t>(collection.byId.size());
+        const uint16_t total = collection.totalCount;
+
+        if (total > 0)
+        {
+            inspectorTitle->setText(QString("PARAMETERS (%1 / %2)").arg(loaded).arg(total));
+        }
+        else
+        {
+            inspectorTitle->setText(QString("PARAMETERS (%1)").arg(loaded));
+        }
+        inspectorSource->setText(QString("System %1 · Component %2").arg(system).arg(component));
+        inspectorSource->show();
+
+        const QString filterText = paramFilter ? paramFilter->text().trimmed().toLower() : QString();
+        std::vector<const Mav::ParamItem *> visibleParams;
+        visibleParams.reserve(collection.byId.size());
+        for (const auto &[name, param] : collection.byId)
+        {
+            if (filterText.isEmpty() || QString::fromStdString(name).toLower().contains(filterText))
+            {
+                visibleParams.push_back(&param);
+            }
+        }
+
+        inspector->setRowCount(static_cast<int>(visibleParams.size()));
+        const bool dark = themeBox->currentIndex() == 2 ||
+                          (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
+
+        for (int i = 0; i < static_cast<int>(visibleParams.size()); ++i)
+        {
+            const auto *p = visibleParams[i];
+            const QString nameStr = QString::fromStdString(p->id);
+            const QString typeStr = QString::fromStdString(Mav::paramTypeName(p->type));
+            const QString valStr = QString::fromStdString(Mav::formatParamValue(p->value, p->type));
+
+            cell(inspector, i, 0, nameStr);
+            cell(inspector, i, 1, typeStr);
+            cell(inspector, i, 2, valStr);
+            cell(inspector, i, 3, QString("#%1").arg(p->index));
+
+            QFont identityFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            identityFont.setPixelSize(13);
+            inspector->item(i, 0)->setFont(identityFont);
+            identityFont.setPixelSize(12);
+            inspector->item(i, 1)->setFont(identityFont);
+
+            auto *valItem = inspector->item(i, 2);
+            valItem->setData(Qt::UserRole + 10, p->type);
+            valItem->setData(Qt::UserRole + 11, p->value);
+            valItem->setForeground(QColor(dark ? "#b2c8e2" : "#3f628b"));
+            valItem->setToolTip(QString("%1: %2 (%3) · Double click to edit").arg(nameStr, valStr, typeStr));
+        }
+        return;
+    }
+
+    isParamView = false;
+    if (paramFilter)
+    {
+        paramFilter->hide();
+    }
+
     for (const auto &view : latest->rx)
     {
         const auto &message = view.message;
@@ -6029,6 +6246,7 @@ void MainWindow::applyTheme()
         "QFrame#inspectorHeader { background:%3; border-bottom:1px solid %2; }"
         "QLabel#inspectorMessageTitle { background:transparent; color:%4; font-size:12px; font-weight:600; }"
         "QLabel#inspectorSource { color:%4; font-size:12px; }"
+        "QLineEdit#paramFilter { padding:0 8px; border:1px solid %2; border-radius:5px; font-size:12px; background:%1; color:%4; }"
         "QLabel#displayPaused { color:%7; background:%1; padding:2px 6px; border-radius:4px; font-size:11px; }"
         "QTreeWidget#rxTree { background:%1; alternate-background-color:%5; outline:none; }"
         "QTableWidget#inspector { background:%1; border:0; }"
