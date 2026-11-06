@@ -351,6 +351,102 @@ double Rate::hz(int64_t now)
     return static_cast<double>(times.size());
 }
 
+std::string paramTypeName(uint8_t type)
+{
+    switch (type)
+    {
+    case MAV_PARAM_TYPE_UINT8:
+        return "UINT8";
+    case MAV_PARAM_TYPE_INT8:
+        return "INT8";
+    case MAV_PARAM_TYPE_UINT16:
+        return "UINT16";
+    case MAV_PARAM_TYPE_INT16:
+        return "INT16";
+    case MAV_PARAM_TYPE_UINT32:
+        return "UINT32";
+    case MAV_PARAM_TYPE_INT32:
+        return "INT32";
+    case MAV_PARAM_TYPE_UINT64:
+        return "UINT64";
+    case MAV_PARAM_TYPE_INT64:
+        return "INT64";
+    case MAV_PARAM_TYPE_REAL32:
+        return "FLOAT";
+    case MAV_PARAM_TYPE_REAL64:
+        return "DOUBLE";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+std::string formatParamValue(float wireValue, uint8_t type)
+{
+    mavlink_param_union_t u;
+    u.param_float = wireValue;
+    switch (type)
+    {
+    case MAV_PARAM_TYPE_UINT8:
+        return std::to_string(u.param_uint8);
+    case MAV_PARAM_TYPE_INT8:
+        return std::to_string(u.param_int8);
+    case MAV_PARAM_TYPE_UINT16:
+        return std::to_string(u.param_uint16);
+    case MAV_PARAM_TYPE_INT16:
+        return std::to_string(u.param_int16);
+    case MAV_PARAM_TYPE_UINT32:
+        return std::to_string(u.param_uint32);
+    case MAV_PARAM_TYPE_INT32:
+        return std::to_string(u.param_int32);
+    case MAV_PARAM_TYPE_REAL32:
+    default:
+    {
+        std::ostringstream ss;
+        ss << std::setprecision(7) << wireValue;
+        return ss.str();
+    }
+    }
+}
+
+bool encodeParamValue(const std::string &text, uint8_t type, float &outWireValue)
+{
+    mavlink_param_union_t u{};
+    try
+    {
+        switch (type)
+        {
+        case MAV_PARAM_TYPE_UINT8:
+            u.param_uint8 = static_cast<uint8_t>(std::stoul(text));
+            break;
+        case MAV_PARAM_TYPE_INT8:
+            u.param_int8 = static_cast<int8_t>(std::stoi(text));
+            break;
+        case MAV_PARAM_TYPE_UINT16:
+            u.param_uint16 = static_cast<uint16_t>(std::stoul(text));
+            break;
+        case MAV_PARAM_TYPE_INT16:
+            u.param_int16 = static_cast<int16_t>(std::stoi(text));
+            break;
+        case MAV_PARAM_TYPE_UINT32:
+            u.param_uint32 = static_cast<uint32_t>(std::stoul(text));
+            break;
+        case MAV_PARAM_TYPE_INT32:
+            u.param_int32 = static_cast<int32_t>(std::stol(text));
+            break;
+        case MAV_PARAM_TYPE_REAL32:
+        default:
+            u.param_float = std::stof(text);
+            break;
+        }
+        outWireValue = u.param_float;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 void Receiver::accept(const mavlink_message_t &message, int64_t now)
 {
     const RxKey key{message.sysid, message.compid, message.msgid};
@@ -364,6 +460,36 @@ void Receiver::accept(const mavlink_message_t &message, int64_t now)
     entry.last = now;
     ++entry.count;
     entry.rate.add(now);
+
+    if (message.msgid == MAVLINK_MSG_ID_PARAM_VALUE)
+    {
+        mavlink_param_value_t packet;
+        mavlink_msg_param_value_decode(&message, &packet);
+
+        char cleanId[17] = {};
+        std::memcpy(cleanId, packet.param_id, 16);
+        const std::string paramName = cleanId;
+
+        const std::pair<uint32_t, uint8_t> deviceKey{message.sysid, message.compid};
+        auto &collection = params[deviceKey];
+        if (packet.param_count > 0)
+        {
+            collection.totalCount = packet.param_count;
+        }
+
+        if (collection.byId.size() < MaxParamsPerDevice || collection.byId.count(paramName))
+        {
+            ParamItem item;
+            item.id = paramName;
+            item.value = packet.param_value;
+            item.type = packet.param_type;
+            item.index = packet.param_index;
+            item.count = packet.param_count;
+
+            collection.byId[paramName] = item;
+            collection.byIndex[packet.param_index] = paramName;
+        }
+    }
 }
 
 bool validTx(const TxEntry &entry)

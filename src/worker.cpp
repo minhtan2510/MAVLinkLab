@@ -290,6 +290,50 @@ void SerialWorker::sendOnce(quint64 key)
     }
 }
 
+void SerialWorker::sendRawMessage(mavlink_message_t message)
+{
+    if (!port || !port->isOpen())
+    {
+        fail("Connect a serial port first");
+        return;
+    }
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
+    const uint16_t length = mavlink_msg_to_send_buffer(buffer, &message);
+    const qint64 written = port->write(reinterpret_cast<const char *>(buffer), length);
+    if (written > 0)
+    {
+        txBytes += uint64_t(written);
+    }
+}
+
+void SerialWorker::requestParameters(uint8_t targetSystem, uint8_t targetComponent)
+{
+    if (!port || !port->isOpen())
+    {
+        fail("Connect a serial port first");
+        return;
+    }
+    mavlink_message_t msg;
+    mavlink_msg_param_request_list_pack(255, 190, &msg, targetSystem, targetComponent);
+    sendRawMessage(msg);
+}
+
+void SerialWorker::setParameter(uint8_t targetSystem, uint8_t targetComponent, const QString &paramId, float wireValue, uint8_t paramType)
+{
+    if (!port || !port->isOpen())
+    {
+        fail("Connect a serial port first");
+        return;
+    }
+    char idBuffer[16] = {};
+    const QByteArray ascii = paramId.trimmed().toUtf8();
+    std::memcpy(idBuffer, ascii.constData(), std::min<size_t>(16, ascii.size()));
+
+    mavlink_message_t msg;
+    mavlink_msg_param_set_pack(255, 190, &msg, targetSystem, targetComponent, idBuffer, wireValue, paramType);
+    sendRawMessage(msg);
+}
+
 void SerialWorker::stopAll()
 {
     for (auto &entry : entries)
@@ -523,6 +567,7 @@ void SerialWorker::requestSnapshot()
     snapshot->txBytesPerSecond = txBytes / elapsed;
     rxBytes = txBytes = 0;
     lastReport = now;
+    snapshot->params = receiver.params;
     for (auto &[key, entry] : receiver.entries)
     {
         Q_UNUSED(key);

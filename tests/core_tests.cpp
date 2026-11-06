@@ -149,6 +149,49 @@ int main()
             }
             check(!Mav::encode(info.msgid, 1, 2, false, item.payload, status).empty(), "Full catalog serialization");
         }
+
+        // Test Parameter Protocol decoding and collection
+        {
+            Mav::Receiver receiver;
+            const uint32_t sysid = 1;
+            const uint8_t compid = 154; // Gimbal
+            const uint16_t totalParams = 3;
+
+            mavlink_message_t msg1, msg2, msg3;
+            mavlink_param_union_t u;
+
+            mavlink_msg_param_value_pack(sysid, compid, &msg1, "GMB_PITCH_P", 1.5f, MAV_PARAM_TYPE_REAL32, totalParams, 0);
+
+            u.param_uint32 = 115200;
+            mavlink_msg_param_value_pack(sysid, compid, &msg2, "GMB_BAUD", u.param_float, MAV_PARAM_TYPE_UINT32, totalParams, 1);
+
+            u.param_uint8 = 1;
+            mavlink_msg_param_value_pack(sysid, compid, &msg3, "GMB_SYSID", u.param_float, MAV_PARAM_TYPE_UINT8, totalParams, 2);
+
+            receiver.accept(msg1, 1000);
+            receiver.accept(msg2, 2000);
+            receiver.accept(msg3, 3000);
+
+            const auto devKey = std::make_pair(sysid, compid);
+            check(receiver.params.count(devKey) == 1, "Param collection exists for device");
+            const auto &col = receiver.params[devKey];
+            check(col.totalCount == 3, "Total param count matches");
+            check(col.byId.size() == 3, "All 3 distinct params preserved");
+            check(col.byId.count("GMB_PITCH_P") == 1, "GMB_PITCH_P exists");
+            check(col.byId.count("GMB_BAUD") == 1, "GMB_BAUD exists");
+            check(col.byId.count("GMB_SYSID") == 1, "GMB_SYSID exists");
+
+            // Format check
+            check(Mav::formatParamValue(col.byId.at("GMB_BAUD").value, MAV_PARAM_TYPE_UINT32) == "115200", "UINT32 param formatting");
+            check(Mav::formatParamValue(col.byId.at("GMB_SYSID").value, MAV_PARAM_TYPE_UINT8) == "1", "UINT8 param formatting");
+
+            // Encode check
+            float encoded = 0;
+            check(Mav::encodeParamValue("2.25", MAV_PARAM_TYPE_REAL32, encoded) && encoded == 2.25f, "Float param encoding");
+            check(Mav::encodeParamValue("57600", MAV_PARAM_TYPE_UINT32, encoded), "UINT32 param encoding");
+            check(Mav::formatParamValue(encoded, MAV_PARAM_TYPE_UINT32) == "57600", "UINT32 roundtrip format");
+        }
+
         std::cout << "PASS: codec, catalog, validation, parser, sender isolation, rates, scheduler, capacity, partial writes and queue bounds\n";
         return EXIT_SUCCESS;
     }

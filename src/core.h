@@ -55,6 +55,31 @@ struct Rate
     double hz(int64_t now);
 };
 
+/** @brief Decoded MAVLink parameter item. */
+struct ParamItem
+{
+    std::string id;
+    float value = 0.0f;
+    uint8_t type = 0;
+    uint16_t index = 0;
+    uint16_t count = 0;
+};
+
+/** @brief Collection of onboard parameters associated with a specific component. */
+struct ParamCollection
+{
+    uint16_t totalCount = 0;
+    std::map<std::string, ParamItem> byId;
+    std::map<uint16_t, std::string> byIndex;
+};
+
+/** @brief Return human-readable parameter type string (e.g. UINT8, INT32, REAL32). */
+std::string paramTypeName(uint8_t type);
+/** @brief Format a wire-encoded MAVLink parameter value according to its type. */
+std::string formatParamValue(float wireValue, uint8_t type);
+/** @brief Encode a human-readable text into a wire-format float parameter value. */
+bool encodeParamValue(const std::string &text, uint8_t type, float &outWireValue);
+
 struct RxEntry
 {
     mavlink_message_t message{};
@@ -68,9 +93,11 @@ struct Receiver
 {
     // Bounded to prevent untrusted sender IDs from exhausting memory.
     static constexpr size_t MaxEntries = 2048;
+    static constexpr size_t MaxParamsPerDevice = 4096;
     std::map<RxKey, RxEntry> entries;
+    std::map<std::pair<uint32_t, uint8_t>, ParamCollection> params;
     uint64_t overflow = 0;
-    /** @brief Update an independent system/component/message stream. */
+    /** @brief Update an independent system/component/message stream and parameter registry. */
     void accept(const mavlink_message_t &message, int64_t now);
 };
 

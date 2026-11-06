@@ -38,6 +38,10 @@ public:
     void setConnectionStatus(const QString &state, bool open);
     /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
     void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow);
+    /** @brief Apply one snapshot directly (e.g. for inspection/testing). */
+    void applySnapshot(SnapshotPtr snapshot);
+    /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
+    void stopRefreshTimer();
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -50,8 +54,6 @@ private:
     void toggleConnection();
     /** @brief Create or edit a TX entry; start newly added entries when connected. */
     void editMessage(bool edit);
-    /** @brief Apply one snapshot without rebuilding existing RX rows. */
-    void applySnapshot(SnapshotPtr snapshot);
     /** @brief Decode the selected stream into the field inspector. */
     void updateInspector();
     /** @brief Filter RX rows by sender and message identity. */
@@ -62,6 +64,11 @@ private:
     void showError(const QString &message);
     /** @brief Display a compact alert dialog when serial port connection fails. */
     void showConnectionError(const QString &title, const QString &message);
+    /**
+     * @brief Open parameter value modification dialog and dispatch PARAM_SET upon confirmation.
+     * @param row Index of the parameter row in the inspector table.
+     */
+    void editParameter(int row);
     /** @brief Return the stable identity of the selected TX row, or zero. */
     uint64_t selectedTx() const;
     /** @brief Enable actions according to connection and selection state. */
@@ -120,9 +127,11 @@ private:
     QCheckBox *autoReconnectBox = nullptr;
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
+    QCheckBox *showDebugBarBox = nullptr;
     QDialog *settingsDialog = nullptr;
     ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
+    QFrame *statusBarCard = nullptr;
     StatusBarMetricsWidget *metricsWidget = nullptr;
     StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;
@@ -130,6 +139,10 @@ private:
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
+    QLineEdit *paramFilter = nullptr;
+    bool isParamView = false;
+    uint32_t activeParamSysId = 0;
+    uint8_t activeParamCompId = 0;
     QAction *editAction = nullptr;
     QAction *removeAction = nullptr;
     QAction *onceAction = nullptr;
