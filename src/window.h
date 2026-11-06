@@ -120,9 +120,11 @@ private:
     QCheckBox *autoReconnectBox = nullptr;
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
+    QCheckBox *showDebugBarBox = nullptr;
     QDialog *settingsDialog = nullptr;
     ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
+    QFrame *statusBarCard = nullptr;
     StatusBarMetricsWidget *metricsWidget = nullptr;
     StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;

@@ -2806,6 +2806,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     themeRow->addWidget(themeBox);
     appearanceLayout->addLayout(themeRow);
 
+    auto *debugBarGroup = new QVBoxLayout;
+    debugBarGroup->setContentsMargins(0, 4, 0, 0);
+
+    showDebugBarBox = new WorkbenchCheckBox("Show stats bar", appearanceCard);
+    showDebugBarBox->setObjectName("showDebugBar");
+    showDebugBarBox->setChecked(true);
+    showDebugBarBox->setAccessibleName("Show stats bar");
+    debugBarGroup->addWidget(showDebugBarBox);
+
+    appearanceLayout->addLayout(debugBarGroup);
+
     settingsDialogLayout->addWidget(appearanceCard);
 
     auto *mavlinkCard = new QFrame(settingsDialog);
@@ -3487,7 +3498,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     lastError->setObjectName("statusMessage");
     lastError->hide();
 
-    auto *statusBarCard = new QFrame;
+    statusBarCard = new QFrame;
     statusBarCard->setObjectName("statusBarCard");
     auto *statusLayout = new QHBoxLayout(statusBarCard);
     statusLayout->setContentsMargins(0, 0, 0, 0);
@@ -3667,6 +3678,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         {
             QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection, Q_ARG(bool, enabled));
         }
+    });
+    connect(showDebugBarBox, &QCheckBox::toggled, this, [this](bool visible)
+    {
+        if (statusBarCard)
+        {
+            statusBarCard->setVisible(visible);
+        }
+        saveSettings();
     });
     connect(restoreTxBox, &QCheckBox::toggled, this, [this]()
     {
@@ -3851,6 +3870,16 @@ void MainWindow::restoreSettings()
         const QSignalBlocker blocker(restoreTxBox);
         restoreTxBox->setChecked(restoreTx);
     }
+    const bool showDebugBar = settings.value("ui/showDebugBar", true).toBool();
+    if (showDebugBarBox)
+    {
+        const QSignalBlocker blocker(showDebugBarBox);
+        showDebugBarBox->setChecked(showDebugBar);
+    }
+    if (statusBarCard)
+    {
+        statusBarCard->setVisible(showDebugBar);
+    }
 }
 
 /** @brief Save application preferences such as theme and MAVLink defaults to storage. */
@@ -3860,6 +3889,10 @@ void MainWindow::saveSettings()
     if (themeBox)
     {
         settings.setValue("theme", themeBox->currentIndex());
+    }
+    if (showDebugBarBox)
+    {
+        settings.setValue("ui/showDebugBar", showDebugBarBox->isChecked());
     }
     if (defaultSysIdBox)
     {
@@ -5823,7 +5856,7 @@ void MainWindow::applyTheme()
     {
         inspector->setProperty("darkTheme", dark);
     }
-    for (auto *box : {restoreTxBox, autoReconnectBox, deassertControlLinesBox})
+    for (auto *box : {restoreTxBox, autoReconnectBox, deassertControlLinesBox, showDebugBarBox})
     {
         if (box)
         {

@@ -2512,6 +2512,67 @@ private slots:
             QTRY_COMPARE(statusPill->toolTip(), QString("Serial link disconnected"));
         }
     }
+
+    /** @brief Test show/hide debug status bar preference in Settings dialog and verify persistence. */
+    void debugStatusBarVisibilitySettings()
+    {
+        // 1. Clean settings key before test
+        {
+            QSettings settings("MAVLinkSimulator", "Preferences");
+            settings.remove("ui/showDebugBar");
+            settings.sync();
+        }
+
+        // 2. Default state: Checked and visible
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+
+            auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
+            auto *statusBarCard = window.findChild<QFrame *>("statusBarCard");
+            QVERIFY(debugBox);
+            QVERIFY(statusBarCard);
+
+            // Defaults to checked (enabled)
+            QCOMPARE(debugBox->text(), QString("Show stats bar"));
+            QVERIFY(debugBox->isChecked());
+            QVERIFY(statusBarCard->isVisible());
+
+            // Toggle to false (hide debug bar)
+            debugBox->click();
+            QTest::qWait(20);
+            QVERIFY(!debugBox->isChecked());
+            QVERIFY(!statusBarCard->isVisible());
+
+            // Verify QA snapshot of hidden status bar
+            QVERIFY(window.grab().save("qa/window-debug-bar-hidden.png"));
+        }
+
+        // 3. Reopen window and verify persistence
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+
+            auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
+            auto *statusBarCard = window.findChild<QFrame *>("statusBarCard");
+            QVERIFY(debugBox);
+            QVERIFY(statusBarCard);
+
+            // Persisted as unchecked
+            QVERIFY(!debugBox->isChecked());
+            QVERIFY(!statusBarCard->isVisible());
+
+            // Toggle back to true (show debug bar)
+            debugBox->click();
+            QTest::qWait(20);
+            QVERIFY(debugBox->isChecked());
+            QVERIFY(statusBarCard->isVisible());
+
+            QVERIFY(window.grab().save("qa/window-debug-bar-visible.png"));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
