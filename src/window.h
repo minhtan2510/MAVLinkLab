@@ -93,6 +93,8 @@ private:
     void importProfile();
     /** @brief Choose a destination and export the worker's current TX definitions. */
     void exportProfile();
+    /** @brief Display the Check for Updates dialog and query GitHub latest release. */
+    void checkForUpdates();
     /** @brief Display a popup menu with preset frequencies and custom rate input. */
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     /** @brief Display transient confirmation badge and cell flash when copying a field value. */
@@ -101,6 +103,7 @@ private:
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
     QAction *exportProfileAction = nullptr;
+    QAction *checkUpdatesAction = nullptr;
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;

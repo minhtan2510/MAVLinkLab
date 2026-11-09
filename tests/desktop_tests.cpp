@@ -1,4 +1,5 @@
 #include "window.h"
+#include "version.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QDialog>
@@ -2684,6 +2685,62 @@ private slots:
             QTest::qWait(30);
             QCOMPARE(inspector->rowCount(), 3);
         }
+    }
+
+    /** @brief Verify SemVer comparison, Help menu action, and Check for Updates dialog layout. */
+    void checkForUpdatesDialog()
+    {
+        // 1. Verify SemVer parsing and comparison logic
+        QCOMPARE(Version::parseSemVer("v1.1.1"), std::make_tuple(1, 1, 1));
+        QCOMPARE(Version::parseSemVer("1.1.1"), std::make_tuple(1, 1, 1));
+        QCOMPARE(Version::parseSemVer("0.1.0-alpha"), std::make_tuple(0, 1, 0));
+        QCOMPARE(Version::parseSemVer("2.0.0+build123"), std::make_tuple(2, 0, 0));
+
+        QVERIFY(!Version::isNewerVersion("v1.1.1", "1.1.1"));
+        QVERIFY(Version::isNewerVersion("v1.2.0", "1.1.1"));
+        QVERIFY(Version::isNewerVersion("v2.0.0", "1.1.1"));
+        QVERIFY(!Version::isNewerVersion("v1.1.0", "1.1.1"));
+        QVERIFY(!Version::isNewerVersion("v0.1.0", "1.1.1"));
+        QVERIFY(Version::isNewerVersion("1.1.2", "1.1.1"));
+
+        // 2. Verify UI Menu Action and Dialog Elements
+        MainWindow window;
+        window.stopRefreshTimer();
+
+        auto *checkUpdates = window.findChild<QAction *>("actionCheckUpdates");
+        QVERIFY(checkUpdates != nullptr);
+        QCOMPARE(checkUpdates->text(), QString("Check for update..."));
+
+        auto *helpMenu = window.findChild<QMenu *>("helpMenu");
+        QVERIFY(helpMenu != nullptr);
+        QVERIFY(helpMenu->actions().contains(checkUpdates));
+
+        // 3. Trigger dialog and inspect widgets asynchronously
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("updateDialog");
+            QVERIFY(dialog != nullptr);
+
+            auto *currentVer = dialog->findChild<QLabel *>("currentVersionLabel");
+            QVERIFY(currentVer != nullptr);
+            QVERIFY(currentVer->text().contains(MAVLINK_LAB_VERSION));
+
+            auto *status = dialog->findChild<QLabel *>("updateStatusLabel");
+            QVERIFY(status != nullptr);
+
+            auto *btnUpdate = dialog->findChild<QPushButton *>("btnUpdate");
+            QVERIFY(btnUpdate != nullptr);
+
+            auto *btnClose = dialog->findChild<QPushButton *>("btnCloseUpdate");
+            QVERIFY(btnClose != nullptr);
+
+            QVERIFY(dialog->grab().save("qa/check-update-dialog.png"));
+
+            // Close dialog
+            btnClose->click();
+        });
+
+        checkUpdates->trigger();
     }
 };
 

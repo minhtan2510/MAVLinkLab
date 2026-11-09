@@ -1,5 +1,11 @@
 #include "window.h"
 #include "profile.h"
+#include "version.h"
+#include <QProcess>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QFileDialog>
 #include <QSaveFile>
 #include "mavlink_enums.h"
@@ -2970,6 +2976,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     auto *helpMenu = appMenuBar->addMenu("Help");
     helpMenu->setObjectName("helpMenu");
+    checkUpdatesAction = helpMenu->addAction("Check for update...", this, &MainWindow::checkForUpdates);
+    checkUpdatesAction->setObjectName("actionCheckUpdates");
+    helpMenu->addSeparator();
     auto *aboutAction = helpMenu->addAction("About MAVLinkLab", this, [this]()
     {
         QDialog dialog(this);
@@ -4166,6 +4175,126 @@ void MainWindow::exportProfile()
     profileBusy = true;
     updateActions();
     QMetaObject::invokeMethod(worker, "exportProfile", Qt::QueuedConnection);
+}
+
+/**
+ * @brief Display the Check for Updates dialog and query GitHub latest release.
+ */
+void MainWindow::checkForUpdates()
+{
+    QDialog dialog(this);
+    dialog.setObjectName("updateDialog");
+    dialog.setWindowTitle("Check for Updates");
+    dialog.setMinimumWidth(440);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 16, 20, 16);
+    layout->setSpacing(12);
+    layout = addDialogTitleBar(&dialog, layout);
+
+    auto *currentVersionLabel = new QLabel(QString("Current Version: v%1").arg(MAVLINK_LAB_VERSION), &dialog);
+    currentVersionLabel->setObjectName("currentVersionLabel");
+    layout->addWidget(currentVersionLabel);
+
+    auto *statusLabel = new QLabel("Connecting to GitHub to check for updates…", &dialog);
+    statusLabel->setObjectName("updateStatusLabel");
+    statusLabel->setWordWrap(true);
+    layout->addWidget(statusLabel);
+
+    auto *buttonLayout = new QHBoxLayout;
+    buttonLayout->addStretch(1);
+
+    auto *updateButton = new QPushButton("Update", &dialog);
+    updateButton->setObjectName("btnUpdate");
+    updateButton->setVisible(false);
+    buttonLayout->addWidget(updateButton);
+
+    auto *closeButton = new QPushButton("Close", &dialog);
+    closeButton->setObjectName("btnCloseUpdate");
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    buttonLayout->addWidget(closeButton);
+
+    layout->addLayout(buttonLayout);
+
+    QString releasePageUrl = QString::fromLatin1(Version::kReleasesPageUrl);
+    connect(updateButton, &QPushButton::clicked, &dialog, [&releasePageUrl, &dialog]()
+    {
+        QDesktopServices::openUrl(QUrl(releasePageUrl));
+        dialog.accept();
+    });
+
+    auto *fetchProcess = new QProcess(&dialog);
+    connect(fetchProcess, &QProcess::errorOccurred, &dialog, [statusLabel](QProcess::ProcessError)
+    {
+        statusLabel->setText("Failed to start network request (curl is required).");
+    });
+
+    connect(fetchProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), &dialog,
+            [fetchProcess, statusLabel, updateButton, &releasePageUrl](int exitCode, QProcess::ExitStatus exitStatus)
+    {
+        if (exitStatus == QProcess::NormalExit && exitCode == 0)
+        {
+            const QByteArray payload = fetchProcess->readAllStandardOutput();
+            const QJsonDocument doc = QJsonDocument::fromJson(payload);
+            if (doc.isObject())
+            {
+                const QJsonObject obj = doc.object();
+                const QString latestTag = obj.value(QStringLiteral("tag_name")).toString().trimmed();
+                const QString htmlUrl = obj.value(QStringLiteral("html_url")).toString().trimmed();
+
+                if (!latestTag.isEmpty())
+                {
+                    if (Version::isNewerVersion(latestTag, QStringLiteral(MAVLINK_LAB_VERSION)))
+                    {
+                        statusLabel->setText(QString("A new version (%1) is available! Click Update to open release page.").arg(latestTag));
+                        if (!htmlUrl.isEmpty())
+                        {
+                            releasePageUrl = htmlUrl;
+                        }
+                        updateButton->setVisible(true);
+                    }
+                    else
+                    {
+                        statusLabel->setText("You are using the latest version.");
+                        updateButton->setVisible(false);
+                    }
+                }
+                else
+                {
+                    statusLabel->setText("Unable to parse version information from GitHub.");
+                    updateButton->setVisible(false);
+                }
+            }
+            else
+            {
+                statusLabel->setText("Invalid response received from GitHub.");
+                updateButton->setVisible(false);
+            }
+        }
+        else
+        {
+            statusLabel->setText("Failed to fetch release information. Please check your network connection.");
+            updateButton->setVisible(false);
+        }
+    });
+
+    const QStringList args = {
+        "-s",
+        "--connect-timeout", "10",
+        "-H", "User-Agent: MAVLinkLab",
+        "-H", "Accept: application/vnd.github.v3+json",
+        QString::fromLatin1(Version::kLatestReleaseApiUrl)
+    };
+    fetchProcess->start("curl", args);
+
+    dialog.exec();
+
+    if (fetchProcess->state() != QProcess::NotRunning)
+    {
+        fetchProcess->disconnect();
+        fetchProcess->kill();
+        fetchProcess->waitForFinished(500);
+    }
 }
 
 /** @brief Display a popup menu with preset frequencies and custom rate input. */
