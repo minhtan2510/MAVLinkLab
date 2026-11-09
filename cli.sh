@@ -477,6 +477,54 @@ update_enums()
 }
 
 ##
+# @brief Get the current application version from CMakeLists.txt (Single Source of Truth).
+#
+get_project_version()
+{
+    sed -n 's/^project(MAVLinkLab VERSION \([0-9.]*\) LANGUAGES CXX)/\1/p' "$project_dir/CMakeLists.txt"
+}
+
+##
+# @brief Bump the project version in CMakeLists.txt.
+#
+# @param 1 New version string (e.g. 1.3.0 or v1.3.0).
+#
+bump_project_version()
+{
+    local new_ver="${1:-}"
+    if [[ -z "$new_ver" ]]; then
+        printf "%bUsage: %s bump <new-version> (e.g. ./cli.sh bump 1.3.0)%b\n" "$RED" "$0" "$NC" >&2
+        return 1
+    fi
+    new_ver="${new_ver#v}"
+    if ! [[ "$new_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        printf "%bInvalid SemVer format: '%s'. Expected X.Y.Z%b\n" "$RED" "$new_ver" "$NC" >&2
+        return 1
+    fi
+    local old_ver
+    old_ver="$(get_project_version)"
+    sed -i "s/^project(MAVLinkLab VERSION [0-9.]* LANGUAGES CXX)/project(MAVLinkLab VERSION ${new_ver} LANGUAGES CXX)/" "$project_dir/CMakeLists.txt"
+    printf "%bUpdated project version: %s -> %s%b\n" "$GREEN" "$old_ver" "$new_ver" "$NC"
+}
+
+##
+# @brief Interactive prompt to bump the project version.
+#
+bump_version_interactive()
+{
+    local current_ver
+    current_ver="$(get_project_version)"
+    printf "\n%bCurrent project version: %s%b\n" "$CYAN" "$current_ver" "$NC"
+    local input_ver
+    read -rp "Enter new version (X.Y.Z) or leave empty to cancel: " input_ver
+    if [[ -z "$input_ver" ]]; then
+        printf "%bOperation cancelled.%b\n" "$YELLOW" "$NC"
+        return 0
+    fi
+    bump_project_version "$input_ver"
+}
+
+##
 # @brief Print CLI command usage help.
 #
 show_help()
@@ -503,6 +551,8 @@ show_help()
     printf "    submodules          Update git submodules\n"
     printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
     printf "    sync-graph          Synchronize CodeGraph index\n"
+    printf "    version             Display current project version\n"
+    printf "    bump <version>      Update project version in CMakeLists.txt\n"
     printf "    menu                Open interactive menu (default when no args)\n"
     printf "    help, -h, --help    Show this help message\n\n"
     printf "Environment Variables:\n"
@@ -732,7 +782,10 @@ menu_tools()
 {
     while true; do
         local choice
+        local cur_ver
+        cur_ver="$(get_project_version)"
         prompt_menu "Tools & Utilities" choice \
+            "Bump project version (Current: ${cur_ver})" \
             "Update git submodules" \
             "Regenerate MAVLink enums from XML" \
             "Sync CodeGraph" \
@@ -740,16 +793,21 @@ menu_tools()
 
         case "$choice" in
             0)
-                update_submodules || true
+                bump_version_interactive || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             1)
-                update_enums || true
+                update_submodules || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             2)
+                update_enums || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            3)
                 sync_codegraph || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
@@ -774,7 +832,7 @@ interactive_menu()
             "[Build]  Build all, rebuild, or clean project" \
             "[Run]    Run project" \
             "[Test]   Run all tests or core tests" \
-            "[Tools]  Update submodules or sync CodeGraph" \
+            "[Tools]  Version bump, submodules, CodeGraph" \
             "[Exit]   Exit CLI"
 
         case "$choice" in
@@ -898,6 +956,13 @@ case "$cmd" in
     sync-graph)
         shift
         sync_codegraph "$@"
+        ;;
+    version)
+        printf "%s\n" "$(get_project_version)"
+        ;;
+    bump)
+        shift
+        bump_project_version "$@"
         ;;
     menu)
         interactive_menu

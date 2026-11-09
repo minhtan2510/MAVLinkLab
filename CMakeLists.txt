@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(MAVLinkLab VERSION 1.1.1 LANGUAGES CXX)
+project(MAVLinkLab VERSION 1.2.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -47,8 +47,10 @@ if(BUILD_GUI)
         set(MAVLINK_LIB_GIT_HASH "unknown")
     endif()
     add_library(mavdesktop src/worker.cpp src/window.cpp src/profile.cpp)
-    target_compile_definitions(mavdesktop PRIVATE
+    target_compile_definitions(mavdesktop PUBLIC
         MAVLINK_LAB_VERSION="${PROJECT_VERSION}"
+    )
+    target_compile_definitions(mavdesktop PRIVATE
         MAVLINK_LIB_GIT_HASH="${MAVLINK_LIB_GIT_HASH}"
     )
     target_link_libraries(mavdesktop PUBLIC mavcore Qt6::Widgets Qt6::SerialPort)
