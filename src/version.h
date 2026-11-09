@@ -5,7 +5,7 @@
 #include <tuple>
 
 #ifndef MAVLINK_LAB_VERSION
-#define MAVLINK_LAB_VERSION "1.1.1"
+#define MAVLINK_LAB_VERSION "1.2.0"
 #endif
 
 namespace Version

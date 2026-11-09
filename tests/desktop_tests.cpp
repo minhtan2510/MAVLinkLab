@@ -2702,6 +2702,9 @@ private slots:
         QVERIFY(!Version::isNewerVersion("v1.1.0", "1.1.1"));
         QVERIFY(!Version::isNewerVersion("v0.1.0", "1.1.1"));
         QVERIFY(Version::isNewerVersion("1.1.2", "1.1.1"));
+        QVERIFY(!Version::isNewerVersion("v1.2.0", MAVLINK_LAB_VERSION));
+        QVERIFY(Version::isNewerVersion("v1.2.1", MAVLINK_LAB_VERSION));
+        QVERIFY(!Version::isNewerVersion("v1.1.1", MAVLINK_LAB_VERSION));
 
         // 2. Verify UI Menu Action and Dialog Elements
         MainWindow window;
