@@ -127,6 +127,7 @@
   * Helper `./cli.sh bump <version>` and `./cli.sh version` automate version updates in a single command.
   * Asynchronously fetches latest GitHub release metadata via non-blocking `curl` subprocess, avoiding extra library dependencies and TLS configuration pitfalls.
   * SemVer parsing (`Version::isNewerVersion`) dynamically reveals the "Update" button to launch the browser release page only when a newer version is available.
+  * Browser launch (`openUrlQuietly`): Uses detached `xdg-open` with `QProcess::nullDevice()` redirection on Linux to eliminate noisy Chromium/Google Chrome zygote `Broken pipe` terminal stderr output when opening existing browser sessions.
   * Safely terminates any active background fetch process upon dialog close to prevent `QProcess: Destroyed while process is still running` crashes.
 
 ---
