@@ -508,6 +508,23 @@ bump_project_version()
 }
 
 ##
+# @brief Interactive prompt to bump the project version.
+#
+bump_version_interactive()
+{
+    local current_ver
+    current_ver="$(get_project_version)"
+    printf "\n%bCurrent project version: %s%b\n" "$CYAN" "$current_ver" "$NC"
+    local input_ver
+    read -rp "Enter new version (X.Y.Z) or leave empty to cancel: " input_ver
+    if [[ -z "$input_ver" ]]; then
+        printf "%bOperation cancelled.%b\n" "$YELLOW" "$NC"
+        return 0
+    fi
+    bump_project_version "$input_ver"
+}
+
+##
 # @brief Print CLI command usage help.
 #
 show_help()
@@ -765,7 +782,10 @@ menu_tools()
 {
     while true; do
         local choice
+        local cur_ver
+        cur_ver="$(get_project_version)"
         prompt_menu "Tools & Utilities" choice \
+            "Bump project version (Current: ${cur_ver})" \
             "Update git submodules" \
             "Regenerate MAVLink enums from XML" \
             "Sync CodeGraph" \
@@ -773,16 +793,21 @@ menu_tools()
 
         case "$choice" in
             0)
-                update_submodules || true
+                bump_version_interactive || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             1)
-                update_enums || true
+                update_submodules || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             2)
+                update_enums || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            3)
                 sync_codegraph || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
@@ -807,7 +832,7 @@ interactive_menu()
             "[Build]  Build all, rebuild, or clean project" \
             "[Run]    Run project" \
             "[Test]   Run all tests or core tests" \
-            "[Tools]  Update submodules or sync CodeGraph" \
+            "[Tools]  Version bump, submodules, CodeGraph" \
             "[Exit]   Exit CLI"
 
         case "$choice" in
