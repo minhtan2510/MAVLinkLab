@@ -34,6 +34,19 @@ if [[ ! -t 1 ]]; then
     NC=''
 fi
 
+# Developer mode flag: activated via -dev or --dev argument.
+IS_DEV_MODE=0
+_filtered_args=()
+for _arg in "$@"; do
+    if [[ "$_arg" == "-dev" || "$_arg" == "--dev" ]]; then
+        IS_DEV_MODE=1
+    else
+        _filtered_args+=("$_arg")
+    fi
+done
+set -- "${_filtered_args[@]}"
+unset _filtered_args _arg
+
 ##
 # @brief Safely clear terminal screen without failing if TERM is unset.
 #
@@ -529,34 +542,56 @@ bump_version_interactive()
 #
 show_help()
 {
-    printf "Usage: %s [group/command] [options...]\n\n" "$0"
-    printf "Groups & Commands:\n"
-    printf "  Build:\n"
-    printf "    build [all]         Build full desktop app & test suites (default)\n"
-    printf "    build core          Build core-only library & tests (no Qt)\n"
-    printf "    build rebuild       Clean and rebuild full project\n"
-    printf "    build clean         Delete build directories\n\n"
-    printf "  Run:\n"
-    printf "    run                 Launch single MAVLinkLab window\n"
-    printf "    run <N>             Launch N MAVLinkLab windows (e.g. ./cli.sh run 3)\n"
-    printf "    run -n <N>          Launch N MAVLinkLab windows\n"
-    printf "    run --two           Launch two MAVLinkLab windows\n"
-    printf "    run-two             Alias for 2 MAVLinkLab windows\n\n"
-    printf "  Test:\n"
-    printf "    test [all]          Run all tests (Core & Desktop offscreen)\n"
-    printf "    test core           Run core tests only\n\n"
-    printf "  Utilities:\n"
-    printf "    clean               Delete build directories\n"
-    printf "    rebuild             Clean and rebuild full project\n"
-    printf "    submodules          Update git submodules\n"
-    printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
-    printf "    sync-graph          Synchronize CodeGraph index\n"
-    printf "    version             Display current project version\n"
-    printf "    bump <version>      Update project version in CMakeLists.txt\n"
-    printf "    menu                Open interactive menu (default when no args)\n"
-    printf "    help, -h, --help    Show this help message\n\n"
-    printf "Environment Variables:\n"
-    printf "  MAVLINK_BUILD_DIR     Select custom build directory (default: build)\n"
+    if [[ "$IS_DEV_MODE" -eq 1 ]]; then
+        printf "Usage: %s -dev [group/command] [options...]\n\n" "$0"
+        printf "Groups & Commands (Developer Mode):\n"
+        printf "  Build:\n"
+        printf "    build [all]         Build full desktop app & test suites (default)\n"
+        printf "    build core          Build core-only library & tests (no Qt)\n"
+        printf "    build rebuild       Clean and rebuild full project\n"
+        printf "    build clean         Delete build directories\n\n"
+        printf "  Run:\n"
+        printf "    run                 Launch single MAVLinkLab window\n"
+        printf "    run <N>             Launch N MAVLinkLab windows (e.g. ./cli.sh run 3)\n"
+        printf "    run -n <N>          Launch N MAVLinkLab windows\n"
+        printf "    run --two           Launch two MAVLinkLab windows\n"
+        printf "    run-two             Alias for 2 MAVLinkLab windows\n\n"
+        printf "  Test:\n"
+        printf "    test [all]          Run all tests (Core & Desktop offscreen)\n"
+        printf "    test core           Run core tests only\n\n"
+        printf "  Utilities:\n"
+        printf "    clean               Delete build directories\n"
+        printf "    rebuild             Clean and rebuild full project\n"
+        printf "    submodules          Update git submodules\n"
+        printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
+        printf "    sync-graph          Synchronize CodeGraph index\n"
+        printf "    version             Display current project version\n"
+        printf "    bump <version>      Update project version in CMakeLists.txt\n"
+        printf "    menu                Open interactive menu (default when no args)\n"
+        printf "    help, -h, --help    Show this help message\n\n"
+        printf "Environment Variables:\n"
+        printf "  MAVLINK_BUILD_DIR     Select custom build directory (default: build)\n"
+    else
+        printf "Usage: %s [command] [options...]\n\n" "$0"
+        printf "Commands:\n"
+        printf "  Build:\n"
+        printf "    build [all]         Build full desktop app (default)\n"
+        printf "    build core          Build core-only library (no Qt)\n"
+        printf "    build clean         Delete build directories\n"
+        printf "    build rebuild       Clean and rebuild full project\n\n"
+        printf "  Run:\n"
+        printf "    run                 Launch single MAVLinkLab window\n"
+        printf "    run <N>             Launch N MAVLinkLab windows (e.g. ./cli.sh run 3)\n"
+        printf "    run --two           Launch two MAVLinkLab windows\n\n"
+        printf "  General:\n"
+        printf "    clean               Delete build directories\n"
+        printf "    rebuild             Clean and rebuild full project\n"
+        printf "    menu                Open interactive menu (default when no args)\n"
+        printf "    help, -h, --help    Show this help message\n\n"
+        printf "Developer Mode:\n"
+        printf "    Pass '-dev' flag for development workbench (testing, CodeGraph, MAVLink tools, version bump).\n"
+        printf "    Example: %s -dev\n\n" "$0"
+    fi
 }
 
 ##
@@ -671,45 +706,81 @@ menu_build()
 {
     while true; do
         local choice
-        prompt_menu "Build Management" choice \
-            "Build all (Full Desktop + Tests)" \
-            "Install / update dependencies (requirement.txt)" \
-            "Build core only (No GUI)" \
-            "Rebuild project (Clean + Build)" \
-            "Clean build artifacts" \
-            "← Back to Main Menu"
+        if [[ "$IS_DEV_MODE" -eq 1 ]]; then
+            prompt_menu "Build Management (Dev Mode)" choice \
+                "Build all (Full Desktop + Tests)" \
+                "Install / update dependencies (requirement.txt)" \
+                "Build core only (No GUI)" \
+                "Rebuild project (Clean + Build)" \
+                "Clean build artifacts" \
+                "← Back to Main Menu"
 
-        case "$choice" in
-            0)
-                build_full || true
-                read -rp "Press Enter to continue..." _dummy
-                safe_clear
-                ;;
-            1)
-                install_requirements || true
-                read -rp "Press Enter to continue..." _dummy
-                safe_clear
-                ;;
-            2)
-                build_core || true
-                read -rp "Press Enter to continue..." _dummy
-                safe_clear
-                ;;
-            3)
-                rebuild_project || true
-                read -rp "Press Enter to continue..." _dummy
-                safe_clear
-                ;;
-            4)
-                clean_artifacts || true
-                read -rp "Press Enter to continue..." _dummy
-                safe_clear
-                ;;
-            *)
-                safe_clear
-                return 0
-                ;;
-        esac
+            case "$choice" in
+                0)
+                    build_full || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                1)
+                    install_requirements || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                2)
+                    build_core || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                3)
+                    rebuild_project || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                4)
+                    clean_artifacts || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                *)
+                    safe_clear
+                    return 0
+                    ;;
+            esac
+        else
+            prompt_menu "Build Management" choice \
+                "Build all (Full Desktop)" \
+                "Build core only (No GUI)" \
+                "Clean build artifacts" \
+                "Rebuild project (Clean + Build)" \
+                "← Back to Main Menu"
+
+            case "$choice" in
+                0)
+                    build_full || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                1)
+                    build_core || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                2)
+                    clean_artifacts || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                3)
+                    rebuild_project || true
+                    read -rp "Press Enter to continue..." _dummy
+                    safe_clear
+                    ;;
+                *)
+                    safe_clear
+                    return 0
+                    ;;
+            esac
+        fi
     done
 }
 
@@ -828,36 +899,59 @@ interactive_menu()
     safe_clear
     while true; do
         local choice
-        prompt_menu "MAVLinkLab CLI Workbench" choice \
-            "[Build]  Build all, rebuild, or clean project" \
-            "[Run]    Run project" \
-            "[Test]   Run all tests or core tests" \
-            "[Tools]  Version bump, submodules, CodeGraph" \
-            "[Exit]   Exit CLI"
+        if [[ "$IS_DEV_MODE" -eq 1 ]]; then
+            prompt_menu "MAVLinkLab CLI Workbench (Dev Mode)" choice \
+                "[Build]  Build all, rebuild, or clean project" \
+                "[Run]    Run project" \
+                "[Test]   Run all tests or core tests" \
+                "[Tools]  Version bump, submodules, CodeGraph" \
+                "[Exit]   Exit CLI"
 
-        case "$choice" in
-            0)
-                safe_clear
-                menu_build
-                ;;
-            1)
-                safe_clear
-                menu_run
-                ;;
-            2)
-                safe_clear
-                menu_test
-                ;;
-            3)
-                safe_clear
-                menu_tools
-                ;;
-            4|-1)
-                printf "\033[?25h"
-                printf "\nExiting MAVLinkLab CLI. Goodbye!\n"
-                exit 0
-                ;;
-        esac
+            case "$choice" in
+                0)
+                    safe_clear
+                    menu_build
+                    ;;
+                1)
+                    safe_clear
+                    menu_run
+                    ;;
+                2)
+                    safe_clear
+                    menu_test
+                    ;;
+                3)
+                    safe_clear
+                    menu_tools
+                    ;;
+                4|-1)
+                    printf "\033[?25h"
+                    printf "\nExiting MAVLinkLab CLI. Goodbye!\n"
+                    exit 0
+                    ;;
+            esac
+        else
+            prompt_menu "MAVLinkLab CLI Workbench" choice \
+                "[Build]  Build all, core, clean, or rebuild" \
+                "[Run]    Run MAVLinkLab" \
+                "[Exit]   Exit CLI"
+
+            case "$choice" in
+                0)
+                    safe_clear
+                    menu_build
+                    ;;
+                1)
+                    safe_clear
+                    menu_run
+                    ;;
+                2|-1)
+                    printf "\033[?25h"
+                    printf "\nExiting MAVLinkLab CLI. Goodbye!\n"
+                    exit 0
+                    ;;
+            esac
+        fi
     done
 }
 
