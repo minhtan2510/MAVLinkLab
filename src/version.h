@@ -4,8 +4,10 @@
 #include <QStringList>
 #include <tuple>
 
+// MAVLINK_LAB_VERSION is injected globally by CMake from project(MAVLinkLab VERSION x.y.z).
+// Do not hardcode project version here; CMakeLists.txt is the Single Source of Truth.
 #ifndef MAVLINK_LAB_VERSION
-#define MAVLINK_LAB_VERSION "1.2.0"
+#define MAVLINK_LAB_VERSION "0.0.0"
 #endif
 
 namespace Version

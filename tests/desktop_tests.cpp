@@ -2690,21 +2690,22 @@ private slots:
     /** @brief Verify SemVer comparison, Help menu action, and Check for Updates dialog layout. */
     void checkForUpdatesDialog()
     {
-        // 1. Verify SemVer parsing and comparison logic
-        QCOMPARE(Version::parseSemVer("v1.1.1"), std::make_tuple(1, 1, 1));
-        QCOMPARE(Version::parseSemVer("1.1.1"), std::make_tuple(1, 1, 1));
+        // 1. Verify SemVer parsing and comparison logic with fixed fixture versions
+        QCOMPARE(Version::parseSemVer("v1.2.3"), std::make_tuple(1, 2, 3));
+        QCOMPARE(Version::parseSemVer("1.2.3"), std::make_tuple(1, 2, 3));
         QCOMPARE(Version::parseSemVer("0.1.0-alpha"), std::make_tuple(0, 1, 0));
         QCOMPARE(Version::parseSemVer("2.0.0+build123"), std::make_tuple(2, 0, 0));
 
-        QVERIFY(!Version::isNewerVersion("v1.1.1", "1.1.1"));
-        QVERIFY(Version::isNewerVersion("v1.2.0", "1.1.1"));
-        QVERIFY(Version::isNewerVersion("v2.0.0", "1.1.1"));
-        QVERIFY(!Version::isNewerVersion("v1.1.0", "1.1.1"));
-        QVERIFY(!Version::isNewerVersion("v0.1.0", "1.1.1"));
-        QVERIFY(Version::isNewerVersion("1.1.2", "1.1.1"));
-        QVERIFY(!Version::isNewerVersion("v1.2.0", MAVLINK_LAB_VERSION));
-        QVERIFY(Version::isNewerVersion("v1.2.1", MAVLINK_LAB_VERSION));
-        QVERIFY(!Version::isNewerVersion("v1.1.1", MAVLINK_LAB_VERSION));
+        QVERIFY(!Version::isNewerVersion("v1.0.0", "1.0.0"));
+        QVERIFY(Version::isNewerVersion("v1.0.1", "1.0.0"));
+        QVERIFY(Version::isNewerVersion("v1.1.0", "1.0.0"));
+        QVERIFY(Version::isNewerVersion("v2.0.0", "1.0.0"));
+        QVERIFY(!Version::isNewerVersion("v0.9.0", "1.0.0"));
+
+        // Verify dynamic comparison against current app version from CMake
+        QVERIFY(!Version::isNewerVersion(QString(MAVLINK_LAB_VERSION), QString(MAVLINK_LAB_VERSION)));
+        QVERIFY(Version::isNewerVersion("999.0.0", QString(MAVLINK_LAB_VERSION)));
+        QVERIFY(!Version::isNewerVersion("0.0.1", QString(MAVLINK_LAB_VERSION)));
 
         // 2. Verify UI Menu Action and Dialog Elements
         MainWindow window;

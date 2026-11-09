@@ -121,8 +121,10 @@
     * Provides inline real-time parameter search via `paramFilter` (`QLineEdit`).
     * Parameter modification: Double-clicking any parameter row or right-clicking to select "Edit parameter…" opens a modal dialog validating input against the parameter type, and immediately dispatches `PARAM_SET` (msgid 23) via worker slots.
     * Selecting any other message automatically restores standard `DECODED FIELDS` and hides parameter controls.
-* **In-App Update Checker Dialog (`Help -> Check for update...`):**
-  * Centralized version management in `src/version.h` and `CMakeLists.txt` synchronized with GitHub releases (`1.2.0`).
+* **In-App Update Checker Dialog & Version Single Source of Truth (SSOT):**
+  * `CMakeLists.txt` (`project(MAVLinkLab VERSION x.y.z)`) is the strict Single Source of Truth for the application version.
+  * CMake injects `MAVLINK_LAB_VERSION="${PROJECT_VERSION}"` globally (`PUBLIC` definition on `mavdesktop`), eliminating duplicate hardcoded strings across headers and tests.
+  * Helper `./cli.sh bump <version>` and `./cli.sh version` automate version updates in a single command.
   * Asynchronously fetches latest GitHub release metadata via non-blocking `curl` subprocess, avoiding extra library dependencies and TLS configuration pitfalls.
   * SemVer parsing (`Version::isNewerVersion`) dynamically reveals the "Update" button to launch the browser release page only when a newer version is available.
   * Safely terminates any active background fetch process upon dialog close to prevent `QProcess: Destroyed while process is still running` crashes.
