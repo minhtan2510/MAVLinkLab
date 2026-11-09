@@ -4178,6 +4178,28 @@ void MainWindow::exportProfile()
 }
 
 /**
+ * @brief Open a URL in the system browser quietly, suppressing external browser stderr logs.
+ * @param url Target URL to navigate to.
+ */
+static void openUrlQuietly(const QString &url)
+{
+#if defined(Q_OS_LINUX)
+    // Run xdg-open in detached mode redirecting stdout/stderr to /dev/null
+    // to suppress noisy Chromium zygote/broken-pipe logs on Linux terminals.
+    QProcess process;
+    process.setProgram(QStringLiteral("xdg-open"));
+    process.setArguments({url});
+    process.setStandardOutputFile(QProcess::nullDevice());
+    process.setStandardErrorFile(QProcess::nullDevice());
+    if (process.startDetached())
+    {
+        return;
+    }
+#endif
+    QDesktopServices::openUrl(QUrl(url));
+}
+
+/**
  * @brief Display the Check for Updates dialog and query GitHub latest release.
  */
 void MainWindow::checkForUpdates()
@@ -4219,7 +4241,7 @@ void MainWindow::checkForUpdates()
     QString releasePageUrl = QString::fromLatin1(Version::kReleasesPageUrl);
     connect(updateButton, &QPushButton::clicked, &dialog, [&releasePageUrl, &dialog]()
     {
-        QDesktopServices::openUrl(QUrl(releasePageUrl));
+        openUrlQuietly(releasePageUrl);
         dialog.accept();
     });
 
