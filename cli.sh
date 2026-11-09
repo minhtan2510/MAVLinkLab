@@ -613,7 +613,7 @@ prompt_menu()
         printf "\033[1;36m====================================================\033[0m\033[K\n"
         printf "\033[1;36m  %-48s  \033[0m\033[K\n" "$title"
         printf "\033[1;36m====================================================\033[0m\033[K\n"
-        printf "\033[90mUse \xE2\x86\x91/\xE2\x86\x93 (or j/k) to navigate, Enter to select, q to back\033[0m\033[K\n"
+        printf "\033[90mUse \xE2\x86\x91/\xE2\x86\x93 (or j/k) to navigate, Enter to select, Esc/Backspace/q to back\033[0m\033[K\n"
         printf "\033[K\n"
 
         for i in "${!options[@]}"; do
@@ -630,7 +630,7 @@ prompt_menu()
         IFS= read -rsn1 key || true
 
         if [[ "$key" == $'\e' ]]; then
-            IFS= read -rsn2 -t 0.1 rest || true
+            IFS= read -rsn2 -t 0.05 rest || true
             key+="$rest"
         fi
 
@@ -654,7 +654,7 @@ prompt_menu()
                 eval "$return_var=$selected"
                 return 0
                 ;;
-            q|Q|$'\e')
+            q|Q|$'\e'|$'\177'|$'\b')
                 printf "\033[?25h"
                 menu_selections["$title"]=$selected
                 eval "$return_var=-1"
