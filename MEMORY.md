@@ -47,10 +47,12 @@
 ---
 
 ## 3. Known Gotchas & Constraints
-* **Custom Qt Prefix & CTest Offscreen Platform:**
-  * When running `ctest` in environments where Qt resides in a non-standard prefix (e.g. `/tmp/mavlink-qt-prefix`), set:
-    `QT_PLUGIN_PATH=/path/to/qt6/plugins LD_LIBRARY_PATH=/path/to/qt6/lib ctest --test-dir build --output-on-failure`
-  * Missing these variables results in `Could not find the Qt platform plugin "offscreen"`.
+* **Custom Qt Prefix & Local Dependencies (`requirement.txt`):**
+  * Previously, Qt packages were unpacked into `/tmp/mavlink-qt-prefix/usr`, which gets wiped on system reboots or periodic `/tmp` cleanup, causing `FindQt6.cmake` missing errors.
+  * The workbench now uses [requirement.txt](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/requirement.txt) containing the required APT packages (`qt6-base-dev`, `libqt6serialport6-dev`, etc.).
+  * Running `build_full` in [cli.sh](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/cli.sh) automatically invokes `install_requirements()`, which downloads and extracts packages directly into `$project_dir/.deps` using `apt-get download` and `dpkg-deb -x` without requiring `sudo`.
+  * [CMakeLists.txt](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/CMakeLists.txt) and `detect_qt_prefix()` automatically detect `.deps/usr`, ensuring builds are persistent across system reboots.
+  * When running `ctest`, `setup_qt_env()` in `cli.sh` configures `QT_PLUGIN_PATH` and `LD_LIBRARY_PATH` automatically based on CMakeCache or `.deps/usr`.
 * **Hardware & Serial Limits:**
   * Disconnect must immediately stop periodic TX and discard pending output.
   * Do not toggle DTR/RTS aggressively to avoid unintended device resets.
