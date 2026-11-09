@@ -50,28 +50,33 @@ safe_clear()
 setup_qt_env()
 {
     local cache="$build_dir/CMakeCache.txt"
+    local qt_cmake_dir=""
     if [[ -r "$cache" ]]; then
-        local qt_cmake_dir
         qt_cmake_dir="$(sed -n 's/^Qt6Core_DIR:PATH=//p' "$cache")"
-        if [[ -n "$qt_cmake_dir" ]]; then
-            if [[ ! -d "$qt_cmake_dir/../.." ]]; then
-                printf "%bConfigured Qt installation is missing. Reconfigure and rebuild with an available Qt installation.%b\n" "$RED" "$NC" >&2
-                return 1
-            fi
-            local qt_lib_dir
-            qt_lib_dir="$(cd -- "$qt_cmake_dir/../.." && pwd)"
-            if [[ ! -r "$qt_lib_dir/libQt6Core.so.6" ]]; then
-                printf "%bQt runtime not found in %s. Reconfigure and rebuild with a complete Qt installation.%b\n" "$RED" "$qt_lib_dir" "$NC" >&2
-                return 1
-            fi
-            export LD_LIBRARY_PATH="$qt_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            for plugins in "$qt_lib_dir/qt6/plugins" "$qt_lib_dir/../plugins"; do
-                if [[ -d "$plugins/platforms" ]]; then
-                    export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
-                    break
-                fi
-            done
+    fi
+
+    if [[ -z "$qt_cmake_dir" && -d "$project_dir/.deps/usr/lib/x86_64-linux-gnu" ]]; then
+        qt_cmake_dir="$project_dir/.deps/usr/lib/x86_64-linux-gnu/cmake/Qt6Core"
+    fi
+
+    if [[ -n "$qt_cmake_dir" ]]; then
+        if [[ ! -d "$qt_cmake_dir/../.." ]]; then
+            printf "%bConfigured Qt installation is missing. Reconfigure and rebuild with an available Qt installation.%b\n" "$RED" "$NC" >&2
+            return 1
         fi
+        local qt_lib_dir
+        qt_lib_dir="$(cd -- "$qt_cmake_dir/../.." && pwd)"
+        if [[ ! -r "$qt_lib_dir/libQt6Core.so.6" ]]; then
+            printf "%bQt runtime not found in %s. Reconfigure and rebuild with a complete Qt installation.%b\n" "$RED" "$qt_lib_dir" "$NC" >&2
+            return 1
+        fi
+        export LD_LIBRARY_PATH="$qt_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        for plugins in "$qt_lib_dir/qt6/plugins" "$qt_lib_dir/../plugins"; do
+            if [[ -d "$plugins/platforms" ]]; then
+                export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+                break
+            fi
+        done
     fi
 }
 
@@ -84,6 +89,11 @@ detect_qt_prefix()
 {
     if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
         printf '%s' "$CMAKE_PREFIX_PATH"
+        return 0
+    fi
+
+    if [[ -d "$project_dir/.deps/usr" ]]; then
+        printf '%s' "$project_dir/.deps/usr"
         return 0
     fi
 
@@ -105,7 +115,84 @@ detect_qt_prefix()
 }
 
 ##
+# @brief Install required dependencies from requirement.txt into project .deps directory.
+#
+# @return 0 on success, non-zero on failure.
+#
+install_requirements()
+{
+    local req_file="$project_dir/requirement.txt"
+    if [[ ! -f "$req_file" && -f "$project_dir/requirements.txt" ]]; then
+        req_file="$project_dir/requirements.txt"
+    fi
+
+    if [[ ! -f "$req_file" ]]; then
+        return 0
+    fi
+
+    local deps_dir="$project_dir/.deps"
+    local stamp_file="$deps_dir/.installed_stamp"
+    local req_hash
+    req_hash="$(sha256sum "$req_file" | awk '{print $1}')"
+
+    if [[ -f "$stamp_file" && -r "$deps_dir/usr/lib/x86_64-linux-gnu/libQt6Core.so.6" ]]; then
+        local saved_hash
+        saved_hash="$(cat "$stamp_file" 2>/dev/null || true)"
+        if [[ "$saved_hash" == "$req_hash" ]]; then
+            return 0
+        fi
+    fi
+
+    printf "\n%b=== Installing Dependencies from %s ===%b\n" "$BLUE" "$(basename "$req_file")" "$NC"
+    printf "Target directory: %b%s%b\n" "$CYAN" "$deps_dir" "$NC"
+
+    local packages=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        if [[ -n "$line" && ! "$line" =~ ^# ]]; then
+            packages+=("$line")
+        fi
+    done < "$req_file"
+
+    if [[ "${#packages[@]}" -eq 0 ]]; then
+        printf "%bNo packages specified in %s.%b\n" "$YELLOW" "$(basename "$req_file")" "$NC"
+        return 0
+    fi
+
+    local temp_download_dir
+    temp_download_dir="$(mktemp -d /tmp/mavlink_req_XXXXXX)"
+
+    cleanup_temp()
+    {
+        rm -rf "$temp_download_dir"
+    }
+    trap cleanup_temp RETURN
+
+    printf "%bDownloading %d package(s) via apt-get download...%b\n" "$CYAN" "${#packages[@]}" "$NC"
+    if ! (cd "$temp_download_dir" && apt-get download "${packages[@]}"); then
+        printf "%bFailed to download requirement packages!%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
+    printf "%bExtracting packages into %s...%b\n" "$CYAN" "$deps_dir" "$NC"
+    mkdir -p "$deps_dir"
+    local deb_count=0
+    for deb in "$temp_download_dir"/*.deb; do
+        if [[ -f "$deb" ]]; then
+            dpkg-deb -x "$deb" "$deps_dir"
+            deb_count=$((deb_count + 1))
+        fi
+    done
+
+    printf "%s" "$req_hash" > "$stamp_file"
+    printf "%bSuccessfully installed %d package(s) into %s!%b\n" "$GREEN" "$deb_count" "$deps_dir" "$NC"
+    return 0
+}
+
+##
 # @brief Update git submodules recursively.
+#
+# @return 0 on success, non-zero on failure.
 #
 update_submodules()
 {
@@ -131,10 +218,19 @@ build_full()
     if ! update_enums; then
         return 1
     fi
+    if ! install_requirements; then
+        return 1
+    fi
 
     local need_config=0
     if [[ ! -f "$build_dir/CMakeCache.txt" || (! -f "$build_dir/Makefile" && ! -f "$build_dir/build.ninja") ]]; then
         need_config=1
+    fi
+
+    if [[ "$need_config" -eq 0 && -f "$build_dir/CMakeCache.txt" ]]; then
+        if grep -q "Qt6_DIR:PATH=Qt6_DIR-NOTFOUND" "$build_dir/CMakeCache.txt"; then
+            need_config=1
+        fi
     fi
 
     if [[ "$need_config" -eq 1 ]]; then
@@ -527,6 +623,7 @@ menu_build()
         local choice
         prompt_menu "Build Management" choice \
             "Build all (Full Desktop + Tests)" \
+            "Install / update dependencies (requirement.txt)" \
             "Build core only (No GUI)" \
             "Rebuild project (Clean + Build)" \
             "Clean build artifacts" \
@@ -539,16 +636,21 @@ menu_build()
                 safe_clear
                 ;;
             1)
-                build_core || true
+                install_requirements || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             2)
-                rebuild_project || true
+                build_core || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             3)
+                rebuild_project || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            4)
                 clean_artifacts || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
@@ -737,6 +839,10 @@ case "$cmd" in
     build-core)
         shift
         build_core "$@"
+        ;;
+    deps|requirements|install-deps)
+        shift
+        install_requirements "$@"
         ;;
     run)
         shift
