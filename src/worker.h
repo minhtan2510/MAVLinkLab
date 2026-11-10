@@ -21,6 +21,38 @@ struct PortConfig
 Q_DECLARE_METATYPE(PortConfig)
 Q_DECLARE_METATYPE(Mav::TxEntry)
 
+/**
+ * @brief Calculate total physical UART framing bits per transmitted byte.
+ * 1 start bit + data bits + parity bit + stop bits.
+ * @param config Serial port configuration.
+ * @return Total bits on wire per byte (e.g. 10.0 for 8N1, 11.0 for 8E1).
+ */
+inline double framingBitsPerByte(const PortConfig &config)
+{
+    const double dataBits = static_cast<double>(config.data > 0 ? int(config.data) : 8);
+    const double parityBits = (config.parity == QSerialPort::NoParity) ? 0.0 : 1.0;
+    const double stopBits = (config.stop == QSerialPort::TwoStop) ? 2.0 :
+                            (config.stop == QSerialPort::OneAndHalfStop) ? 1.5 : 1.0;
+    return 1.0 + dataBits + parityBits + stopBits;
+}
+
+/**
+ * @brief Generate a compact framing description string (e.g. "8N1", "8E1", "7E2").
+ * @param config Serial port configuration.
+ * @return Standard framing notation string.
+ */
+inline QString framingFormatName(const PortConfig &config)
+{
+    const int data = config.data > 0 ? int(config.data) : 8;
+    const char parity = (config.parity == QSerialPort::EvenParity) ? 'E' :
+                        (config.parity == QSerialPort::OddParity) ? 'O' :
+                        (config.parity == QSerialPort::SpaceParity) ? 'S' :
+                        (config.parity == QSerialPort::MarkParity) ? 'M' : 'N';
+    const QString stop = (config.stop == QSerialPort::TwoStop) ? "2" :
+                         (config.stop == QSerialPort::OneAndHalfStop) ? "1.5" : "1";
+    return QString("%1%2%3").arg(data).arg(parity).arg(stop);
+}
+
 struct RxView
 {
     mavlink_message_t message{};
@@ -32,6 +64,7 @@ struct TxView
 {
     Mav::TxEntry entry;
     double measuredHz = 0;
+    double estimatedBps = 0;
 };
 struct Snapshot
 {
@@ -43,6 +76,13 @@ struct Snapshot
     uint64_t overflow = 0;
     double rxBytesPerSecond = 0;
     double txBytesPerSecond = 0;
+    double rxUtilizationPercent = 0;
+    double txUtilizationPercent = 0;
+    double estimatedTxBps = 0;
+    double estimatedTxUtilization = 0;
+    int baud = 115200;
+    double bitsPerByte = 10.0;
+    QString framing = "8N1";
     size_t pending = 0;
 };
 using SnapshotPtr = std::shared_ptr<const Snapshot>;
@@ -151,8 +191,8 @@ private:
     std::deque<uint64_t> owners;
     std::vector<Mav::TxEntry> entries;
     std::map<std::pair<uint8_t, uint8_t>, mavlink_status_t> txStatuses;
-    uint64_t rxBytes = 0;
-    uint64_t txBytes = 0;
+    Mav::ByteRate rxThroughput;
+    Mav::ByteRate txThroughput;
     int64_t lastReport = 0;
     bool closing = false;
     bool reconnecting = false;

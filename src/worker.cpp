@@ -82,7 +82,8 @@ void SerialWorker::initialize()
     connect(port, &QSerialPort::readyRead, this, &SerialWorker::readAvailable);
     connect(port, &QSerialPort::bytesWritten, this, [this](qint64 bytes)
     {
-        txBytes += uint64_t(bytes);
+        const int64_t now = clock.nsecsElapsed() / 1000;
+        txThroughput.add(size_t(bytes), now);
         pump();
     });
     connect(port, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error)
@@ -126,7 +127,8 @@ void SerialWorker::openPort(PortConfig requested)
     }
     parser = {};
     receiver = {};
-    rxBytes = txBytes = 0;
+    rxThroughput.clear();
+    txThroughput.clear();
     lastReport = clock.nsecsElapsed() / 1000;
     emit stateChanged("Connected", true);
 }
@@ -221,9 +223,7 @@ void SerialWorker::setActive(quint64 key, bool active)
             discardOutput();
             return;
         }
-        const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
-                            (config.stop == QSerialPort::TwoStop ? 2.0 :
-                             config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+        const double bits = framingBitsPerByte(config);
         if (!port->isOpen() || !Mav::fitsLink(entries, entry, config.baud, bits))
         {
             entry.error = "Port closed or offered load exceeds link capacity";
@@ -251,9 +251,7 @@ void SerialWorker::setRate(quint64 key, double hz)
         }
         if (entry.active)
         {
-            const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
-                                (config.stop == QSerialPort::TwoStop ? 2.0 :
-                                 config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+            const double bits = framingBitsPerByte(config);
             Mav::TxEntry candidate = entry;
             candidate.hz = hz;
             if (!port->isOpen() || !Mav::fitsLink(entries, candidate, config.baud, bits))
@@ -302,7 +300,8 @@ void SerialWorker::sendRawMessage(mavlink_message_t message)
     const qint64 written = port->write(reinterpret_cast<const char *>(buffer), length);
     if (written > 0)
     {
-        txBytes += uint64_t(written);
+        const int64_t now = clock.nsecsElapsed() / 1000;
+        txThroughput.add(size_t(written), now);
     }
 }
 
@@ -354,9 +353,7 @@ void SerialWorker::runAll()
     {
         entry.active = true;
     }
-    const double bits = 1 + int(config.data) + (config.parity == QSerialPort::NoParity ? 0 : 1) +
-                        (config.stop == QSerialPort::TwoStop ? 2.0 :
-                         config.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+    const double bits = framingBitsPerByte(config);
     for (const auto &entry : requested)
     {
         if (!port->isOpen() || !Mav::fitsLink(requested, entry, config.baud, bits))
@@ -459,7 +456,8 @@ void SerialWorker::clearStatistics()
 {
     receiver = {};
     parser = {};
-    rxBytes = txBytes = 0;
+    rxThroughput.clear();
+    txThroughput.clear();
     lastReport = clock.nsecsElapsed() / 1000;
 }
 
@@ -470,10 +468,10 @@ void SerialWorker::readAvailable()
         return;
     }
     const QByteArray bytes = port->read(8192);
-    rxBytes += uint64_t(bytes.size());
+    const int64_t now = clock.nsecsElapsed() / 1000;
+    rxThroughput.add(bytes.size(), now);
     const auto *data = reinterpret_cast<const uint8_t *>(bytes.constData());
     const auto messages = parser.feed(Mav::Bytes(data, data + bytes.size()));
-    const int64_t now = clock.nsecsElapsed() / 1000;
     for (const auto &message : messages)
     {
         receiver.accept(message, now);
@@ -562,10 +560,20 @@ void SerialWorker::requestSnapshot()
     snapshot->crcErrors = parser.crcErrors;
     snapshot->overflow = receiver.overflow;
     snapshot->pending = queue.size() + size_t(port->bytesToWrite());
-    const double elapsed = std::max(0.000001, (now - lastReport) / 1000000.0);
-    snapshot->rxBytesPerSecond = rxBytes / elapsed;
-    snapshot->txBytesPerSecond = txBytes / elapsed;
-    rxBytes = txBytes = 0;
+    snapshot->rxBytesPerSecond = rxThroughput.bytesPerSecond(now);
+    snapshot->txBytesPerSecond = txThroughput.bytesPerSecond(now);
+    const double bitsPerByte = framingBitsPerByte(config);
+    snapshot->baud = config.baud;
+    snapshot->bitsPerByte = bitsPerByte;
+    snapshot->framing = framingFormatName(config);
+    if (config.baud > 0)
+    {
+        snapshot->rxUtilizationPercent = (snapshot->rxBytesPerSecond * bitsPerByte / config.baud) * 100.0;
+        snapshot->txUtilizationPercent = (snapshot->txBytesPerSecond * bitsPerByte / config.baud) * 100.0;
+    }
+    const auto txEstimate = Mav::estimateTxThroughput(entries, config.baud, bitsPerByte, true);
+    snapshot->estimatedTxBps = txEstimate.totalBytesPerSec;
+    snapshot->estimatedTxUtilization = txEstimate.utilizationPercent;
     lastReport = now;
     snapshot->params = receiver.params;
     for (auto &[key, entry] : receiver.entries)
@@ -576,9 +584,10 @@ void SerialWorker::requestSnapshot()
     for (auto &entry : entries)
     {
         const double measured = entry.measured.hz(now);
+        const double estimatedBps = Mav::estimateEntryThroughput(entry);
         Mav::TxEntry view = entry;
         view.measured = {};
-        snapshot->tx.push_back({std::move(view), measured});
+        snapshot->tx.push_back({std::move(view), measured, estimatedBps});
     }
     emit snapshotReady(snapshot);
 }
@@ -678,7 +687,8 @@ void SerialWorker::attemptReconnect()
     reconnecting = false;
     parser = {};
     receiver = {};
-    rxBytes = txBytes = 0;
+    rxThroughput.clear();
+    txThroughput.clear();
     lastReport = clock.nsecsElapsed() / 1000;
 
     emit stateChanged("Connected", true);

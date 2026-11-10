@@ -129,6 +129,13 @@
   * SemVer parsing (`Version::isNewerVersion`) dynamically reveals the "Update" button to launch the browser release page only when a newer version is available.
   * Browser launch (`openUrlQuietly`): Uses detached `xdg-open` with `QProcess::nullDevice()` redirection on Linux to eliminate noisy Chromium/Google Chrome zygote `Broken pipe` terminal stderr output when opening existing browser sessions.
   * Safely terminates any active background fetch process upon dialog close to prevent `QProcess: Destroyed while process is still running` crashes.
+* **Throughput Tracking & Link Load Estimation:**
+  * Throughput tracking uses `Mav::ByteRate` (1.0-second monotonic sliding window ring buffer) in core logic to eliminate jitter/spikes inherent in periodic interval resets (`bytes / elapsed`).
+  * Wire size computation (`Mav::frameSize`) accounts for MAVLink framing overhead: v1 (`payload + 8`), v2 (`payload + 12`).
+  * Pre-flight TX load estimation (`Mav::estimateTxThroughput`) calculates planned byte rate and channel capacity utilization percentage based on baudrate and physical UART framing (10 bits per byte for 8N1).
+  * `TxSummaryWidget` dynamically displays an antialiased 3rd pill (`~X B/s (Y%)`) when transmitting, color-coded for safety: blue (<70%), amber (70-90%), red (>90% overload).
+  * Message Edit Dialog (`messageLoadEstimate`) interactively computes wire throughput when selecting messages, toggling MAVLink versions, or adjusting frequency spinboxes.
+  * `StatusBarMetricsWidget` displays real-time throughput with contextual tooltips reporting percentage of link capacity and baudrate.
 
 ---
 

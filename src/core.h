@@ -55,6 +55,39 @@ struct Rate
     double hz(int64_t now);
 };
 
+/**
+ * @brief Measures byte throughput over a trailing one-second sliding window.
+ */
+struct ByteRate
+{
+    struct Sample
+    {
+        int64_t time = 0;
+        size_t bytes = 0;
+    };
+    std::deque<Sample> samples;
+    size_t totalBytes = 0;
+
+    /**
+     * @brief Record byte count at monotonic microsecond timestamp.
+     * @param count Number of bytes received or transmitted.
+     * @param now Monotonic clock timestamp in microseconds.
+     */
+    void add(size_t count, int64_t now);
+
+    /**
+     * @brief Return throughput in bytes per second over trailing one-second window.
+     * @param now Current monotonic clock timestamp in microseconds.
+     * @return Throughput in bytes per second.
+     */
+    double bytesPerSecond(int64_t now);
+
+    /**
+     * @brief Clear all recorded samples and reset total bytes.
+     */
+    void clear();
+};
+
 /** @brief Decoded MAVLink parameter item. */
 struct ParamItem
 {
@@ -125,6 +158,43 @@ bool fitsLink(const std::vector<TxEntry> &entries, const TxEntry &candidate,
               int baud, double bitsPerByte);
 /** @brief Advance a due deadline without catch-up bursts. */
 bool due(TxEntry &entry, int64_t now);
+
+/**
+ * @brief Throughput estimation metrics for transmitter configurations.
+ */
+struct TxEstimate
+{
+    double totalBytesPerSec = 0.0;
+    double totalBitsPerSec = 0.0;
+    double linkCapacityBps = 0.0;
+    double utilizationPercent = 0.0;
+    bool fits = true;
+};
+
+/**
+ * @brief Estimate wire throughput for an individual TX entry.
+ * @param entry Target transmission entry.
+ * @return Wire throughput in bytes per second.
+ */
+double estimateEntryThroughput(const TxEntry &entry);
+
+/**
+ * @brief Estimate collective wire throughput and link utilization for TX entries.
+ * @param entries Vector of configured TX entries.
+ * @param baud Serial port baudrate (e.g. 115200).
+ * @param bitsPerByte Physical framing overhead (default: 10.0 for 8N1).
+ * @param activeOnly When true, only active entries are included.
+ * @return Summary of estimated bandwidth load and channel utilization.
+ */
+TxEstimate estimateTxThroughput(const std::vector<TxEntry> &entries, int baud,
+                                double bitsPerByte = 10.0, bool activeOnly = true);
+
+/**
+ * @brief Format bytes per second into human-readable string.
+ * @param bytesPerSec Throughput in bytes per second.
+ * @return Formatted string representation (e.g. "350 B/s", "1.25 KB/s").
+ */
+std::string formatByteRate(double bytesPerSec);
 
 class WriteQueue
 {

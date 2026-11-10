@@ -2746,6 +2746,87 @@ private slots:
 
         checkUpdates->trigger();
     }
+
+    /**
+     * @brief Test real-time throughput metrics display and TX load estimation.
+     */
+    void throughputMonitoringAndEstimate()
+    {
+        for (int themeIdx = 0; themeIdx < 2; ++themeIdx)
+        {
+            const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
+            MainWindow window;
+            window.show();
+            auto *theme = window.findChild<QComboBox *>("theme");
+            QVERIFY(theme);
+            theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
+            QTest::qWait(30);
+
+            // 1. Verify Status Bar Metrics with Baudrate & Link Utilization
+            window.setStatusMetrics(1250, 4800, 0, 0, 0, 10.8, 41.7, 115200);
+            QTest::qWait(30);
+
+            auto *metricsWidget = window.findChild<QWidget *>("statusBarMetrics");
+            QVERIFY(metricsWidget);
+            const auto chips = metricsWidget->findChildren<QLabel *>();
+            QVERIFY(chips.size() >= 5);
+            QVERIFY(chips[0]->toolTip().contains("115200 baud"));
+            QVERIFY(chips[1]->toolTip().contains("41.7%"));
+            QVERIFY(metricsWidget->grab().save(QString("qa/statusbar-throughput-%1.png").arg(themeSuffix)));
+
+            // 2. Verify TxSummaryWidget with Estimated TX Throughput (3 pills)
+            window.setTxSummaryStats(3, 2, 850.0, 7.4);
+            QTest::qWait(30);
+
+            auto *txSummary = window.findChild<QWidget *>("txSummary");
+            QVERIFY(txSummary);
+            QVERIFY(txSummary->grab().save(QString("qa/tx-summary-throughput-%1.png").arg(themeSuffix)));
+
+            // 3. Verify Message Dialog Load Estimate Badge
+            auto *add = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(add);
+
+            QTimer::singleShot(200, [&]()
+            {
+                auto *dialog = QApplication::activeModalWidget();
+                QVERIFY(dialog);
+
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                auto *loadBadge = dialog->findChild<QLabel *>("messageLoadEstimate");
+                auto *rateSpin = dialog->findChild<QDoubleSpinBox *>();
+                QVERIFY(catalog && loadBadge && rateSpin);
+
+                // Select ATTITUDE (id 30)
+                for (int r = 0; r < catalog->count(); ++r)
+                {
+                    if (catalog->item(r)->data(Qt::UserRole).toUInt() == 30)
+                    {
+                        catalog->setCurrentRow(r);
+                        break;
+                    }
+                }
+                QTest::qWait(50);
+                QVERIFY(loadBadge->isVisible());
+                QVERIFY(loadBadge->text().contains("Est. load"));
+                QVERIFY(loadBadge->text().contains("8N1"));
+                QVERIFY(loadBadge->toolTip().contains("UART physical framing"));
+                QVERIFY(loadBadge->toolTip().contains("10 b/B"));
+
+                // Increase frequency to 50 Hz
+                rateSpin->setValue(50.0);
+                QTest::qWait(50);
+                QVERIFY(loadBadge->text().contains("Est. load"));
+                QVERIFY(loadBadge->text().contains("8N1"));
+
+                QVERIFY(dialog->grab().save(QString("qa/message-dialog-load-estimate-%1.png").arg(themeSuffix)));
+
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+            });
+
+            add->click();
+            QTest::qWait(300);
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

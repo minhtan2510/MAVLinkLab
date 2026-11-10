@@ -33,15 +33,18 @@ public:
     /** @brief Select display mode for the TX status indicator (0: DualPills, 1: SegmentedChip). */
     void setTxSummaryMode(int mode);
     /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
-    void setTxSummaryStats(int total, int running);
+    void setTxSummaryStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
     void setConnectionStatus(const QString &state, bool open);
     /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
-    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow);
+    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow,
+                          double rxUtil = 0.0, double txUtil = 0.0, int baud = 0);
     /** @brief Apply one snapshot directly (e.g. for inspection/testing). */
     void applySnapshot(SnapshotPtr snapshot);
     /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
     void stopRefreshTimer();
+    /** @brief Return the currently configured serial port settings. */
+    PortConfig currentPortConfig() const;
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;

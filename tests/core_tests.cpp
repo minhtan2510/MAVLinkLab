@@ -192,6 +192,57 @@ int main()
             check(Mav::formatParamValue(encoded, MAV_PARAM_TYPE_UINT32) == "57600", "UINT32 roundtrip format");
         }
 
+        // 10. Throughput tracking (sliding window ByteRate)
+        {
+            Mav::ByteRate rate;
+            check(rate.bytesPerSecond(1000000) == 0.0, "Initial ByteRate is zero");
+            rate.add(500, 1000000);
+            rate.add(1000, 1500000);
+            check(rate.bytesPerSecond(1500000) == 1500.0, "ByteRate accumulates inside sliding window");
+            // At 2000001, sample at 1000000 expires (> 1s old)
+            check(rate.bytesPerSecond(2000001) == 1000.0, "ByteRate expires old samples outside one second");
+            check(rate.bytesPerSecond(2500001) == 0.0, "ByteRate returns zero after full window expiration");
+            rate.add(300, 3000000);
+            rate.clear();
+            check(rate.bytesPerSecond(3000000) == 0.0, "ByteRate clear resets byte count");
+        }
+
+        // 11. Throughput estimation (TxEstimate)
+        {
+            Mav::TxEntry entry;
+            entry.id = 0; // HEARTBEAT, min_msg_len = 9, max_msg_len = 9
+            entry.version1 = false;
+            entry.payload.assign(9, 0);
+            entry.hz = 10.0;
+            entry.active = true;
+            check(Mav::validTx(entry), "Heartbeat TX valid");
+
+            // Frame size: 9 payload + 12 v2 header = 21 bytes
+            const size_t size = Mav::frameSize(entry);
+            check(size == 21, "Heartbeat v2 frame size is 21 bytes");
+            const double entryBps = Mav::estimateEntryThroughput(entry);
+            check(entryBps == 210.0, "Heartbeat at 10 Hz is 210 B/s");
+
+            std::vector<Mav::TxEntry> entries{entry};
+            const auto est = Mav::estimateTxThroughput(entries, 115200, 10.0, true);
+            check(est.totalBytesPerSec == 210.0, "TxEstimate totalBytesPerSec matches");
+            check(est.linkCapacityBps == 11520.0, "115200 baud capacity at 10 bits/byte is 11520 B/s");
+            check(est.utilizationPercent > 1.8 && est.utilizationPercent < 1.9, "Utilization ~1.82%");
+            check(est.fits == true, "Fits within link capacity");
+
+            // Overloaded link scenario
+            entry.hz = 600.0; // 600 * 21 = 12600 B/s > 11520 B/s
+            entries[0] = entry;
+            const auto overEst = Mav::estimateTxThroughput(entries, 115200, 10.0, true);
+            check(overEst.fits == false, "Overloaded link detected");
+            check(overEst.utilizationPercent > 100.0, "Utilization exceeds 100%");
+
+            // Format helper
+            check(Mav::formatByteRate(500.0) == "500 B/s", "Format B/s");
+            check(Mav::formatByteRate(2500.0) == "2.5 KB/s", "Format KB/s");
+            check(Mav::formatByteRate(2000000.0) == "2.00 MB/s", "Format MB/s");
+        }
+
         std::cout << "PASS: codec, catalog, validation, parser, sender isolation, rates, scheduler, capacity, partial writes and queue bounds\n";
         return EXIT_SUCCESS;
     }

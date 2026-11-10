@@ -351,6 +351,29 @@ double Rate::hz(int64_t now)
     return static_cast<double>(times.size());
 }
 
+void ByteRate::add(size_t count, int64_t now)
+{
+    bytesPerSecond(now);
+    samples.push_back({now, count});
+    totalBytes += count;
+}
+
+double ByteRate::bytesPerSecond(int64_t now)
+{
+    while (!samples.empty() && samples.front().time <= now - 1000000)
+    {
+        totalBytes -= samples.front().bytes;
+        samples.pop_front();
+    }
+    return static_cast<double>(totalBytes);
+}
+
+void ByteRate::clear()
+{
+    samples.clear();
+    totalBytes = 0;
+}
+
 std::string paramTypeName(uint8_t type)
 {
     switch (type)
@@ -536,6 +559,63 @@ bool due(TxEntry &entry, int64_t now)
     }
     entry.deadline = now + static_cast<int64_t>(1000000.0 / entry.hz);
     return true;
+}
+
+double estimateEntryThroughput(const TxEntry &entry)
+{
+    if (!validTx(entry) || !std::isfinite(entry.hz) || entry.hz <= 0.0)
+    {
+        return 0.0;
+    }
+    return static_cast<double>(frameSize(entry)) * entry.hz;
+}
+
+TxEstimate estimateTxThroughput(const std::vector<TxEntry> &entries, int baud,
+                                double bitsPerByte, bool activeOnly)
+{
+    TxEstimate result{};
+    for (const auto &entry : entries)
+    {
+        if (!activeOnly || entry.active)
+        {
+            result.totalBytesPerSec += estimateEntryThroughput(entry);
+        }
+    }
+    const double validBitsPerByte = (std::isfinite(bitsPerByte) && bitsPerByte >= 7.0) ? bitsPerByte : 10.0;
+    result.totalBitsPerSec = result.totalBytesPerSec * validBitsPerByte;
+    if (baud > 0)
+    {
+        result.linkCapacityBps = static_cast<double>(baud) / validBitsPerByte;
+        result.utilizationPercent = (result.totalBitsPerSec / static_cast<double>(baud)) * 100.0;
+        result.fits = (result.utilizationPercent <= 100.0);
+    }
+    else
+    {
+        result.fits = true;
+    }
+    return result;
+}
+
+std::string formatByteRate(double bytesPerSec)
+{
+    if (!std::isfinite(bytesPerSec) || bytesPerSec <= 0.0)
+    {
+        return "0 B/s";
+    }
+    char buf[64];
+    if (bytesPerSec < 1000.0)
+    {
+        std::snprintf(buf, sizeof(buf), "%.0f B/s", bytesPerSec);
+    }
+    else if (bytesPerSec < 1000000.0)
+    {
+        std::snprintf(buf, sizeof(buf), "%.1f KB/s", bytesPerSec / 1000.0);
+    }
+    else
+    {
+        std::snprintf(buf, sizeof(buf), "%.2f MB/s", bytesPerSec / 1000000.0);
+    }
+    return std::string(buf);
 }
 
 bool WriteQueue::push(const Bytes &bytes)
