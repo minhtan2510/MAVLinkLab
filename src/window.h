@@ -88,6 +88,8 @@ private:
     void restoreLayout();
     /** @brief Reset window geometry, splitters and column presentations to defaults. */
     void resetLayout();
+    /** @brief Reset application preferences and configurations to default values. */
+    void restoreDefaultSettings();
     /** @brief Restore application preferences such as theme and MAVLink defaults. */
     void restoreSettings();
     /** @brief Save application preferences such as theme and MAVLink defaults. */

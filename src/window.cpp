@@ -3112,13 +3112,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settingsDialogLayout->addWidget(workspaceCard);
     settingsDialogLayout->addStretch();
 
+    auto *footerRow = new QHBoxLayout;
+    footerRow->setContentsMargins(0, 0, 0, 0);
+
+    auto *restoreDefaultsButton = new QPushButton("Restore defaults", settingsDialog);
+    restoreDefaultsButton->setObjectName("restoreDefaults");
+    restoreDefaultsButton->setProperty("role", "secondary");
+    restoreDefaultsButton->setAutoDefault(false);
+    restoreDefaultsButton->setToolTip("Restore all preferences to default values");
+    connect(restoreDefaultsButton, &QPushButton::clicked, this, &MainWindow::restoreDefaultSettings);
+    footerRow->addWidget(restoreDefaultsButton, 0, Qt::AlignLeft);
+
+    footerRow->addStretch();
+
     auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
     settingsButtonBox->setObjectName("settingsButtonBox");
     auto *closeButton = settingsButtonBox->addButton("Close", QDialogButtonBox::RejectRole);
     closeButton->setObjectName("closeSettings");
     closeButton->setIcon(QIcon());
     connect(settingsButtonBox, &QDialogButtonBox::rejected, settingsDialog, &QDialog::accept);
-    settingsDialogLayout->addWidget(settingsButtonBox);
+    footerRow->addWidget(settingsButtonBox, 0, Qt::AlignRight);
+
+    settingsDialogLayout->addLayout(footerRow);
 
     auto *appMenuBar = menuBar();
     appMenuBar->setObjectName("appMenuBar");
@@ -4070,6 +4085,109 @@ void MainWindow::resetLayout()
     if (lastError)
     {
         lastError->setText("Layout reset to defaults");
+    }
+}
+
+/** @brief Reset application preferences and configurations to default values. */
+void MainWindow::restoreDefaultSettings()
+{
+    const auto answer = QMessageBox::question(
+        settingsDialog,
+        "Restore Default Settings",
+        "Are you sure you want to restore all settings to their default values?",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (answer != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    if (themeBox)
+    {
+        themeBox->setCurrentIndex(0);
+    }
+    if (showDebugBarBox)
+    {
+        showDebugBarBox->setChecked(true);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setCurrentIndex(1);
+    }
+    if (defaultSysIdBox)
+    {
+        defaultSysIdBox->setValue(1);
+    }
+    if (defaultCompIdBox)
+    {
+        defaultCompIdBox->setValue(1);
+    }
+    if (defaultVersionBox)
+    {
+        defaultVersionBox->setCurrentIndex(0);
+    }
+    if (autoReconnectBox)
+    {
+        autoReconnectBox->setChecked(false);
+    }
+    if (restoreTxBox)
+    {
+        restoreTxBox->setChecked(false);
+    }
+    if (deassertControlLinesBox)
+    {
+        deassertControlLinesBox->setChecked(true);
+    }
+    if (baudBox)
+    {
+        baudBox->setCurrentText("115200");
+    }
+    if (dataBox)
+    {
+        const int idx = dataBox->findText("8");
+        dataBox->setCurrentIndex(idx >= 0 ? idx : 3);
+    }
+    if (parityBox)
+    {
+        parityBox->setCurrentIndex(0);
+    }
+    if (stopBox)
+    {
+        stopBox->setCurrentIndex(0);
+    }
+    if (flowBox)
+    {
+        flowBox->setCurrentIndex(0);
+    }
+
+    saveSettings();
+
+    if (worker)
+    {
+        QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection, Q_ARG(bool, false));
+        QMetaObject::invokeMethod(worker, "setDeassertControlLines", Qt::QueuedConnection, Q_ARG(bool, true));
+    }
+    if (statusBarCard)
+    {
+        statusBarCard->setVisible(true);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setEnabled(true);
+    }
+    if (statsRateUnitLabel)
+    {
+        statsRateUnitLabel->setEnabled(true);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(1);
+    }
+    updateSerialSummary();
+
+    if (lastError)
+    {
+        lastError->setText("Settings restored to defaults");
     }
 }
 

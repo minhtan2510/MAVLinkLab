@@ -18,6 +18,7 @@
 #include <QPlainTextEdit>
 #include <QToolButton>
 #include <QSettings>
+#include <QMessageBox>
 #include <QTemporaryDir>
 #include <QHeaderView>
 #include <QMouseEvent>
@@ -1046,6 +1047,98 @@ private slots:
             QCOMPARE(versionBox->currentIndex(), 1);
             QCOMPARE(theme->currentIndex(), 1);
             QCOMPARE(restoreTx->isChecked(), true);
+        }
+
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(20);
+
+            QTimer::singleShot(50, [&window]()
+            {
+                auto *restoreDefaults = window.findChild<QPushButton *>("restoreDefaults");
+                QVERIFY(restoreDefaults);
+
+                QTimer::singleShot(50, []()
+                {
+                    QWidget *modalWidget = QApplication::activeModalWidget();
+                    auto *msgBox = qobject_cast<QMessageBox *>(modalWidget);
+                    if (!msgBox)
+                    {
+                        for (QWidget *w : QApplication::topLevelWidgets())
+                        {
+                            if (auto *candidate = qobject_cast<QMessageBox *>(w))
+                            {
+                                if (candidate->isVisible())
+                                {
+                                    msgBox = candidate;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    QVERIFY(msgBox);
+                    auto *yesBtn = msgBox->button(QMessageBox::Yes);
+                    QVERIFY(yesBtn);
+                    yesBtn->click();
+                });
+
+                restoreDefaults->click();
+
+                QTimer::singleShot(50, []()
+                {
+                    for (QWidget *w : QApplication::topLevelWidgets())
+                    {
+                        if (auto *dialog = qobject_cast<QDialog *>(w))
+                        {
+                            if (dialog->isVisible())
+                            {
+                                dialog->accept();
+                            }
+                        }
+                    }
+                });
+            });
+
+            const auto menus = window.menuBar()->findChildren<QMenu *>();
+            QAction *settingsAction = nullptr;
+            for (auto *menu : menus)
+            {
+                for (auto *action : menu->actions())
+                {
+                    if (action->text().contains("Settings"))
+                    {
+                        settingsAction = action;
+                        break;
+                    }
+                }
+                if (settingsAction)
+                {
+                    break;
+                }
+            }
+            QVERIFY(settingsAction);
+            settingsAction->trigger();
+            QTest::qWait(250);
+
+            auto *theme = window.findChild<QComboBox *>("theme");
+            auto *sysIdBox = window.findChild<QSpinBox *>("defaultSysId");
+            auto *compIdBox = window.findChild<QSpinBox *>("defaultCompId");
+            auto *versionBox = window.findChild<QComboBox *>("defaultVersion");
+            auto *restoreTx = window.findChild<QCheckBox *>("restoreTxMessages");
+            auto *autoReconnect = window.findChild<QCheckBox *>("autoReconnect");
+            auto *showDebugBar = window.findChild<QCheckBox *>("showDebugBar");
+            QVERIFY(theme && sysIdBox && compIdBox && versionBox && restoreTx && autoReconnect && showDebugBar);
+
+            QCOMPARE(sysIdBox->value(), 1);
+            QCOMPARE(compIdBox->value(), 1);
+            QCOMPARE(versionBox->currentIndex(), 0);
+            QCOMPARE(theme->currentIndex(), 0);
+            QCOMPARE(restoreTx->isChecked(), false);
+            QCOMPARE(autoReconnect->isChecked(), false);
+            QCOMPARE(showDebugBar->isChecked(), true);
+
+            QVERIFY(window.close());
         }
     }
 
