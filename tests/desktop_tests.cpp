@@ -2870,6 +2870,10 @@ private slots:
                     }
                 }
                 QTest::qWait(50);
+                auto *payloadBadge = dialog->findChild<QLabel *>("messagePayloadSize");
+                QVERIFY(payloadBadge);
+                QVERIFY(payloadBadge->isVisible());
+                QCOMPARE(payloadBadge->text(), QString("28 Bytes"));
                 QVERIFY(loadBadge->isVisible());
                 QVERIFY(loadBadge->text().contains("Est. load"));
                 QVERIFY(loadBadge->text().contains("8N1"));

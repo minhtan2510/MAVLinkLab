@@ -5096,10 +5096,25 @@ void MainWindow::editMessage(bool edit)
     auto *editor = new QVBoxLayout(editorWidget);
     editor->setContentsMargins(0, 0, 0, 0);
     editor->setSpacing(10);
+
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(8);
+
     auto *messageTitle = new QLabel;
     messageTitle->setObjectName("selectedMessageTitle");
-    messageTitle->setWordWrap(true);
-    editor->addWidget(messageTitle);
+    messageTitle->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    titleRow->addWidget(messageTitle, 0, Qt::AlignVCenter);
+
+    auto *payloadSizeBadge = new QLabel;
+    payloadSizeBadge->setObjectName("messagePayloadSize");
+    payloadSizeBadge->setFixedHeight(24);
+    payloadSizeBadge->setAlignment(Qt::AlignCenter);
+    payloadSizeBadge->hide();
+    titleRow->addWidget(payloadSizeBadge, 0, Qt::AlignVCenter);
+
+    titleRow->addStretch();
+    editor->addLayout(titleRow);
     auto *form = new QHBoxLayout;
     auto *sysid = new WorkbenchSpinBox<QSpinBox>;
     sysid->setObjectName("messageSysId");
@@ -5718,9 +5733,18 @@ void MainWindow::editMessage(bool edit)
         messageTitle->setText(selectedInfo ? QString("[%1] %2").arg(selectedInfo->msgid).arg(selectedInfo->name) : QString());
         if (!selectedInfo)
         {
+            payloadSizeBadge->hide();
             loadingFields = false;
             return;
         }
+        const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
+        const uint8_t payloadSize = metadata ? metadata->max_msg_len : 0;
+        payloadSizeBadge->setText(QString("%1 %2").arg(payloadSize).arg(payloadSize == 1 ? "Byte" : "Bytes"));
+        payloadSizeBadge->setStyleSheet(isDark ?
+            "color: #94a3b8; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px;" :
+            "color: #475569; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px;");
+        payloadSizeBadge->setToolTip(QString("Defined MAVLink schema payload length: %1 bytes").arg(payloadSize));
+        payloadSizeBadge->show();
         mavlink_message_t source{};
         source.msgid = selectedInfo->msgid;
         if (edit && source.msgid == entry.id)

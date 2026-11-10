@@ -46,6 +46,7 @@
   * RX Dashboard header features a real-time measured throughput pill (`rxThroughput` badge) right next to `rxSummary` (`X streams`), displaying actual received wire throughput and physical link capacity percentage (`X B/s (Y.Y%)` with 1 decimal place). Hidden when disconnected, visible when connected, with no tooltip, adapting dynamically to theme and link saturation.
   * Status bar displays live measured byte rates (`RX ↓` and `TX ↑`) with tooltips indicating channel capacity utilization and active baudrate.
   * Message Edit Dialog shows pre-flight load estimation badge (`Est. load: ~X B/s (Y.YY% at <baud> <framing>)`) with 2 decimal places and detailed framing tooltip.
+  * Message Edit Dialog displays a dedicated schema payload length badge (`X Bytes`) right next to the selected message title (`[ID] NAME`).
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
