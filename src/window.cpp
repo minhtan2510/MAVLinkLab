@@ -5208,6 +5208,31 @@ void MainWindow::editMessage(bool edit)
         compid->setItemData(compid->count() - 1, QString::number(entryItem.value), Qt::ToolTipRole);
     }
 
+    class CompIdLineFilter : public QObject
+    {
+    public:
+        explicit CompIdLineFilter(QLineEdit *line)
+            : QObject(line), m_line(line)
+        {
+        }
+
+    protected:
+        bool eventFilter(QObject *watched, QEvent *event) override
+        {
+            if (event->type() == QEvent::FocusOut || event->type() == QEvent::Show)
+            {
+                if (m_line && !m_line->hasFocus())
+                {
+                    m_line->setCursorPosition(0);
+                }
+            }
+            return QObject::eventFilter(watched, event);
+        }
+
+    private:
+        QLineEdit *m_line = nullptr;
+    };
+
     if (auto *line = compid->lineEdit())
     {
         line->setObjectName("messageCompIdEditor");
@@ -5216,6 +5241,7 @@ void MainWindow::editMessage(bool edit)
         completer->setCaseSensitivity(Qt::CaseInsensitive);
         completer->setFilterMode(Qt::MatchContains);
         line->setCompleter(completer);
+        line->installEventFilter(new CompIdLineFilter(line));
     }
 
     const auto updateCompIdTooltipAndNormalize = [compid, &compEntries](bool normalizeNumber)
@@ -5277,6 +5303,14 @@ void MainWindow::editMessage(bool edit)
         {
             compid->setToolTip(QString());
         }
+
+        if (auto *line = compid->lineEdit())
+        {
+            if (!line->hasFocus())
+            {
+                line->setCursorPosition(0);
+            }
+        }
     };
 
     const std::string initialCompName = Mav::lookupEnumNameByType("MAV_COMPONENT", entry.compid);
@@ -5305,6 +5339,10 @@ void MainWindow::editMessage(bool edit)
         }
     }
     updateCompIdTooltipAndNormalize(false);
+    if (auto *line = compid->lineEdit())
+    {
+        line->setCursorPosition(0);
+    }
 
     QObject::connect(compid, &QComboBox::currentTextChanged, [updateCompIdTooltipAndNormalize](const QString &)
     {
@@ -5312,14 +5350,19 @@ void MainWindow::editMessage(bool edit)
     });
     if (auto *line = compid->lineEdit())
     {
-        QObject::connect(line, &QLineEdit::editingFinished, [updateCompIdTooltipAndNormalize]()
+        QObject::connect(line, &QLineEdit::editingFinished, [updateCompIdTooltipAndNormalize, line]()
         {
             updateCompIdTooltipAndNormalize(true);
+            line->setCursorPosition(0);
         });
     }
-    QObject::connect(compid, QOverload<int>::of(&QComboBox::activated), [updateCompIdTooltipAndNormalize](int)
+    QObject::connect(compid, QOverload<int>::of(&QComboBox::activated), [updateCompIdTooltipAndNormalize, compid](int)
     {
         updateCompIdTooltipAndNormalize(true);
+        if (auto *line = compid->lineEdit())
+        {
+            line->setCursorPosition(0);
+        }
     });
 
     sysid->setRange(1, 255);
@@ -5333,7 +5376,7 @@ void MainWindow::editMessage(bool edit)
     rate->setRange(1, 1000);
     rate->setSingleStep(1);
     rate->setValue(entry.hz);
-    const auto fieldControl = [&](const QString &name, QWidget *control, int stretch = 1)
+    const auto fieldControl = [&](const QString &name, QWidget *control, int stretch = 1, int fixedWidth = 0)
     {
         auto *field = new QVBoxLayout;
         field->setSpacing(6);
@@ -5342,16 +5385,26 @@ void MainWindow::editMessage(bool edit)
         label->setBuddy(control);
         field->addWidget(label);
         control->setFixedHeight(34);
-        control->setMinimumWidth(0);
-        control->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        field->addWidget(control);
+        if (fixedWidth > 0)
+        {
+            control->setFixedWidth(fixedWidth);
+            control->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            field->addWidget(control);
+            form->addLayout(field, 0);
+        }
+        else
+        {
+            control->setMinimumWidth(0);
+            control->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            field->addWidget(control);
+            form->addLayout(field, stretch);
+        }
         control->setAccessibleName(name);
-        form->addLayout(field, stretch);
     };
-    fieldControl("System ID", sysid, 1);
-    fieldControl("Component ID", compid, 2);
+    fieldControl("System ID", sysid, 0, 110);
+    fieldControl("Component ID", compid, 1, 0);
     form->addSpacing(14);
-    fieldControl("Rate (Hz)", rate, 1);
+    fieldControl("Rate (Hz)", rate, 0, 110);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");

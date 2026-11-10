@@ -507,7 +507,15 @@ private slots:
                 QCOMPARE(fields->rowHeight(0), 40);
 
                 auto *sysidBox = dialog->findChild<QSpinBox *>("messageSysId");
-                QVERIFY(sysidBox);
+                auto *compidBox = dialog->findChild<QComboBox *>("messageCompId");
+                QVERIFY(sysidBox && compidBox);
+                QCOMPARE(sysidBox->width(), 110);
+                QVERIFY(compidBox->width() > 300);
+                if (auto *compLine = compidBox->lineEdit())
+                {
+                    compidBox->setEditText("MAV_COMP_ID_VISUAL_INERTIAL_ODOMETRY");
+                    QCOMPARE(compLine->cursorPosition(), 0);
+                }
                 sysidBox->setFocus();
                 QVERIFY(sysidBox->hasFocus());
                 QTest::keyClick(sysidBox, Qt::Key_Return);

@@ -83,6 +83,8 @@
   * Set `QComboBox:editable { padding: 4px 28px 4px 7px; }` with `QComboBox QLineEdit { padding: 0; margin: 0; border: 0; }` and zero left text margins (`setTextMargins(0, 0, 18, 0)`). This aligns the embedded `QLineEdit` geometry (`x = 8`) and its initial text rendering pixel (`X = 12`) pixel-perfect with `QSpinBox` (`padding: 7px; x = 8; X = 12`) without text clipping or chevron overlap.
 * **Enum Autocomplete in Dialog Inputs:**
   * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * In `messageDialog` form row, `System ID` and `Rate (Hz)` are assigned fixed 110px widths while `Component ID` receives all remaining expanding horizontal space.
+  * `CompIdLineFilter` intercepts `FocusOut` and `Show` to ensure `cursorPosition(0)` is always enforced, anchoring long enum names from the beginning (e.g. `MAV_COMP_ID_VISUAL_INERTIAL_O`) rather than scrolling to the trailing suffix when text exceeds visible width.
 * **Message Dialog Key Handling (Suppressed Enter on Inputs & Focus Clearing):**
   * In `editMessage` dialog, pressing `Enter` while focused on an input field (`QLineEdit`, `QSpinBox`, `QComboBox`, or table cell editor) commits/finishes the active input and clears focus from the field without triggering `Add message` / `Save changes`.
   * Implemented via `MessageDialogKeyFilter` and disabling `autoDefault(false)` & `default(false)` on all buttons in the dialog. The Save button is only activated via explicit mouse click or pressing Enter/Space when keyboard focus is directly on the button.
