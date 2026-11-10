@@ -5008,6 +5008,82 @@ void MainWindow::updateSerialSummary()
     }
 }
 
+/**
+ * @brief Event filter for message editor dialog to complete the active field or dropdown
+ * and clear its focus when Enter is pressed, preventing premature dialog submission.
+ */
+class MessageDialogKeyFilter : public QObject
+{
+public:
+    /**
+     * @brief Construct key filter with reference to the dialog's save button and commit callback.
+     * @param saveBtn Save/Add message button.
+     * @param commitCallback Callback to commit active table cell editors.
+     * @param parent Optional parent QObject.
+     */
+    explicit MessageDialogKeyFilter(QPushButton *saveBtn, std::function<void()> commitCallback, QObject *parent = nullptr)
+        : QObject(parent), saveButton(saveBtn), onCommit(std::move(commitCallback))
+    {
+    }
+
+protected:
+    /**
+     * @brief Intercept Enter/Return key to finish editing current field and clear focus without submitting dialog.
+     * @param watched Watched dialog object.
+     * @param event Key press event.
+     * @return True if event is consumed, false otherwise.
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress)
+        {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            {
+                QWidget *focused = QApplication::focusWidget();
+                if (focused == saveButton)
+                {
+                    return false;
+                }
+                if (qobject_cast<QPushButton *>(focused))
+                {
+                    return false;
+                }
+                if (focused)
+                {
+                    if (auto *line = qobject_cast<QLineEdit *>(focused))
+                    {
+                        emit line->editingFinished();
+                    }
+                    else if (auto *spin = qobject_cast<QAbstractSpinBox *>(focused))
+                    {
+                        spin->interpretText();
+                    }
+                    focused->clearFocus();
+                    if (auto *parent = focused->parentWidget())
+                    {
+                        parent->clearFocus();
+                    }
+                }
+                if (onCommit)
+                {
+                    onCommit();
+                }
+                if (QWidget *currentFocus = QApplication::focusWidget())
+                {
+                    currentFocus->clearFocus();
+                }
+                return true;
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QPushButton *saveButton = nullptr;
+    std::function<void()> onCommit;
+};
+
 /** @brief Configure message identity, sender and payload with contextual validation feedback. */
 void MainWindow::editMessage(bool edit)
 {
@@ -5192,12 +5268,7 @@ void MainWindow::editMessage(bool edit)
 
         if (matched)
         {
-            QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
-            if (matched->description && *matched->description)
-            {
-                tip += QString(" (%1)").arg(matched->description);
-            }
-            compid->setToolTip(tip);
+            compid->setToolTip(QString("%1 = %2").arg(matched->name).arg(matched->value));
         }
         else if (ok && numVal <= 255)
         {
@@ -5564,12 +5635,7 @@ void MainWindow::editMessage(bool edit)
                 }
                 if (matched)
                 {
-                    QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
-                    if (matched->description && *matched->description)
-                    {
-                        tip += QString(" (%1)").arg(matched->description);
-                    }
-                    item->setToolTip(tip);
+                    item->setToolTip(QString("%1 = %2").arg(matched->name).arg(matched->value));
                 }
                 else
                 {
@@ -5984,6 +6050,12 @@ void MainWindow::editMessage(bool edit)
         }
     }
     catalogList->setCurrentRow(initial);
+    for (auto *button : dialog.findChildren<QPushButton *>())
+    {
+        button->setAutoDefault(false);
+        button->setDefault(false);
+    }
+    dialog.installEventFilter(new MessageDialogKeyFilter(saveButton, commitEditor, &dialog));
     if (dialog.exec() == QDialog::Accepted)
     {
         QMetaObject::invokeMethod(worker, "saveEntry", Qt::QueuedConnection, Q_ARG(Mav::TxEntry, entry));

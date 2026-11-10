@@ -82,7 +82,10 @@
   * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
   * Set `QComboBox:editable { padding: 4px 28px 4px 7px; }` with `QComboBox QLineEdit { padding: 0; margin: 0; border: 0; }` and zero left text margins (`setTextMargins(0, 0, 18, 0)`). This aligns the embedded `QLineEdit` geometry (`x = 8`) and its initial text rendering pixel (`X = 12`) pixel-perfect with `QSpinBox` (`padding: 7px; x = 8; X = 12`) without text clipping or chevron overlap.
 * **Enum Autocomplete in Dialog Inputs:**
-  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE (DESC)`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE`), and bidirectional conversion between integer IDs and symbolic enum names.
+* **Message Dialog Key Handling (Suppressed Enter on Inputs & Focus Clearing):**
+  * In `editMessage` dialog, pressing `Enter` while focused on an input field (`QLineEdit`, `QSpinBox`, `QComboBox`, or table cell editor) commits/finishes the active input and clears focus from the field without triggering `Add message` / `Save changes`.
+  * Implemented via `MessageDialogKeyFilter` and disabling `autoDefault(false)` & `default(false)` on all buttons in the dialog. The Save button is only activated via explicit mouse click or pressing Enter/Space when keyboard focus is directly on the button.
   * Hold `Ctrl` while clicking Save/Add message forces all empty payload fields to zero.
 * **Dropdown Popup Selection Persistence & Active Highlight:**
   * In Qt6, editable `QComboBox` does not automatically update `currentIndex()` from typed text, causing popup views to highlight index 0 and lose current selection during mouse hover or scroll.

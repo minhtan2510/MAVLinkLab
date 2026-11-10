@@ -505,6 +505,13 @@ private slots:
                 QVERIFY(!fields->item(0, 2)->data(Qt::UserRole + 1).toBool());
                 QCOMPARE(fields->rowHeight(0), 40);
 
+                auto *sysidBox = dialog->findChild<QSpinBox *>("messageSysId");
+                QVERIFY(sysidBox);
+                sysidBox->setFocus();
+                QVERIFY(sysidBox->hasFocus());
+                QTest::keyClick(sysidBox, Qt::Key_Return);
+                QVERIFY(!sysidBox->hasFocus());
+
                 search->setText("no_such_message");
                 QVERIFY(dialog->findChild<QLabel *>("catalogEmpty")->isVisible());
                 QCOMPARE(dialog->findChild<QLabel *>("catalogResultCount")->text(), QString("0 results"));
@@ -2800,6 +2807,7 @@ private slots:
             const QString themeSuffix = (themeIdx == 0 ? "dark" : "light");
             MainWindow window;
             window.show();
+            window.stopRefreshTimer();
             auto *theme = window.findChild<QComboBox *>("theme");
             QVERIFY(theme);
             theme->setCurrentIndex(themeIdx == 0 ? 2 : 1);
