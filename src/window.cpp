@@ -6926,11 +6926,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (onRate || onBadge)
                 {
                     txTable->viewport()->setCursor(Qt::PointingHandCursor);
-                    if (onRate)
-                    {
-                        QToolTip::showText(mouseEvent->globalPosition().toPoint(), "Change transmission rate",
-                                           txTable->viewport(), ratePill);
-                    }
                 }
                 else
                 {
