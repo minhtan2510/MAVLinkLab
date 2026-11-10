@@ -50,6 +50,9 @@
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
   * Concise Doxygen comments in English (`@brief`, `@param`, `@return`) on all new or significantly modified functions.
+* **Commit Message Conventions:**
+  * Tiêu đề (subject line) phải ngắn gọn, súc tích nhất có thể (dạng `<type>(<scope>): <summary>`, ≤ 50–72 ký tự).
+  * Toàn bộ nội dung phân tích chi tiết, bối cảnh, lý do và danh sách thay đổi cụ thể phải được ghi vào phần **body** của commit (cách tiêu đề 1 dòng trống), không viết dồn vào tiêu đề.
 
 ---
 
