@@ -1318,7 +1318,7 @@ private slots:
         QTest::qWait(30);
 
         const auto dashSizes = dashboards->sizes();
-        QVERIFY(qAbs(dashSizes[0] - 488) <= 2);
+        QVERIFY(qAbs(dashSizes[0] - 467) <= 2);
         const auto splitSizes = rxSplit->sizes();
         QVERIFY(qAbs(splitSizes[0] - splitSizes[1]) <= 2);
         QVERIFY(window.close());
@@ -1562,9 +1562,10 @@ private slots:
         QCOMPARE(deleteAll->geometry().top(), stopAll->geometry().top());
         auto *addButton = window.findChild<QPushButton *>("addMessage");
         QVERIFY(addButton);
-        QVERIFY(runAll->geometry().top() >= addButton->geometry().bottom() + 8);
-        QCOMPARE(runAll->geometry().left(), addButton->geometry().left());
-        QCOMPARE(deleteAll->geometry().right(), addButton->geometry().right());
+        auto *txSummary = window.findChild<QWidget *>("txSummary");
+        QVERIFY(txSummary);
+        QVERIFY(txSummary->geometry().bottom() <= addButton->geometry().top());
+        QVERIFY(deleteAll->geometry().right() < addButton->geometry().left());
         QVERIFY(stopAll->geometry().right() < deleteAll->geometry().left());
         stopAll->click();
         for (int row = 0; row < tx->rowCount(); ++row)

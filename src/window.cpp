@@ -1021,6 +1021,10 @@ public:
             estBps = estimatedBps;
             estUtil = utilization;
             updateGeometry();
+            if (parentWidget() && parentWidget()->layout())
+            {
+                parentWidget()->layout()->activate();
+            }
             update();
         }
     }
@@ -1085,7 +1089,7 @@ public:
         const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
 
         const int pill1Width = totalTextWidth + 20;
-        const int pill2Width = runningTextWidth + 34;
+        const int pill2Width = runningTextWidth + 20;
 
         const bool showLoad = (runningCount > 0 && estBps > 0.0);
         int pill3Width = 0;
@@ -1150,13 +1154,8 @@ protected:
 
         // --- Pill 2: Running State Indicator ---
         const int pill2Left = pill1Width + 6;
-        const int pill2Width = runningTextWidth + 34;
+        const int pill2Width = runningTextWidth + 20;
         const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
-
-        const int dotX = pill2Left + 9;
-        const int dotY = y + (pillHeight - 6) / 2;
-        const int textLeft = dotX + 6 + 6;
-        const QRect textRect(textLeft, y, runningTextWidth + 6, pillHeight);
 
         if (runningCount > 0)
         {
@@ -1164,14 +1163,9 @@ protected:
             painter.setBrush(QColor(dark ? "#0a2e23" : "#dcfce7"));
             painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
 
-            // Antialiased active LED dot
-            painter.setPen(QPen(QColor(dark ? "#059669" : "#16a34a"), 1.0));
-            painter.setBrush(QColor(dark ? "#34d399" : "#16a34a"));
-            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
-
             painter.setFont(boldFont);
             painter.setPen(QColor(dark ? "#34d399" : "#15803d"));
-            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+            painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
         }
         else
         {
@@ -1179,14 +1173,9 @@ protected:
             painter.setBrush(QColor(dark ? "#1e293b" : "#f8fafc"));
             painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
 
-            // Neutral hollow idle dot
-            painter.setPen(QPen(QColor(dark ? "#64748b" : "#94a3b8"), 1.2));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
-
             painter.setFont(baseFont);
             painter.setPen(QColor(dark ? "#64748b" : "#94a3b8"));
-            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+            painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
         }
 
         // --- Pill 3: Throughput Estimate (When transmitting) ---
@@ -3410,14 +3399,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txSummary = new TxSummaryWidget;
     txSummary->setObjectName("txSummary");
-    txHeading->addWidget(txSummary, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
-
-    txHeading->setColumnStretch(1, 1);
-
-    auto *addButton = new QPushButton("Add message");
-    addButton->setObjectName("addMessage");
-    addButton->setProperty("role", "primary");
-    txHeading->addWidget(addButton, 0, 2);
+    txHeading->addWidget(txSummary, 0, 1, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
 
     auto *batchActions = new QHBoxLayout;
     batchActions->setContentsMargins(0, 0, 0, 0);
@@ -3443,7 +3425,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     deleteAllButton->setToolTip("Delete all");
     deleteAllButton->setAccessibleName("Delete all messages");
 
-    txHeading->addLayout(batchActions, 1, 2);
+    txHeading->addLayout(batchActions, 1, 0);
+
+    txHeading->setColumnStretch(2, 1);
+
+    auto *addButton = new QPushButton("Add message");
+    addButton->setObjectName("addMessage");
+    addButton->setProperty("role", "primary");
+    txHeading->addWidget(addButton, 1, 3, Qt::AlignRight | Qt::AlignVCenter);
+
     txLayout->addLayout(txHeading);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
@@ -3724,7 +3714,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
-    dashboards->setSizes({488, 892});
+    dashboards->setSizes({467, 929});
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
@@ -4065,7 +4055,7 @@ void MainWindow::resetLayout()
     auto *dashboards = findChild<QSplitter *>("dashboards");
     if (dashboards)
     {
-        dashboards->setSizes({488, 892});
+        dashboards->setSizes({467, 929});
     }
     auto *rxSplit = findChild<QSplitter *>("rxSplit");
     if (rxSplit)
