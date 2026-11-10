@@ -465,6 +465,7 @@ private slots:
                 auto *buttons = dialog->findChild<QDialogButtonBox *>();
                 auto *splitter = dialog->findChild<QSplitter *>("messageSplitter");
                 QVERIFY(catalog && search && fields && title && hint && buttons && splitter);
+                QVERIFY(catalog->count() > 0 && catalog->item(0)->toolTip().isEmpty());
                 QCOMPARE(buttons->button(QDialogButtonBox::Save)->text(), QString("Add message"));
                 QVERIFY(buttons->button(QDialogButtonBox::Save)->toolTip().contains("Ctrl"));
                 QCOMPARE(title->text(), QString("[0] HEARTBEAT"));

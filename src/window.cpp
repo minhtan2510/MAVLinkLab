@@ -5157,7 +5157,6 @@ void MainWindow::editMessage(bool edit)
         auto *item = new CatalogItem(QString("[%1] %2").arg(info.msgid).arg(info.name), catalogList);
         item->setData(Qt::UserRole, info.msgid);
         item->setData(Qt::UserRole + 3, QString::fromLatin1(info.name));
-        item->setToolTip(item->text());
     }
     catalogPane->addWidget(catalogList, 1);
     auto *noMatches = new QLabel("No matching messages");
