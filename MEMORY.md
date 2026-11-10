@@ -154,6 +154,10 @@
   * Message Edit Dialog (`messageLoadEstimate`) interactively computes wire throughput when selecting messages, toggling MAVLink versions, or adjusting frequency spinboxes.
   * `StatusBarMetricsWidget` displays real-time throughput with contextual tooltips reporting percentage of link capacity and baudrate.
 
+* **TX Card Rate Badge Alignment for Long Titles:**
+  * When long message titles wrap across 2 lines (`lines.size() > 1`), `txRatePillRect` vertically centers the interactive rate badge across the full 40px two-line title block (`Y = badge.top() + 11`, center Y = `badge.top() + 20`).
+  * Horizontally, `pillLeft` is positioned 8 px after the maximum horizontal advance of both lines (`max(advance[0], advance[1])`), ensuring the badge never collides with either line's text or the top-right status badge button.
+
 ---
 
 ## 4. Roadmap & Status

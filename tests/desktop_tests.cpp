@@ -2351,8 +2351,39 @@ private slots:
             add->click();
             QTRY_COMPARE(tx->rowCount(), 2);
 
-            // Set stats to 2 messages, 1 running to render both total count and active dot
-            window.setTxSummaryStats(2, 1);
+            // Add third message: LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET (id 89) to test two-line wrapping
+            QTimer::singleShot(30, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                QVERIFY(dialog);
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                QVERIFY(catalog);
+                for (int r = 0; r < catalog->count(); ++r)
+                {
+                    if (catalog->item(r)->data(Qt::UserRole).toUInt() == 89)
+                    {
+                        catalog->setCurrentRow(r);
+                        break;
+                    }
+                }
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            });
+            add->click();
+            QTRY_COMPARE(tx->rowCount(), 3);
+
+            // Set stats to 3 messages, 1 running to render both total count and active dot
+            window.setTxSummaryStats(3, 1);
             QTest::qWait(50);
 
             // Verify TxSummaryWidget renders dual pills with full text visibility
@@ -2365,6 +2396,11 @@ private slots:
             QVERIFY(window.grab().save(QString("qa/option-1-dual-pills-%1.png").arg(themeSuffix)));
             QVERIFY(txPanel->grab(QRect(0, 0, txPanel->width(), 100))
                     .save(QString("qa/option-1-heading-%1.png").arg(themeSuffix)));
+            const QRect cardRect = tx->visualRect(tx->model()->index(2, 1));
+            if (!cardRect.isEmpty())
+            {
+                tx->viewport()->grab(cardRect).save(QString("qa/tx-card-twoline-%1.png").arg(themeSuffix));
+            }
         }
     }
 

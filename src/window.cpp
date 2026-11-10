@@ -1860,11 +1860,15 @@ static QRect txRatePillRect(const QRect &card, const QString &idStr, const QStri
 
     if (lines.size() > 1)
     {
-        const int lastAdvance = QFontMetrics(titleFont).horizontalAdvance(lines.last());
-        const int pillLeft = textLeft + lastAdvance + 8;
-        if (pillLeft + pillWidth <= card.right() - 8)
+        int maxLineAdvance = 0;
+        for (const QString &line : lines)
         {
-            return QRect(pillLeft, badge.top() + 16 + 2, pillWidth, 18);
+            maxLineAdvance = std::max(maxLineAdvance, QFontMetrics(titleFont).horizontalAdvance(line));
+        }
+        const int pillLeft = textLeft + maxLineAdvance + 8;
+        if (pillLeft + pillWidth <= badge.left() - 8)
+        {
+            return QRect(pillLeft, badge.top() + 11, pillWidth, 18);
         }
         return {};
     }
