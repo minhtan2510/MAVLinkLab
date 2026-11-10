@@ -32,6 +32,8 @@ public:
     ~MainWindow() override;
     /** @brief Select display mode for the TX status indicator (0: DualPills, 1: SegmentedChip). */
     void setTxSummaryMode(int mode);
+    /** @brief Select display rate unit for the status bar metrics (0: B/s, 1: KB/s, 2: MB/s). */
+    void setStatusBarRateUnit(int unit);
     /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
     void setTxSummaryStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
@@ -138,6 +140,8 @@ private:
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QCheckBox *showDebugBarBox = nullptr;
+    QComboBox *statsRateUnitBox = nullptr;
+    QLabel *statsRateUnitLabel = nullptr;
     QDialog *settingsDialog = nullptr;
     ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;

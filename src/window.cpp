@@ -1461,8 +1461,8 @@ public:
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        rxChip = createChip("RX ↓ 0 B/s", "Incoming serial throughput (bytes/second)");
-        txChip = createChip("TX ↑ 0 B/s", "Outgoing serial throughput (bytes/second)");
+        rxChip = createChip(QString("RX ↓ %1").arg(formatRate(0.0, m_unit)), "Incoming serial throughput (bytes/second)");
+        txChip = createChip(QString("TX ↑ %1").arg(formatRate(0.0, m_unit)), "Outgoing serial throughput (bytes/second)");
         crcChip = createChip("CRC 0", "MAVLink CRC checksum errors detected");
         pendingChip = createChip("Pending 0 B", "Outbound serial write queue backlog");
         overflowChip = createChip("Overflow 0", "Serial RX buffer hardware/kernel drops");
@@ -1502,8 +1502,8 @@ public:
         m_txUtil = txUtil;
         m_baud = baud;
 
-        rxChip->setText(QString("RX ↓ %1 B/s").arg(rxBps, 0, 'f', 0));
-        txChip->setText(QString("TX ↑ %1 B/s").arg(txBps, 0, 'f', 0));
+        rxChip->setText(QString("RX ↓ %1").arg(formatRate(rxBps, m_unit)));
+        txChip->setText(QString("TX ↑ %1").arg(formatRate(txBps, m_unit)));
         crcChip->setText(QString("CRC %1").arg(crc));
         pendingChip->setText(QString("Pending %1 B").arg(pending));
         overflowChip->setText(QString("Overflow %1").arg(overflow));
@@ -1526,6 +1526,38 @@ public:
         }
 
         applyStyles();
+    }
+
+    /**
+     * @brief Set throughput rate display unit (0: B/s, 1: KB/s, 2: MB/s).
+     * @param unit Unit index.
+     */
+    void setRateUnit(int unit)
+    {
+        if (m_unit != unit)
+        {
+            m_unit = unit;
+            updateMetrics(m_rxBps, m_txBps, m_crc, m_pending, m_overflow, m_dark, m_rxUtil, m_txUtil, m_baud);
+        }
+    }
+
+    /**
+     * @brief Format byte rate according to the selected unit.
+     * @param bps Bytes per second.
+     * @param unit Unit index (0: B/s, 1: KB/s, 2: MB/s).
+     * @return Formatted string with numeric value and unit suffix.
+     */
+    static QString formatRate(double bps, int unit)
+    {
+        if (unit == 0)
+        {
+            return QString("%1 B/s").arg(bps, 0, 'f', 0);
+        }
+        else if (unit == 2)
+        {
+            return QString("%1 MB/s").arg(bps / (1024.0 * 1024.0), 0, 'f', 2);
+        }
+        return QString("%1 KB/s").arg(bps / 1024.0, 0, 'f', 1);
     }
 
     /**
@@ -1626,6 +1658,7 @@ private:
     double m_rxUtil = 0.0;
     double m_txUtil = 0.0;
     int m_baud = 0;
+    int m_unit = 1;
     bool m_dark = false;
 };
 
@@ -2942,6 +2975,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     appearanceLayout->addLayout(debugBarGroup);
 
+    auto *statsRateUnitRow = new QHBoxLayout;
+    statsRateUnitRow->setContentsMargins(0, 4, 0, 0);
+    statsRateUnitLabel = new QLabel("Stats Bar Unit:", appearanceCard);
+    statsRateUnitLabel->setObjectName("secondaryText");
+    statsRateUnitRow->addWidget(statsRateUnitLabel);
+    statsRateUnitRow->addStretch();
+
+    statsRateUnitBox = new WorkbenchComboBox(appearanceCard);
+    statsRateUnitBox->setObjectName("statsRateUnit");
+    statsRateUnitBox->setAccessibleName("Stats Bar Unit");
+    statsRateUnitBox->addItems({"B/s", "KB/s", "MB/s"});
+    statsRateUnitBox->setFixedHeight(32);
+    statsRateUnitBox->setFixedWidth(160);
+    statsRateUnitBox->setCurrentIndex(1);
+    statsRateUnitRow->addWidget(statsRateUnitBox);
+    appearanceLayout->addLayout(statsRateUnitRow);
+
     settingsDialogLayout->addWidget(appearanceCard);
 
     auto *mavlinkCard = new QFrame(settingsDialog);
@@ -3890,6 +3940,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         {
             statusBarCard->setVisible(visible);
         }
+        if (statsRateUnitBox)
+        {
+            statsRateUnitBox->setEnabled(visible);
+        }
+        if (statsRateUnitLabel)
+        {
+            statsRateUnitLabel->setEnabled(visible);
+        }
+        saveSettings();
+    });
+    connect(statsRateUnitBox, &QComboBox::currentIndexChanged, this, [this](int index)
+    {
+        if (metricsWidget)
+        {
+            metricsWidget->setRateUnit(index);
+        }
         saveSettings();
     });
     connect(restoreTxBox, &QCheckBox::toggled, this, [this]()
@@ -4085,6 +4151,24 @@ void MainWindow::restoreSettings()
     {
         statusBarCard->setVisible(showDebugBar);
     }
+    const int statsUnit = settings.value("ui/statsRateUnit", 1).toInt();
+    if (statsRateUnitBox && statsUnit >= 0 && statsUnit < statsRateUnitBox->count())
+    {
+        const QSignalBlocker blocker(statsRateUnitBox);
+        statsRateUnitBox->setCurrentIndex(statsUnit);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setEnabled(showDebugBar);
+    }
+    if (statsRateUnitLabel)
+    {
+        statsRateUnitLabel->setEnabled(showDebugBar);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(statsRateUnitBox ? statsRateUnitBox->currentIndex() : 1);
+    }
     const QString savedData = settings.value("serial/dataBits", "").toString();
     if (dataBox && !savedData.isEmpty())
     {
@@ -4139,6 +4223,10 @@ void MainWindow::saveSettings()
     if (showDebugBarBox)
     {
         settings.setValue("ui/showDebugBar", showDebugBarBox->isChecked());
+    }
+    if (statsRateUnitBox)
+    {
+        settings.setValue("ui/statsRateUnit", statsRateUnitBox->currentIndex());
     }
     if (defaultSysIdBox)
     {
@@ -6040,6 +6128,19 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
 void MainWindow::setTxSummaryMode(int mode)
 {
     Q_UNUSED(mode);
+}
+
+void MainWindow::setStatusBarRateUnit(int unit)
+{
+    if (statsRateUnitBox && unit >= 0 && unit < statsRateUnitBox->count())
+    {
+        const QSignalBlocker blocker(statsRateUnitBox);
+        statsRateUnitBox->setCurrentIndex(unit);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(unit);
+    }
 }
 
 void MainWindow::setTxSummaryStats(int total, int running, double estimatedBps, double utilization)

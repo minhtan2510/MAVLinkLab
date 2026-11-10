@@ -2514,17 +2514,18 @@ private slots:
         }
     }
 
-    /** @brief Test show/hide debug status bar preference in Settings dialog and verify persistence. */
+    /** @brief Test show/hide debug status bar preference and throughput unit selection in Settings dialog. */
     void debugStatusBarVisibilitySettings()
     {
         // 1. Clean settings key before test
         {
             QSettings settings("MAVLinkSimulator", "Preferences");
             settings.remove("ui/showDebugBar");
+            settings.remove("ui/statsRateUnit");
             settings.sync();
         }
 
-        // 2. Default state: Checked and visible
+        // 2. Default state: Checked and visible, unit enabled with default KB/s
         {
             MainWindow window;
             window.show();
@@ -2532,25 +2533,36 @@ private slots:
 
             auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
             auto *statusBarCard = window.findChild<QFrame *>("statusBarCard");
+            auto *unitBox = window.findChild<QComboBox *>("statsRateUnit");
             QVERIFY(debugBox);
             QVERIFY(statusBarCard);
+            QVERIFY(unitBox);
 
             // Defaults to checked (enabled)
             QCOMPARE(debugBox->text(), QString("Show stats bar"));
             QVERIFY(debugBox->isChecked());
             QVERIFY(statusBarCard->isVisible());
 
-            // Toggle to false (hide debug bar)
+            // Unit dropdown: 3 items (B/s, KB/s, MB/s), defaults to KB/s (index 1), enabled
+            QCOMPARE(unitBox->count(), 3);
+            QCOMPARE(unitBox->itemText(0), QString("B/s"));
+            QCOMPARE(unitBox->itemText(1), QString("KB/s"));
+            QCOMPARE(unitBox->itemText(2), QString("MB/s"));
+            QCOMPARE(unitBox->currentIndex(), 1);
+            QVERIFY(unitBox->isEnabled());
+
+            // Toggle to false (hide debug bar): unit dropdown must become disabled/dimmed
             debugBox->click();
             QTest::qWait(20);
             QVERIFY(!debugBox->isChecked());
             QVERIFY(!statusBarCard->isVisible());
+            QVERIFY(!unitBox->isEnabled());
 
             // Verify QA snapshot of hidden status bar
             QVERIFY(window.grab().save("qa/window-debug-bar-hidden.png"));
         }
 
-        // 3. Reopen window and verify persistence
+        // 3. Reopen window and verify persistence and rate formatting
         {
             MainWindow window;
             window.show();
@@ -2558,18 +2570,49 @@ private slots:
 
             auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
             auto *statusBarCard = window.findChild<QFrame *>("statusBarCard");
+            auto *unitBox = window.findChild<QComboBox *>("statsRateUnit");
             QVERIFY(debugBox);
             QVERIFY(statusBarCard);
+            QVERIFY(unitBox);
 
-            // Persisted as unchecked
+            // Persisted as unchecked, unit dropdown remains disabled
             QVERIFY(!debugBox->isChecked());
             QVERIFY(!statusBarCard->isVisible());
+            QVERIFY(!unitBox->isEnabled());
 
-            // Toggle back to true (show debug bar)
+            // Toggle back to true (show debug bar): unit dropdown re-enabled
             debugBox->click();
             QTest::qWait(20);
             QVERIFY(debugBox->isChecked());
             QVERIFY(statusBarCard->isVisible());
+            QVERIFY(unitBox->isEnabled());
+
+            // Verify rate unit changes and live chip formatting
+            auto *metrics = window.findChild<QWidget *>("statusBarMetrics");
+            QVERIFY(metrics);
+
+            // Unit 0: B/s
+            unitBox->setCurrentIndex(0);
+            window.setStatusMetrics(1250, 4800, 0, 0, 0);
+            QTest::qWait(20);
+            auto chips = metrics->findChildren<QLabel *>();
+            QVERIFY(chips.size() >= 2);
+            QCOMPARE(chips[0]->text(), QString("RX ↓ 1250 B/s"));
+            QCOMPARE(chips[1]->text(), QString("TX ↑ 4800 B/s"));
+
+            // Unit 2: MB/s
+            unitBox->setCurrentIndex(2);
+            window.setStatusMetrics(2097152, 4194304, 0, 0, 0);
+            QTest::qWait(20);
+            QCOMPARE(chips[0]->text(), QString("RX ↓ 2.00 MB/s"));
+            QCOMPARE(chips[1]->text(), QString("TX ↑ 4.00 MB/s"));
+
+            // Unit 1: KB/s (default)
+            unitBox->setCurrentIndex(1);
+            window.setStatusMetrics(1250, 4800, 0, 0, 0);
+            QTest::qWait(20);
+            QCOMPARE(chips[0]->text(), QString("RX ↓ 1.2 KB/s"));
+            QCOMPARE(chips[1]->text(), QString("TX ↑ 4.7 KB/s"));
 
             QVERIFY(window.grab().save("qa/window-debug-bar-visible.png"));
         }
