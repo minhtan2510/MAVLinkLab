@@ -39,6 +39,13 @@
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
   * Batch action buttons are located in the TX Dashboard header overview row (`txOverview`), vertically aligned with `txSummary` (`X messages · Y running`) and right-aligned beneath `+ Add message`. This consolidates action triggers into a natural top-down flow and removes redundant footer dividers (`txBatchDivider`), reclaiming full vertical space for the TX cards list.
   * TX Status indicator (`TxSummaryWidget`) uses Dual Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with an antialiased vector LED dot (glowing green when running, neutral hollow when idle). Text measurement uses the matching DemiBold font metrics to prevent text clipping on `running`.
+* **Real-time Throughput Monitoring & Link Load Estimation:**
+  * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
+  * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
+  * TX Dashboard header features a dynamic 3rd pill in `TxSummaryWidget` (`~X B/s (Y.Y%)`) when transmitting, showing pre-flight estimated link load with adaptive saturation theme colors (Blue ≤ 70%, Amber > 70%, Red > 90%).
+  * RX Dashboard header features a real-time measured throughput pill (`rxThroughput` badge) right next to `rxSummary` (`X streams`), displaying actual received wire throughput and physical link capacity percentage (`X B/s (Y.Y%)` with 1 decimal place). Hidden when disconnected, visible when connected, with no tooltip, adapting dynamically to theme and link saturation.
+  * Status bar displays live measured byte rates (`RX ↓` and `TX ↑`) with tooltips indicating channel capacity utilization and active baudrate.
+  * Message Edit Dialog shows pre-flight load estimation badge (`Est. load: ~X B/s (Y.YY% at <baud> <framing>)`) with 2 decimal places and detailed framing tooltip.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.

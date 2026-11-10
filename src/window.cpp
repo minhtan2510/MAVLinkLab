@@ -3446,6 +3446,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSummary = new QLabel("0 streams");
     rxSummary->setObjectName("summaryBadge");
     rxHeader->addWidget(rxSummary);
+    rxThroughput = new QLabel;
+    rxThroughput->setObjectName("rxThroughput");
+    rxThroughput->setFixedHeight(24);
+    rxThroughput->setAlignment(Qt::AlignCenter);
+    rxThroughput->hide();
+    rxHeader->addWidget(rxThroughput);
     rxHeader->addStretch();
     rxLayout->addLayout(rxHeader);
     auto *rxActions = new QHBoxLayout;
@@ -3687,6 +3693,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             connectionStatusPill->setStatus(state, open);
         }
         connected = open;
+        if (rxThroughput)
+        {
+            if (!open)
+            {
+                rxThroughput->hide();
+            }
+            else
+            {
+                if (latest)
+                {
+                    setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
+                }
+                else
+                {
+                    setRxThroughputStats(0.0, 0.0, baudBox ? baudBox->currentText().toInt() : 115200);
+                }
+            }
+        }
         connecting = state == "Connecting";
         reconnecting = state == "Reconnecting";
         if (reconnecting)
@@ -5869,6 +5893,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     });
     txSummary->setStats(int(latest->tx.size()), int(running),
                         latest->estimatedTxBps, latest->estimatedTxUtilization);
+    setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
@@ -6027,9 +6052,71 @@ void MainWindow::setTxSummaryStats(int total, int running, double estimatedBps, 
 
 void MainWindow::setConnectionStatus(const QString &state, bool open)
 {
+    connected = open;
     if (connectionStatusPill)
     {
         connectionStatusPill->setStatus(state, open);
+    }
+    if (rxThroughput)
+    {
+        if (!open)
+        {
+            rxThroughput->hide();
+        }
+        else
+        {
+            rxThroughput->show();
+        }
+    }
+}
+
+void MainWindow::setRxThroughputStats(double bps, double utilization, int baud)
+{
+    if (!rxThroughput)
+    {
+        return;
+    }
+    if (!connected)
+    {
+        rxThroughput->hide();
+        return;
+    }
+    const QString text = (baud > 0) ?
+        QString("%1 (%2%)")
+            .arg(QString::fromStdString(Mav::formatByteRate(bps)))
+            .arg(utilization, 0, 'f', 1) :
+        QString::fromStdString(Mav::formatByteRate(bps));
+    rxThroughput->setText(text);
+    updateRxThroughputStyle(utilization);
+    rxThroughput->show();
+}
+
+void MainWindow::updateRxThroughputStyle(double util)
+{
+    lastRxUtil = util;
+    if (!rxThroughput)
+    {
+        return;
+    }
+    const bool dark = themeBox && (themeBox->currentIndex() == 2 ||
+                      (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128));
+    if (util > 90.0)
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #f87171; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #2e1215; border: 1px solid #7f1d1d; border-radius: 6px;" :
+            "color: #dc2626; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;");
+    }
+    else if (util > 70.0)
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #fbbf24; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #2b1a07; border: 1px solid #78350f; border-radius: 6px;" :
+            "color: #d97706; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px;");
+    }
+    else
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #60a5fa; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #0f233a; border: 1px solid #1e3a5f; border-radius: 6px;" :
+            "color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;");
     }
 }
 
@@ -6771,5 +6858,9 @@ void MainWindow::applyTheme()
     if (copyFeedbackBadge)
     {
         static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
+    }
+    if (rxThroughput && connected)
+    {
+        updateRxThroughputStyle(lastRxUtil);
     }
 }

@@ -41,6 +41,8 @@ public:
                           double rxUtil = 0.0, double txUtil = 0.0, int baud = 0);
     /** @brief Apply one snapshot directly (e.g. for inspection/testing). */
     void applySnapshot(SnapshotPtr snapshot);
+    /** @brief Update the RX throughput indicator pill directly (e.g. for inspection/testing). */
+    void setRxThroughputStats(double bps, double utilization, int baud);
     /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
     void stopRefreshTimer();
     /** @brief Return the currently configured serial port settings. */
@@ -102,6 +104,8 @@ private:
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     /** @brief Display transient confirmation badge and cell flash when copying a field value. */
     void showCopiedFeedback(int row);
+    /** @brief Update the color styling of the RX throughput pill based on channel utilization. */
+    void updateRxThroughputStyle(double util);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -160,6 +164,8 @@ private:
     QLabel *serialSummary = nullptr;
     TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
+    QLabel *rxThroughput = nullptr;
+    double lastRxUtil = 0.0;
     QLabel *inspectorTitle = nullptr;
     QLabel *inspectorSource = nullptr;
     QLabel *copyFeedbackBadge = nullptr;

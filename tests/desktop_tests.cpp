@@ -2782,7 +2782,28 @@ private slots:
             QVERIFY(txSummary);
             QVERIFY(txSummary->grab().save(QString("qa/tx-summary-throughput-%1.png").arg(themeSuffix)));
 
-            // 3. Verify Message Dialog Load Estimate Badge
+            // 3. Verify RX Throughput Pill on RX Dashboard
+            auto *rxThroughput = window.findChild<QLabel *>("rxThroughput");
+            QVERIFY(rxThroughput);
+            // Must be hidden when disconnected
+            QVERIFY(!rxThroughput->isVisible());
+            QVERIFY(rxThroughput->toolTip().isEmpty());
+
+            // Connected: pill becomes visible with measured throughput and link capacity %, NO tooltip
+            window.setConnectionStatus("Connected", true);
+            window.setRxThroughputStats(850.0, 7.4, 115200);
+            QTest::qWait(30);
+            QVERIFY(rxThroughput->isVisible());
+            QCOMPARE(rxThroughput->text(), QString("850 B/s (7.4%)"));
+            QVERIFY(rxThroughput->toolTip().isEmpty());
+            QVERIFY(rxThroughput->grab().save(QString("qa/rx-throughput-pill-%1.png").arg(themeSuffix)));
+
+            // Disconnect: pill must be hidden again
+            window.setConnectionStatus("Disconnected", false);
+            QTest::qWait(30);
+            QVERIFY(!rxThroughput->isVisible());
+
+            // 4. Verify Message Dialog Load Estimate Badge
             auto *add = window.findChild<QPushButton *>("addMessage");
             QVERIFY(add);
 
