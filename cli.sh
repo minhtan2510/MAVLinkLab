@@ -308,7 +308,7 @@ build_core()
 }
 
 ##
-# @brief Launch N instances of the simulator application.
+# @brief Launch N instances of the simulator application as detached background processes.
 #
 # @param count Number of instances to launch (default: 1).
 # @param ... Additional arguments passed to the Qt application.
@@ -338,37 +338,22 @@ launch_instances()
     setup_qt_env
 
     if [[ "$count" -eq 1 ]]; then
-        printf "\n%b=== Launching MAVLinkLab (Single Window) ===%b\n" "$GREEN" "$NC"
-        "$app" "$@"
-        return $?
+        printf "\n%b=== Launching MAVLinkLab (Detached Process) ===%b\n" "$GREEN" "$NC"
+        nohup "$app" "$@" >/dev/null 2>&1 &
+        local pid=$!
+        disown "$pid" 2>/dev/null || true
+        printf "  Started MAVLinkLab in background (PID: %d)\n" "$pid"
+        return 0
     fi
 
-    printf "\n%b=== Launching %d MAVLinkLab Windows ===%b\n" "$GREEN" "$count" "$NC"
-    local pids=()
+    printf "\n%b=== Launching %d MAVLinkLab Windows (Detached) ===%b\n" "$GREEN" "$count" "$NC"
     for ((i = 1; i <= count; i++)); do
-        "$app" "$@" &
+        nohup "$app" "$@" >/dev/null 2>&1 &
         local pid=$!
-        pids+=("$pid")
+        disown "$pid" 2>/dev/null || true
         printf "  Started instance #%d (PID: %d)\n" "$i" "$pid"
     done
-    printf "%bPress Ctrl+C to terminate all %d instances.%b\n" "$YELLOW" "$count" "$NC"
-
-    # @brief Stop child instances when interrupted.
-    stop_instances()
-    {
-        trap - INT TERM
-        printf "\n%bStopping %d child instances...%b\n" "$YELLOW" "${#pids[@]}" "$NC"
-        kill "${pids[@]}" 2>/dev/null || true
-        wait "${pids[@]}" 2>/dev/null || true
-    }
-
-    trap stop_instances INT TERM
-    local status=0
-    for pid in "${pids[@]}"; do
-        wait "$pid" || status=$?
-    done
-    trap - INT TERM
-    return "$status"
+    return 0
 }
 
 ##
