@@ -3307,7 +3307,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     for (auto *combo : {dataBox, parityBox, stopBox, flowBox})
     {
-        connect(combo, &QComboBox::currentIndexChanged, this, &MainWindow::updateSerialSummary);
+        connect(combo, &QComboBox::currentIndexChanged, this, [this]()
+        {
+            updateSerialSummary();
+            saveSettings();
+        });
     }
     updateSerialSummary();
     uart->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
@@ -3707,7 +3711,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         if (open)
         {
             connectingByUser = false;
-            // Persist the serial port and baudrate of the last successful connection
+            // Persist the serial port, baudrate and advanced parameters of the last successful connection
             QSettings settings("MAVLinkSimulator", "Preferences");
             if (portBox)
             {
@@ -3716,6 +3720,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             if (baudBox)
             {
                 settings.setValue("serial/baud", baudBox->currentText());
+            }
+            if (dataBox)
+            {
+                settings.setValue("serial/dataBits", dataBox->currentText());
+            }
+            if (parityBox)
+            {
+                settings.setValue("serial/parity", parityBox->currentIndex());
+            }
+            if (stopBox)
+            {
+                settings.setValue("serial/stopBits", stopBox->currentIndex());
+            }
+            if (flowBox)
+            {
+                settings.setValue("serial/flowControl", flowBox->currentIndex());
             }
             settings.sync();
 
@@ -4041,6 +4061,47 @@ void MainWindow::restoreSettings()
     {
         statusBarCard->setVisible(showDebugBar);
     }
+    const QString savedData = settings.value("serial/dataBits", "").toString();
+    if (dataBox && !savedData.isEmpty())
+    {
+        const int idx = dataBox->findText(savedData);
+        if (idx >= 0)
+        {
+            const QSignalBlocker blocker(dataBox);
+            dataBox->setCurrentIndex(idx);
+        }
+    }
+    const QVariant savedParity = settings.value("serial/parity");
+    if (parityBox && savedParity.isValid())
+    {
+        const int pIdx = savedParity.toInt();
+        if (pIdx >= 0 && pIdx < parityBox->count())
+        {
+            const QSignalBlocker blocker(parityBox);
+            parityBox->setCurrentIndex(pIdx);
+        }
+    }
+    const QVariant savedStop = settings.value("serial/stopBits");
+    if (stopBox && savedStop.isValid())
+    {
+        const int sIdx = savedStop.toInt();
+        if (sIdx >= 0 && sIdx < stopBox->count())
+        {
+            const QSignalBlocker blocker(stopBox);
+            stopBox->setCurrentIndex(sIdx);
+        }
+    }
+    const QVariant savedFlow = settings.value("serial/flowControl");
+    if (flowBox && savedFlow.isValid())
+    {
+        const int fIdx = savedFlow.toInt();
+        if (fIdx >= 0 && fIdx < flowBox->count())
+        {
+            const QSignalBlocker blocker(flowBox);
+            flowBox->setCurrentIndex(fIdx);
+        }
+    }
+    updateSerialSummary();
 }
 
 /** @brief Save application preferences such as theme and MAVLink defaults to storage. */
@@ -4078,6 +4139,26 @@ void MainWindow::saveSettings()
     if (deassertControlLinesBox)
     {
         settings.setValue("serial/deassertControlLines", deassertControlLinesBox->isChecked());
+    }
+    if (baudBox)
+    {
+        settings.setValue("serial/baud", baudBox->currentText());
+    }
+    if (dataBox)
+    {
+        settings.setValue("serial/dataBits", dataBox->currentText());
+    }
+    if (parityBox)
+    {
+        settings.setValue("serial/parity", parityBox->currentIndex());
+    }
+    if (stopBox)
+    {
+        settings.setValue("serial/stopBits", stopBox->currentIndex());
+    }
+    if (flowBox)
+    {
+        settings.setValue("serial/flowControl", flowBox->currentIndex());
     }
     settings.sync();
 }

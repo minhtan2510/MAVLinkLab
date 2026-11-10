@@ -2827,6 +2827,41 @@ private slots:
             QTest::qWait(300);
         }
     }
+
+    /**
+     * @brief Verify advanced UART configuration persistence across application restarts.
+     */
+    void advancedSerialPreferences()
+    {
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        settings.setValue("serial/baud", "921600");
+        settings.setValue("serial/dataBits", "8");
+        settings.setValue("serial/parity", 1); // Even
+        settings.setValue("serial/stopBits", 1); // 2 Stop bits
+        settings.setValue("serial/flowControl", 0);
+        settings.sync();
+
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(30);
+
+            const PortConfig config = window.currentPortConfig();
+            QCOMPARE(config.baud, 921600);
+            QCOMPARE(config.data, QSerialPort::Data8);
+            QCOMPARE(config.parity, QSerialPort::EvenParity);
+            QCOMPARE(config.stop, QSerialPort::TwoStop);
+            QCOMPARE(framingFormatName(config), QString("8E2"));
+            QCOMPARE(framingBitsPerByte(config), 12.0);
+        }
+
+        // Clean up back to 8N1
+        settings.setValue("serial/baud", "115200");
+        settings.setValue("serial/dataBits", "8");
+        settings.setValue("serial/parity", 0); // None
+        settings.setValue("serial/stopBits", 0); // 1 Stop bit
+        settings.sync();
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
