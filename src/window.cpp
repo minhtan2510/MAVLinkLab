@@ -3184,7 +3184,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         layout->setContentsMargins(20, 16, 20, 16);
         layout->setSpacing(12);
         layout = addDialogTitleBar(&dialog, layout);
-        dialog.setMinimumWidth(480);
+        dialog.setMinimumWidth(440);
 
         QString mavlinkLib = QString("Wire v%1 · %2").arg(MAVLINK_WIRE_PROTOCOL_VERSION, MAVLINK_BUILD_DATE);
         QFile gitRef(".git/modules/third_party/mavlink/refs/heads/master");
@@ -3199,7 +3199,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
         auto *headerRow = new QHBoxLayout;
         headerRow->setSpacing(16);
-        headerRow->setContentsMargins(0, 4, 0, 6);
+        headerRow->setContentsMargins(0, 0, 0, 0);
 
         auto *logoLabel = new QLabel(&dialog);
         logoLabel->setObjectName("aboutLogo");
@@ -3226,23 +3226,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
         auto *details = new QLabel(
             QString(
-                "<p>A desktop workbench for sending, receiving and inspecting MAVLink messages over serial UART.</p>"
-                "<p><b>Features</b><br>"
-                "Configurable serial connection<br>"
-                "Periodic and single-message transmission<br>"
-                "Live message rates and frame counters<br>"
-                "RX streams grouped by System and Component<br>"
-                "Decoded payload field inspection</p>"
-                "<p><b>Protocol</b><br>MAVLink 1 and 2<br>"
-                "Dialect: ardupilotmega (including common)<br>"
-                "Official MAVLink C library (%1)</p>"
-                "<p><b>Platform</b><br>Ubuntu / Linux<br>"
-                "C++17 · Qt Widgets · Qt SerialPort</p>").arg(mavlinkLib), &dialog);
+                "<p style='margin: 0 0 8px 0; line-height: 140%;'>"
+                "A desktop workbench for sending, receiving and inspecting MAVLink telemetry over serial UART.</p>"
+                "<p style='margin: 0; line-height: 140%;'>"
+                "<b>Author:</b> Tân Nguyễn &lt;tan.nguyen@gremsy.com&gt;<br>"
+                "<b>Protocol:</b> MAVLink 1 &amp; 2 · Dialect: ardupilotmega<br>"
+                "<b>Library:</b> %1<br>"
+                "<b>Platform:</b> Linux · C++17 · Qt %2</p>")
+                .arg(mavlinkLib, qVersion()), &dialog);
         details->setObjectName("aboutDetails");
         details->setWordWrap(true);
         details->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        details->ensurePolished();
-        details->setMinimumHeight(details->heightForWidth(440) + details->fontMetrics().lineSpacing());
         layout->addWidget(details);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
