@@ -558,6 +558,137 @@ bump_version_interactive()
 }
 
 ##
+# @brief Install or update the Linux desktop launcher (.desktop) and application icons.
+#
+# @return 0 on success, 1 on error.
+#
+install_desktop_entry()
+{
+    printf "\n%b=== Installing MAVLinkLab Desktop Launcher ===%b\n" "$CYAN" "$NC"
+
+    local app_bin="$build_dir/mavlink-lab"
+    local apps_dir="$HOME/.local/share/applications"
+    local icons_base="$HOME/.local/share/icons/hicolor"
+    local desktop_file="$apps_dir/mavlink-lab.desktop"
+
+    if [[ ! -x "$app_bin" ]]; then
+        printf "%bApplication binary not found at: %s%b\n" "$YELLOW" "$app_bin" "$NC"
+        printf "Building application first...\n"
+        build_full
+        if [[ ! -x "$app_bin" ]]; then
+            printf "%bFailed to build application binary. Aborting desktop install.%b\n" "$RED" "$NC" >&2
+            return 1
+        fi
+    fi
+
+    # 1. Create target directories
+    mkdir -p "$apps_dir"
+    mkdir -p "$icons_base/scalable/apps"
+
+    # 2. Install application icons
+    printf "Installing application icons to %s...\n" "$icons_base"
+    local sizes=(16 24 32 48 64 128 256 512)
+    for size in "${sizes[@]}"; do
+        local src_png="$project_dir/resources/icons/mavlink-lab-${size}.png"
+        local dest_dir="$icons_base/${size}x${size}/apps"
+        if [[ -f "$src_png" ]]; then
+            mkdir -p "$dest_dir"
+            cp -f "$src_png" "$dest_dir/mavlink-lab.png"
+        fi
+    done
+
+    local src_svg="$project_dir/resources/icons/mavlink-lab.svg"
+    if [[ -f "$src_svg" ]]; then
+        cp -f "$src_svg" "$icons_base/scalable/apps/mavlink-lab.svg"
+    fi
+
+    # 3. Generate .desktop file
+    printf "Generating desktop entry at %s...\n" "$desktop_file"
+    cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Name=MAVLinkLab
+GenericName=Serial Workbench for MAVLink
+Comment=Desktop serial workbench for sending, receiving and inspecting MAVLink telemetry
+Exec=$app_bin %f
+Path=$project_dir
+Icon=mavlink-lab
+Terminal=false
+Type=Application
+Categories=Development;Engineering;Electronics;
+Keywords=mavlink;serial;uart;telemetry;drone;uav;robotics;ardupilot;px4;
+StartupWMClass=mavlink-lab
+EOF
+
+    chmod 644 "$desktop_file"
+
+    # 4. Update system caches if tools exist
+    if command -v update-desktop-database &>/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_base" 2>/dev/null || true
+    fi
+
+    printf "%b✔ Desktop launcher installed successfully!%b\n" "$GREEN" "$NC"
+    printf "  • Desktop entry: %s\n" "$desktop_file"
+    printf "  • Binary target: %s\n" "$app_bin"
+    printf "  • Icon installed: %s/scalable/apps/mavlink-lab.svg\n" "$icons_base"
+    printf "You can now launch MAVLinkLab from your application menu or dash.\n\n"
+    return 0
+}
+
+##
+# @brief Uninstall and remove the Linux desktop launcher (.desktop) and installed icons.
+#
+# @return 0 on success.
+#
+uninstall_desktop_entry()
+{
+    printf "\n%b=== Removing MAVLinkLab Desktop Launcher ===%b\n" "$CYAN" "$NC"
+
+    local apps_dir="$HOME/.local/share/applications"
+    local icons_base="$HOME/.local/share/icons/hicolor"
+    local desktop_file="$apps_dir/mavlink-lab.desktop"
+    local removed_any=0
+
+    # 1. Remove .desktop file
+    if [[ -f "$desktop_file" ]]; then
+        rm -f "$desktop_file"
+        printf "  • Removed desktop entry: %s\n" "$desktop_file"
+        removed_any=1
+    fi
+
+    # 2. Remove icons
+    local sizes=(16 24 32 48 64 128 256 512)
+    for size in "${sizes[@]}"; do
+        local icon_path="$icons_base/${size}x${size}/apps/mavlink-lab.png"
+        if [[ -f "$icon_path" ]]; then
+            rm -f "$icon_path"
+            removed_any=1
+        fi
+    done
+    if [[ -f "$icons_base/scalable/apps/mavlink-lab.svg" ]]; then
+        rm -f "$icons_base/scalable/apps/mavlink-lab.svg"
+        removed_any=1
+    fi
+
+    # 3. Update system caches
+    if command -v update-desktop-database &>/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_base" 2>/dev/null || true
+    fi
+
+    if [[ "$removed_any" -eq 1 ]]; then
+        printf "%b✔ Desktop launcher and icons removed successfully!%b\n\n" "$GREEN" "$NC"
+    else
+        printf "%bDesktop launcher was not found on your system.%b\n\n" "$YELLOW" "$NC"
+    fi
+    return 0
+}
+
+##
 # @brief Print CLI command usage help.
 #
 show_help()
@@ -585,6 +716,8 @@ show_help()
         printf "    submodules          Update git submodules\n"
         printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
         printf "    sync-graph          Synchronize CodeGraph index\n"
+        printf "    install-desktop     Install desktop launcher (.desktop & icons)\n"
+        printf "    uninstall-desktop   Remove desktop launcher and icons\n"
         printf "    version             Display current project version\n"
         printf "    bump <version>      Update project version in CMakeLists.txt\n"
         printf "    menu                Open interactive menu (default when no args)\n"
@@ -606,6 +739,8 @@ show_help()
         printf "  General:\n"
         printf "    clean               Delete build directories\n"
         printf "    rebuild             Clean and rebuild full project\n"
+        printf "    install-desktop     Install desktop launcher (.desktop & icons)\n"
+        printf "    uninstall-desktop   Remove desktop launcher and icons\n"
         printf "    menu                Open interactive menu (default when no args)\n"
         printf "    help, -h, --help    Show this help message\n\n"
         printf "Developer Mode:\n"
@@ -880,6 +1015,8 @@ menu_tools()
             "Update git submodules" \
             "Regenerate MAVLink enums from XML" \
             "Sync CodeGraph" \
+            "Install desktop launcher (.desktop & icons)" \
+            "Uninstall desktop launcher (remove .desktop & icons)" \
             "← Back to Main Menu"
 
         case "$choice" in
@@ -900,6 +1037,16 @@ menu_tools()
                 ;;
             3)
                 sync_codegraph || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            4)
+                install_desktop_entry || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            5)
+                uninstall_desktop_entry || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
@@ -924,7 +1071,7 @@ interactive_menu()
                 "[Build]  Build all, rebuild, or clean project" \
                 "[Run]    Run project" \
                 "[Test]   Run all tests or core tests" \
-                "[Tools]  Version bump, submodules, CodeGraph" \
+                "[Tools]  Version bump, submodules, CodeGraph, desktop entry" \
                 "[Exit]   Exit CLI"
 
             case "$choice" in
@@ -1070,6 +1217,14 @@ case "$cmd" in
     sync-graph)
         shift
         sync_codegraph "$@"
+        ;;
+    install-desktop|desktop)
+        shift
+        install_desktop_entry "$@"
+        ;;
+    uninstall-desktop|remove-desktop)
+        shift
+        uninstall_desktop_entry "$@"
         ;;
     version)
         printf "%s\n" "$(get_project_version)"
