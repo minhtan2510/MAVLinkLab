@@ -98,7 +98,8 @@ ctest --test-dir build-core --output-on-failure
 - Báo riêng **build**, **automated tests**, **rendered GUI**, **PTY**, **physical UART** và **DMA**. Test fixture không phải bằng chứng hardware.
 - Qt desktop tests tự chọn offscreen platform qua CTest và tạo ảnh tại `build/qa/`. Không đưa build artifacts hoặc `.codegraph/` vào Git.
 - **Không xóa hoặc cleanup thư mục `qa/` và `build/qa/`** sau khi chạy test; giữ nguyên các ảnh chụp kiểm thử offscreen để người dùng có thể trực tiếp thanh tra giao diện và theo dõi visual regression.
-- Cập nhật documentation liên quan khi behavior/workflow thay đổi. Gợi ý commit message khi user yêu cầu version-control work.
+- Cập nhật documentation liên quan khi behavior/workflow thay đổi.
+- **Quy tắc ghi commit message:** Tiêu đề (subject line) phải ngắn gọn, súc tích nhất có thể (dạng `<type>(<scope>): <summary>`, ≤ 50–72 ký tự). Toàn bộ nội dung phân tích chi tiết, bối cảnh và các thay đổi cụ thể phải ghi vào phần **body** của commit (cách tiêu đề 1 dòng trống), không viết dồn vào tiêu đề.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph

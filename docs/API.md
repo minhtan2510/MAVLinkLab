@@ -73,7 +73,7 @@ Ví dụ chỉ kiểm tra codec; không connect UART hoặc xác nhận delivery
 | `validTx(entry)` | Metadata tồn tại, payload đúng `max_msg_len`, finite Hz trong [0.1, 1000], MAVLink 1 ID ≤255; không validate từng field hay sender semantics |
 | `frameSize(entry)` | Conservative bytes trước MAVLink 2 zero trimming: v1 minimum payload +8, v2 maximum payload +12; unknown ID trả 0 |
 | `fitsLink(entries, candidate, baud, bitsPerByte)` | Validate candidate và so offered bytes/s × framing bits với baud. Cộng các entries active khác key; không tự đo physical throughput |
-| `due(entry, now)` | Nếu active/valid và đến deadline: cập nhật deadline thành `now + period`, trả true; không tăng count hay encode |
+| `due(entry, now)` | Nếu active/valid và đến deadline: tịnh tiến deadline theo chu kỳ (`deadline += period`) để giữ nhịp truyền chính xác, resync nếu trễ quá hạn để tránh catch-up bursts, trả true; không tăng count hay encode |
 
 ## Bounded output queue
 

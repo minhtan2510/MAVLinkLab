@@ -21,8 +21,9 @@
   * Monotonic clock used for scheduling to prevent catch-up bursts when deadlines are missed.
 * **State Persistence & Decoupled Scopes:**
   * Application preferences (`MAVLinkSimulator/Preferences`), layout geometry (`MAVLinkSimulator/Layout`), and workspace TX messages (`MAVLinkSimulator/Workspace`) are kept in separate `QSettings` scopes.
+  * Default splitter sizes for `dashboards` are `{467, 929}` px (TX: 467 px, RX: 929 px), calibrated to fit all three status pills perfectly with standard 16 px panel margins.
   * `QSignalBlocker` must be used during `restoreSettings()` to prevent widget signals (e.g., `valueChanged`) from triggering premature `saveSettings()`. Always invoke `settings.sync()` immediately after writing.
-  * Serial Port (`serial/port`) and Baudrate (`serial/baud`) of the last successful connection are persisted upon successful connect and restored on launch.
+  * Serial Port (`serial/port`), Baudrate (`serial/baud`) and advanced UART parameters (`serial/dataBits`, `serial/parity`, `serial/stopBits`, `serial/flowControl`) are persisted upon user selection and connection, and restored on launch.
   * Port is selection-only, with no text editor, placeholder or startup focus. Startup/Refresh retains the previous port only if enumerated. With no available ports, Port is empty. PTY UI tests inject their fixture path into the dropdown model; production does not offer manual paths.
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
@@ -33,16 +34,31 @@
   * Manual disconnect (`closePort()`) immediately cancels any active reconnection loop and transitions directly to `Disconnected`.
   * Reconnection strictly maintains safety: no frames or heartbeats are sent automatically upon re-establishing the link.
   * Serial port enumeration automatically focuses on active plugged devices (USB converters, CDC-ACM, active onboard UARTs) to keep the toolbar dropdown clean.
+* **Serial Port Buffer Purge & Clean Session Transitions:**
+  * Upon `openPort()`, both kernel TTY queues (`::tcflush(fd, TCIOFLUSH)`) and Qt buffers (`port->clear(AllDirections)`, `port->readAll()`) are rigorously drained before transitioning to `Connected`, eliminating residual backlog/stale frames from prior high-throughput stress tests.
+  * Upon `closePort()`, all pending TX is stopped and buffers are purged before closing the OS file descriptor.
+  * In `MainWindow::closeEvent()`, `worker->closePort()` is invoked synchronously to halt periodic transmissions and release the serial device immediately when a window is closed.
 * **Custom Vector Form Controls & Batch Action Icons:**
   * Indicators for controls (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) and batch TX action buttons (`runAll`, `stopAll`, `deleteAll`) are painted via vector paths with antialiased `QPainter` instead of crude QSS or text labels.
   * Batch action buttons use 28x28 px compact icon buttons with semantic tooltips (`Run all`, `Stop all`, `Delete all`).
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
-  * Batch action buttons are located in the TX Dashboard header overview row (`txOverview`), vertically aligned with `txSummary` (`X messages · Y running`) and right-aligned beneath `+ Add message`. This consolidates action triggers into a natural top-down flow and removes redundant footer dividers (`txBatchDivider`), reclaiming full vertical space for the TX cards list.
-  * TX Status indicator (`TxSummaryWidget`) uses Dual Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with an antialiased vector LED dot (glowing green when running, neutral hollow when idle). Text measurement uses the matching DemiBold font metrics to prevent text clipping on `running`.
+  * Batch action buttons are located in the TX Dashboard header row 1 in column 0 directly beneath `TX Dashboard` title: `runAll` (left-aligned with 'T') and `stopAll` are clustered together, while `deleteAll` is pushed via `addStretch()` so its right edge aligns pixel-perfect with the trailing letter 'd' of `TX Dashboard`. `+ Add message` is on row 1 on the far right. Status pills (`TxSummaryWidget`) are located on row 0 directly next to the `TX Dashboard` title (matching the `RX Dashboard` header style). This creates a cohesive, symmetric design language across both dashboards.
+  * TX Status indicator (`TxSummaryWidget`) uses Dual/Triple Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with clean centered text (`X running` / `0 running`) without LED dot icon for a unified minimal aesthetic matching Pill 1. Text measurement uses the matching DemiBold font metrics.
+* **Real-time Throughput Monitoring & Link Load Estimation:**
+  * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
+  * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
+  * TX Dashboard header features a dynamic 3rd pill in `TxSummaryWidget` (`~X B/s (Y.Y%)`) when transmitting, showing pre-flight estimated link load with adaptive saturation theme colors (Blue ≤ 70%, Amber > 70%, Red > 90%).
+  * RX Dashboard header features a real-time measured throughput pill (`rxThroughput` badge) right next to `rxSummary` (`X streams`), displaying actual received wire throughput and physical link capacity percentage (`X B/s (Y.Y%)` with 1 decimal place). Hidden when disconnected, visible when connected, with no tooltip, adapting dynamically to theme and link saturation.
+  * Status bar displays live measured byte rates (`RX ↓` and `TX ↑`) with tooltips indicating channel capacity utilization and active baudrate.
+  * Message Edit Dialog shows pre-flight load estimation badge (`Est. load: ~X B/s (Y.YY% at <baud> <framing>)`) with 2 decimal places and detailed framing tooltip.
+  * Message Edit Dialog displays a dedicated schema payload length badge (`X Bytes`) right next to the selected message title (`[ID] NAME`).
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
   * Concise Doxygen comments in English (`@brief`, `@param`, `@return`) on all new or significantly modified functions.
+* **Commit Message Conventions:**
+  * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
+  * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
 
 ---
 
@@ -71,7 +87,12 @@
   * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
   * Set `QComboBox:editable { padding: 4px 28px 4px 7px; }` with `QComboBox QLineEdit { padding: 0; margin: 0; border: 0; }` and zero left text margins (`setTextMargins(0, 0, 18, 0)`). This aligns the embedded `QLineEdit` geometry (`x = 8`) and its initial text rendering pixel (`X = 12`) pixel-perfect with `QSpinBox` (`padding: 7px; x = 8; X = 12`) without text clipping or chevron overlap.
 * **Enum Autocomplete in Dialog Inputs:**
-  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE (DESC)`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * Dialog dropdown enums (like Component ID via `MAV_COMPONENT`) provide `MatchContains` autocomplete, dynamic hover tooltips (`NAME = VALUE`), and bidirectional conversion between integer IDs and symbolic enum names.
+  * In `messageDialog` form row, `System ID` and `Rate (Hz)` are assigned fixed 110px widths while `Component ID` receives all remaining expanding horizontal space.
+  * `CompIdLineFilter` intercepts `FocusOut` and `Show` to ensure `cursorPosition(0)` is always enforced, anchoring long enum names from the beginning (e.g. `MAV_COMP_ID_VISUAL_INERTIAL_O`) rather than scrolling to the trailing suffix when text exceeds visible width.
+* **Message Dialog Key Handling (Suppressed Enter on Inputs & Focus Clearing):**
+  * In `editMessage` dialog, pressing `Enter` while focused on an input field (`QLineEdit`, `QSpinBox`, `QComboBox`, or table cell editor) commits/finishes the active input and clears focus from the field without triggering `Add message` / `Save changes`.
+  * Implemented via `MessageDialogKeyFilter` and disabling `autoDefault(false)` & `default(false)` on all buttons in the dialog. The Save button is only activated via explicit mouse click or pressing Enter/Space when keyboard focus is directly on the button.
   * Hold `Ctrl` while clicking Save/Add message forces all empty payload fields to zero.
 * **Dropdown Popup Selection Persistence & Active Highlight:**
   * In Qt6, editable `QComboBox` does not automatically update `currentIndex()` from typed text, causing popup views to highlight index 0 and lose current selection during mouse hover or scroll.
@@ -97,7 +118,7 @@
   * Segmented metric chips (`StatusBarMetricsWidget`: `RX ↓`, `TX ↑`, `CRC`, `Pending`, `Overflow`) are aligned to the right via `addStretch(1)` in `statusBarCard`, matching `dashRight` (x = 1420px) pixel-perfect with upper dashboard panels.
   * Omit redundant connection text status from the debug bar; connection lifecycle states are exclusively reported by `ConnectionStatusWidget` on the UART toolbar.
   * Connection Status indicator (`ConnectionStatusWidget`) maintains clean binary/lifecycle states (`Disconnected`, `Connecting`, `Connected`, `Reconnecting`). Omit `Error` state from the badge: when a connection fails, a compact modal alert dialog is displayed and the badge cleanly remains `Disconnected`.
-  * Visibility toggle: Managed by `WorkbenchCheckBox` in `SettingsDialog` (`Appearance` card) under preference key `ui/showDebugBar` (default: `true`). Toggling dynamically updates `statusBarCard->setVisible()`.
+  * Visibility toggle & Throughput Unit: Managed by `WorkbenchCheckBox` (`Show stats bar`, `ui/showDebugBar`, default: `true`) and `WorkbenchComboBox` (`Stats Bar Unit:`, `ui/statsRateUnit`, items: `{"B/s", "KB/s", "MB/s"}`, default: index 1 `KB/s`) in `SettingsDialog` (`Appearance` card). The unit dropdown is disabled/dimmed when `Show stats bar` is unchecked, and live formatting adapts immediately across `StatusBarMetricsWidget`.
 * **Compact Floating Alert Dialogs (`ConnectionErrorDialog`):**
   * Do NOT apply `border-radius` directly to a top-level `QDialog` stylesheet without alpha transparency; X11/OS native window rects cause dark/light jagged clipping artifacts at the corners.
   * Correct architecture: `setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint)` + `setAttribute(Qt::WA_TranslucentBackground)` on `QDialog`, enclosing content in an inner `QFrame#connectionErrorCard` with `border-radius: 10px; border: 1px solid %4; background: %2;`.
@@ -129,6 +150,58 @@
   * SemVer parsing (`Version::isNewerVersion`) dynamically reveals the "Update" button to launch the browser release page only when a newer version is available.
   * Browser launch (`openUrlQuietly`): Uses detached `xdg-open` with `QProcess::nullDevice()` redirection on Linux to eliminate noisy Chromium/Google Chrome zygote `Broken pipe` terminal stderr output when opening existing browser sessions.
   * Safely terminates any active background fetch process upon dialog close to prevent `QProcess: Destroyed while process is still running` crashes.
+* **Throughput Tracking & Link Load Estimation:**
+  * Throughput tracking uses `Mav::ByteRate` (1.0-second monotonic sliding window ring buffer) in core logic to eliminate jitter/spikes inherent in periodic interval resets (`bytes / elapsed`).
+  * Wire size computation (`Mav::frameSize`) accounts for MAVLink framing overhead: v1 (`payload + 8`), v2 (`payload + 12`).
+  * Pre-flight TX load estimation (`Mav::estimateTxThroughput`) calculates planned byte rate and channel capacity utilization percentage based on baudrate and physical UART framing (10 bits per byte for 8N1).
+  * `TxSummaryWidget` dynamically displays an antialiased 3rd pill (`~X B/s (Y%)`) when transmitting, color-coded for safety: blue (<70%), amber (70-90%), red (>90% overload).
+  * Message Edit Dialog (`messageLoadEstimate`) interactively computes wire throughput when selecting messages, toggling MAVLink versions, or adjusting frequency spinboxes.
+  * `StatusBarMetricsWidget` displays real-time throughput with contextual tooltips reporting percentage of link capacity and baudrate.
+
+* **TX Card Rate Badge Alignment for Long Titles:**
+  * When long message titles wrap across 2 lines (`lines.size() > 1`), `txRatePillRect` vertically centers the interactive rate badge across the full 40px two-line title block (`Y = badge.top() + 11`, center Y = `badge.top() + 20`).
+  * Horizontally, `pillLeft` is positioned 8 px after the maximum horizontal advance of both lines (`max(advance[0], advance[1])`), ensuring the badge never collides with either line's text or the top-right status badge button.
+
+* **Permissive Rate Transmission Model (No Pre-Flight Capacity Gating):**
+  * `setActive()`, `setRate()`, and `runAll()` allow execution at any user-configured frequency without pre-flight `fitsLink()` rejection or artificial "Error" status transitions.
+  * When offered load exceeds physical UART baudrate capacity, transmissions are scheduled normally according to monotonic clocks; hardware/link throughput limits are naturally and transparently reflected in the live **Actual Rate** indicator (`Actual: X Hz`) on each TX card.
+  * Error status is strictly reserved for physical/runtime faults (e.g. `Port closed`, `Serial write failure`), never for theoretical bandwidth saturation.
+
+* **TX Stream Isochronous Pacing & Anti-Drift Scheduling:**
+  * In `Mav::due(entry, now)`, progression advances deadlines isochronously (`entry.deadline += interval`) to preserve exact transmission frequency, eliminating cumulative phase drift caused by OS scheduler jitter.
+  * To prevent catch-up bursts without dropping packets under normal OS multi-tasking jitter (which can delay ticks by 2-3ms), a generous jitter tolerance threshold is enforced (`maxJitterLag = max(20ms, 2 * interval)`). Only true stalls/sleeps exceeding this threshold trigger deadline resynchronization (`entry.deadline = now + interval`).
+  * In `SerialWorker::tick()`, bounded micro-catchup (`bursts < 2`) allows recovering up to 2 due frames per tick when a scheduler tick is delayed, keeping high-frequency streams (such as 500 Hz) firmly locked at their exact target rate without jitter fluctuation.
+
+* **Comprehensive Desktop Testing & Modal Dialog Automation:**
+  * When testing blocking modal dialogs (`QDialog::exec()`) in QtTest offscreen platform, schedule dismiss handlers via `QTimer::singleShot` with `&window` as context object *before* invoking the triggering action or button.
+  * In offscreen QPA, fallback to `QApplication::activeModalWidget()` if `window.findChild<QDialog *>()` returns `nullptr`.
+  * Always initialize empty payload fields with valid defaults (`"0"`) before saving in `messageDialog`, preventing validation failures from blocking dialog acceptance and hanging the test suite.
+  * Rate formatting in `txTable`: frequencies $\ge 10.0$ Hz format as integers with 0 decimals (`"16"` for `15.5 Hz`), while frequencies $< 10.0$ Hz with fractional parts retain 1 decimal (`"5.5"` for `5.5 Hz`).
+  * Serial port baud validation: `currentPortConfig()` strictly assigns `config.baud = 0` for non-numeric text (`"abc"`), allowing `connectSerial()` to reject invalid rates with an immediate modal error dialog instead of silently falling back to 115200.
+
+* **Exhaustive Core Unit Testing & Protocol Verification:**
+  * The core telemetry engine (`Mav` namespace in `src/core.*`) is validated by 12 independent, strict sub-suites in `tests/core_tests.cpp` without Qt dependencies:
+    1. Type metadata & byte width lookup (`typeName`, `typeSize`, out-of-bounds guards).
+    2. Parser noise rejection, single-byte fragmented feeds, and recovery after line corruption.
+    3. MAVLink 1 & 2 mixed frame parsing, bad CRC counting, and signature error accounting.
+    4. Field reflection for all primitive integers (`int8` through `uint64`), preserving full 64-bit precision without float casting.
+    5. IEEE-754 floats and doubles, scientific notation (`1.5e-3`), and strict non-finite (`nan`, `inf`) and overflow rejection.
+    6. String/char array bounds, null-termination, numeric array length validation, and enum symbol mapping.
+    7. Defensive metadata wire offset validation against buffer overrun.
+    8. Full dialect catalog integrity, zero-initialization, and serialization across all messages.
+    9. Parameter protocol type-punning via `mavlink_param_union_t` preserving negative signed integers and boundary parsing.
+    10. Receiver stream bounding (`MaxEntries = 2048`, `overflow` accounting) and per-device parameter collection isolation.
+    11. WriteQueue multi-step partial writes, head frame transitions, no-mutation consumption guarantee, and exact `16384` byte capacity limit.
+    12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
+
+* **Application Icon & Visual Brand Identity Integration:**
+  * Official Logo Identity: **Concept 3: Isometric Monogram M-L** (3D isometric block representing MAVLink GCS and laboratory workbench).
+  * Asset Location: Embedded via Qt Resource System (`resources/resources.qrc` mapped to `:/icons/`).
+  * Vector master files: `resources/icons/mavlink-lab.svg` (full squircle app icon) and `resources/icons/mavlink-lab-mark.svg` (transparent mark).
+  * Multi-resolution raster icons: Bundled from 16x16 to 512x512 PNGs and multi-layer ICO (`resources/icons/mavlink-lab.ico`).
+  * Application-wide icon: Instantiated via `MainWindow::appIcon()` and attached to `QApplication::setWindowIcon()` and `MainWindow::setWindowIcon()`.
+  * Linux Desktop Integration: `resources/mavlink-lab.desktop` installed to `share/applications`, icons installed to `share/icons/hicolor/` for Ubuntu Dash/Launcher.
+  * UI Alignment Invariant: Window title bar heading row begins strictly with `QLabel#heading` at $x=20$ px to maintain exact pixel-level alignment with `txPanel` left boundary (`interactionStates` test check).
 
 ---
 
@@ -142,6 +215,10 @@
 ---
 
 ## 5. Verification Workflow
+* **Mandatory Full Build After Changes:**
+  - After any code modification or fix, **always execute a full build (`cmake --build build -j` or `./cli.sh build all`)** to compile all targets, ensuring the main application executable (`build/mavlink-lab`) is updated to the latest revision alongside all test binaries.
+  - Never compile only specific test targets (such as `--target desktop-tests`) and conclude, preventing situations where running the application from CLI launches an outdated binary.
+
 * **Full Build & Test:**
   ```bash
   git submodule update --init --recursive

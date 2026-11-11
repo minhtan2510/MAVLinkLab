@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/icons/mavlink-lab.svg" alt="MAVLinkLab Logo" width="128" height="128">
+</p>
+
 # MAVLinkLab
 
 **Send, receive and inspect MAVLink messages over serial UART.**

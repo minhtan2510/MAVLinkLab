@@ -32,16 +32,25 @@ public:
     ~MainWindow() override;
     /** @brief Select display mode for the TX status indicator (0: DualPills, 1: SegmentedChip). */
     void setTxSummaryMode(int mode);
+    /** @brief Select display rate unit for the status bar metrics (0: B/s, 1: KB/s, 2: MB/s). */
+    void setStatusBarRateUnit(int unit);
     /** @brief Update the TX summary counts directly (e.g. for inspection/testing). */
-    void setTxSummaryStats(int total, int running);
+    void setTxSummaryStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
     void setConnectionStatus(const QString &state, bool open);
     /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
-    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow);
+    void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow,
+                          double rxUtil = 0.0, double txUtil = 0.0, int baud = 0);
     /** @brief Apply one snapshot directly (e.g. for inspection/testing). */
     void applySnapshot(SnapshotPtr snapshot);
+    /** @brief Update the RX throughput indicator pill directly (e.g. for inspection/testing). */
+    void setRxThroughputStats(double bps, double utilization, int baud);
     /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
     void stopRefreshTimer();
+    /** @brief Return the currently configured serial port settings. */
+    PortConfig currentPortConfig() const;
+    /** @brief Return the application icon containing multi-resolution raster assets. */
+    static QIcon appIcon();
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -81,6 +90,8 @@ private:
     void restoreLayout();
     /** @brief Reset window geometry, splitters and column presentations to defaults. */
     void resetLayout();
+    /** @brief Reset application preferences and configurations to default values. */
+    void restoreDefaultSettings();
     /** @brief Restore application preferences such as theme and MAVLink defaults. */
     void restoreSettings();
     /** @brief Save application preferences such as theme and MAVLink defaults. */
@@ -99,6 +110,8 @@ private:
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     /** @brief Display transient confirmation badge and cell flash when copying a field value. */
     void showCopiedFeedback(int row);
+    /** @brief Update the color styling of the RX throughput pill based on channel utilization. */
+    void updateRxThroughputStyle(double util);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -131,6 +144,8 @@ private:
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
     QCheckBox *showDebugBarBox = nullptr;
+    QComboBox *statsRateUnitBox = nullptr;
+    QLabel *statsRateUnitLabel = nullptr;
     QDialog *settingsDialog = nullptr;
     ConnectionStatusWidget *connectionStatusPill = nullptr;
     QPushButton *connectButton = nullptr;
@@ -157,6 +172,8 @@ private:
     QLabel *serialSummary = nullptr;
     TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;
+    QLabel *rxThroughput = nullptr;
+    double lastRxUtil = 0.0;
     QLabel *inspectorTitle = nullptr;
     QLabel *inspectorSource = nullptr;
     QLabel *copyFeedbackBadge = nullptr;

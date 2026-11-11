@@ -1005,17 +1005,26 @@ public:
     }
 
     /**
-     * @brief Update message counts and request visual repaint.
+     * @brief Update message counts and estimated bandwidth, requesting visual repaint.
      * @param total Total number of configured TX messages.
      * @param running Number of currently transmitting messages.
+     * @param estimatedBps Estimated total transmission wire load in bytes/second.
+     * @param utilization Estimated channel utilization percentage.
      */
-    void setStats(int total, int running)
+    void setStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0)
     {
-        if (totalCount != total || runningCount != running)
+        if (totalCount != total || runningCount != running ||
+            std::abs(estBps - estimatedBps) > 0.1 || std::abs(estUtil - utilization) > 0.1)
         {
             totalCount = total;
             runningCount = running;
+            estBps = estimatedBps;
+            estUtil = utilization;
             updateGeometry();
+            if (parentWidget() && parentWidget()->layout())
+            {
+                parentWidget()->layout()->activate();
+            }
             update();
         }
     }
@@ -1044,6 +1053,15 @@ public:
      */
     QString text() const
     {
+        if (runningCount > 0 && estBps > 0.0)
+        {
+            return QString("%1 %2  ·  %3 running  ·  Est. %4 (%5%)")
+                .arg(totalCount)
+                .arg(totalCount == 1 ? "message" : "messages")
+                .arg(runningCount)
+                .arg(QString::fromStdString(Mav::formatByteRate(estBps)))
+                .arg(estUtil, 0, 'f', 1);
+        }
         return QString("%1 %2  ·  %3 running")
             .arg(totalCount)
             .arg(totalCount == 1 ? "message" : "messages")
@@ -1071,13 +1089,25 @@ public:
         const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
 
         const int pill1Width = totalTextWidth + 20;
-        const int pill2Width = runningTextWidth + 34;
-        return QSize(pill1Width + 6 + pill2Width, 26);
+        const int pill2Width = runningTextWidth + 20;
+
+        const bool showLoad = (runningCount > 0 && estBps > 0.0);
+        int pill3Width = 0;
+        if (showLoad)
+        {
+            const QString loadText = (estUtil > 0.0) ?
+                QString("~%1 (%2%)").arg(QString::fromStdString(Mav::formatByteRate(estBps))).arg(estUtil, 0, 'f', 1) :
+                QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
+            pill3Width = QFontMetrics(baseFont).horizontalAdvance(loadText) + 20;
+        }
+
+        const int totalWidth = pill1Width + 6 + pill2Width + (showLoad ? (6 + pill3Width) : 0);
+        return QSize(totalWidth, 26);
     }
 
 protected:
     /**
-     * @brief Paint dual status pills using crisp vector antialiasing.
+     * @brief Paint dual or triple status pills using crisp vector antialiasing.
      * @param event Paint event from Qt.
      */
     void paintEvent(QPaintEvent *event) override
@@ -1124,13 +1154,8 @@ protected:
 
         // --- Pill 2: Running State Indicator ---
         const int pill2Left = pill1Width + 6;
-        const int pill2Width = runningTextWidth + 34;
+        const int pill2Width = runningTextWidth + 20;
         const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
-
-        const int dotX = pill2Left + 9;
-        const int dotY = y + (pillHeight - 6) / 2;
-        const int textLeft = dotX + 6 + 6;
-        const QRect textRect(textLeft, y, runningTextWidth + 6, pillHeight);
 
         if (runningCount > 0)
         {
@@ -1138,14 +1163,9 @@ protected:
             painter.setBrush(QColor(dark ? "#0a2e23" : "#dcfce7"));
             painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
 
-            // Antialiased active LED dot
-            painter.setPen(QPen(QColor(dark ? "#059669" : "#16a34a"), 1.0));
-            painter.setBrush(QColor(dark ? "#34d399" : "#16a34a"));
-            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
-
             painter.setFont(boldFont);
             painter.setPen(QColor(dark ? "#34d399" : "#15803d"));
-            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+            painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
         }
         else
         {
@@ -1153,20 +1173,56 @@ protected:
             painter.setBrush(QColor(dark ? "#1e293b" : "#f8fafc"));
             painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
 
-            // Neutral hollow idle dot
-            painter.setPen(QPen(QColor(dark ? "#64748b" : "#94a3b8"), 1.2));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawEllipse(QRect(dotX, dotY, 6, 6));
-
             painter.setFont(baseFont);
             painter.setPen(QColor(dark ? "#64748b" : "#94a3b8"));
-            painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, runningText);
+            painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
+        }
+
+        // --- Pill 3: Throughput Estimate (When transmitting) ---
+        if (runningCount > 0 && estBps > 0.0)
+        {
+            const QString loadText = (estUtil > 0.0) ?
+                QString("~%1 (%2%)").arg(QString::fromStdString(Mav::formatByteRate(estBps))).arg(estUtil, 0, 'f', 1) :
+                QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
+            const int pill3Left = pill2Left + pill2Width + 6;
+            const int pill3Width = QFontMetrics(baseFont).horizontalAdvance(loadText) + 20;
+            const QRect pill3Rect(pill3Left, y, pill3Width, pillHeight);
+
+            QColor p3Border, p3Bg, p3Text;
+            if (estUtil > 90.0)
+            {
+                p3Border = QColor(dark ? "#7f1d1d" : "#fecaca");
+                p3Bg = QColor(dark ? "#2e1215" : "#fef2f2");
+                p3Text = QColor(dark ? "#f87171" : "#dc2626");
+            }
+            else if (estUtil > 70.0)
+            {
+                p3Border = QColor(dark ? "#78350f" : "#fde68a");
+                p3Bg = QColor(dark ? "#2b1a07" : "#fffbeb");
+                p3Text = QColor(dark ? "#fbbf24" : "#d97706");
+            }
+            else
+            {
+                p3Border = QColor(dark ? "#1e3a5f" : "#bfdbfe");
+                p3Bg = QColor(dark ? "#0f233a" : "#eff6ff");
+                p3Text = QColor(dark ? "#60a5fa" : "#2563eb");
+            }
+
+            painter.setPen(QPen(p3Border, 1.0));
+            painter.setBrush(p3Bg);
+            painter.drawRoundedRect(pill3Rect, 6.0, 6.0);
+
+            painter.setFont(boldFont);
+            painter.setPen(p3Text);
+            painter.drawText(pill3Rect, Qt::AlignCenter, loadText);
         }
     }
 
 private:
     int totalCount = 0;
     int runningCount = 0;
+    double estBps = 0.0;
+    double estUtil = 0.0;
 };
 
 /**
@@ -1394,8 +1450,8 @@ public:
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        rxChip = createChip("RX ↓ 0 B/s", "Incoming serial throughput (bytes/second)");
-        txChip = createChip("TX ↑ 0 B/s", "Outgoing serial throughput (bytes/second)");
+        rxChip = createChip(QString("RX ↓ %1").arg(formatRate(0.0, m_unit)), "Incoming serial throughput (bytes/second)");
+        txChip = createChip(QString("TX ↑ %1").arg(formatRate(0.0, m_unit)), "Outgoing serial throughput (bytes/second)");
         crcChip = createChip("CRC 0", "MAVLink CRC checksum errors detected");
         pendingChip = createChip("Pending 0 B", "Outbound serial write queue backlog");
         overflowChip = createChip("Overflow 0", "Serial RX buffer hardware/kernel drops");
@@ -1418,8 +1474,12 @@ public:
      * @param pending Pending write queue bytes.
      * @param overflow Buffer overflow drop count.
      * @param dark True if dark theme is active.
+     * @param rxUtil Percentage of serial link capacity utilized by RX.
+     * @param txUtil Percentage of serial link capacity utilized by TX.
+     * @param baud Active baud rate.
      */
-    void updateMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow, bool dark)
+    void updateMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow, bool dark,
+                       double rxUtil = 0.0, double txUtil = 0.0, int baud = 0)
     {
         m_dark = dark;
         m_rxBps = rxBps;
@@ -1427,14 +1487,66 @@ public:
         m_crc = crc;
         m_pending = pending;
         m_overflow = overflow;
+        m_rxUtil = rxUtil;
+        m_txUtil = txUtil;
+        m_baud = baud;
 
-        rxChip->setText(QString("RX ↓ %1 B/s").arg(rxBps, 0, 'f', 0));
-        txChip->setText(QString("TX ↑ %1 B/s").arg(txBps, 0, 'f', 0));
+        rxChip->setText(QString("RX ↓ %1").arg(formatRate(rxBps, m_unit)));
+        txChip->setText(QString("TX ↑ %1").arg(formatRate(txBps, m_unit)));
         crcChip->setText(QString("CRC %1").arg(crc));
         pendingChip->setText(QString("Pending %1 B").arg(pending));
         overflowChip->setText(QString("Overflow %1").arg(overflow));
 
+        if (baud > 0)
+        {
+            rxChip->setToolTip(QString("Incoming serial throughput: %1 (%2% of %3 baud link)")
+                                   .arg(QString::fromStdString(Mav::formatByteRate(rxBps)))
+                                   .arg(rxUtil, 0, 'f', 1)
+                                   .arg(baud));
+            txChip->setToolTip(QString("Outgoing serial throughput: %1 (%2% of %3 baud link)")
+                                   .arg(QString::fromStdString(Mav::formatByteRate(txBps)))
+                                   .arg(txUtil, 0, 'f', 1)
+                                   .arg(baud));
+        }
+        else
+        {
+            rxChip->setToolTip(QString("Incoming serial throughput: %1").arg(QString::fromStdString(Mav::formatByteRate(rxBps))));
+            txChip->setToolTip(QString("Outgoing serial throughput: %1").arg(QString::fromStdString(Mav::formatByteRate(txBps))));
+        }
+
         applyStyles();
+    }
+
+    /**
+     * @brief Set throughput rate display unit (0: B/s, 1: KB/s, 2: MB/s).
+     * @param unit Unit index.
+     */
+    void setRateUnit(int unit)
+    {
+        if (m_unit != unit)
+        {
+            m_unit = unit;
+            updateMetrics(m_rxBps, m_txBps, m_crc, m_pending, m_overflow, m_dark, m_rxUtil, m_txUtil, m_baud);
+        }
+    }
+
+    /**
+     * @brief Format byte rate according to the selected unit.
+     * @param bps Bytes per second.
+     * @param unit Unit index (0: B/s, 1: KB/s, 2: MB/s).
+     * @return Formatted string with numeric value and unit suffix.
+     */
+    static QString formatRate(double bps, int unit)
+    {
+        if (unit == 0)
+        {
+            return QString("%1 B/s").arg(bps, 0, 'f', 0);
+        }
+        else if (unit == 2)
+        {
+            return QString("%1 MB/s").arg(bps / (1024.0 * 1024.0), 0, 'f', 2);
+        }
+        return QString("%1 KB/s").arg(bps / 1024.0, 0, 'f', 1);
     }
 
     /**
@@ -1491,8 +1603,31 @@ private:
             "QLabel { background: #2b1a07; color: #fbbf24; border: 1px solid #78350f; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
             "QLabel { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
 
-        rxChip->setStyleSheet(m_rxBps > 0 ? rxActiveStyle : neutralStyle);
-        txChip->setStyleSheet(m_txBps > 0 ? txActiveStyle : neutralStyle);
+        if (m_rxUtil > 90.0)
+        {
+            rxChip->setStyleSheet(alertStyle);
+        }
+        else if (m_rxUtil > 70.0)
+        {
+            rxChip->setStyleSheet(warnStyle);
+        }
+        else
+        {
+            rxChip->setStyleSheet(m_rxBps > 0 ? rxActiveStyle : neutralStyle);
+        }
+
+        if (m_txUtil > 90.0)
+        {
+            txChip->setStyleSheet(alertStyle);
+        }
+        else if (m_txUtil > 70.0)
+        {
+            txChip->setStyleSheet(warnStyle);
+        }
+        else
+        {
+            txChip->setStyleSheet(m_txBps > 0 ? txActiveStyle : neutralStyle);
+        }
         crcChip->setStyleSheet(m_crc > 0 ? alertStyle : neutralStyle);
         pendingChip->setStyleSheet(m_pending > 4096 ? warnStyle : neutralStyle);
         overflowChip->setStyleSheet(m_overflow > 0 ? alertStyle : neutralStyle);
@@ -1509,6 +1644,10 @@ private:
     uint64_t m_crc = 0;
     uint64_t m_pending = 0;
     uint64_t m_overflow = 0;
+    double m_rxUtil = 0.0;
+    double m_txUtil = 0.0;
+    int m_baud = 0;
+    int m_unit = 1;
     bool m_dark = false;
 };
 
@@ -1721,11 +1860,15 @@ static QRect txRatePillRect(const QRect &card, const QString &idStr, const QStri
 
     if (lines.size() > 1)
     {
-        const int lastAdvance = QFontMetrics(titleFont).horizontalAdvance(lines.last());
-        const int pillLeft = textLeft + lastAdvance + 8;
-        if (pillLeft + pillWidth <= card.right() - 8)
+        int maxLineAdvance = 0;
+        for (const QString &line : lines)
         {
-            return QRect(pillLeft, badge.top() + 16 + 2, pillWidth, 18);
+            maxLineAdvance = std::max(maxLineAdvance, QFontMetrics(titleFont).horizontalAdvance(line));
+        }
+        const int pillLeft = textLeft + maxLineAdvance + 8;
+        if (pillLeft + pillWidth <= badge.left() - 8)
+        {
+            return QRect(pillLeft, badge.top() + 11, pillWidth, 18);
         }
         return {};
     }
@@ -2760,9 +2903,29 @@ static QString messageName(uint32_t id)
     return info ? QString::fromLatin1(info->name) : "Unknown dialect message";
 }
 
+/**
+ * @brief Construct the multi-resolution application icon from bundled resources.
+ * @return QIcon containing standard raster sizes from 16x16 to 512x512.
+ */
+QIcon MainWindow::appIcon()
+{
+    Q_INIT_RESOURCE(resources);
+    QIcon icon;
+    icon.addFile(":/icons/mavlink-lab-16.png", QSize(16, 16));
+    icon.addFile(":/icons/mavlink-lab-24.png", QSize(24, 24));
+    icon.addFile(":/icons/mavlink-lab-32.png", QSize(32, 32));
+    icon.addFile(":/icons/mavlink-lab-48.png", QSize(48, 48));
+    icon.addFile(":/icons/mavlink-lab-64.png", QSize(64, 64));
+    icon.addFile(":/icons/mavlink-lab-128.png", QSize(128, 128));
+    icon.addFile(":/icons/mavlink-lab-256.png", QSize(256, 256));
+    icon.addFile(":/icons/mavlink-lab-512.png", QSize(512, 512));
+    return icon;
+}
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle("MAVLinkLab");
+    setWindowIcon(appIcon());
     setMinimumSize(1000, 720);
     resize(1440, 900);
     auto *central = new QWidget;
@@ -2824,6 +2987,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     debugBarGroup->addWidget(showDebugBarBox);
 
     appearanceLayout->addLayout(debugBarGroup);
+
+    auto *statsRateUnitRow = new QHBoxLayout;
+    statsRateUnitRow->setContentsMargins(0, 4, 0, 0);
+    statsRateUnitLabel = new QLabel("Stats Bar Unit:", appearanceCard);
+    statsRateUnitLabel->setObjectName("secondaryText");
+    statsRateUnitRow->addWidget(statsRateUnitLabel);
+    statsRateUnitRow->addStretch();
+
+    statsRateUnitBox = new WorkbenchComboBox(appearanceCard);
+    statsRateUnitBox->setObjectName("statsRateUnit");
+    statsRateUnitBox->setAccessibleName("Stats Bar Unit");
+    statsRateUnitBox->addItems({"B/s", "KB/s", "MB/s"});
+    statsRateUnitBox->setFixedHeight(32);
+    statsRateUnitBox->setFixedWidth(160);
+    statsRateUnitBox->setCurrentIndex(1);
+    statsRateUnitRow->addWidget(statsRateUnitBox);
+    appearanceLayout->addLayout(statsRateUnitRow);
 
     settingsDialogLayout->addWidget(appearanceCard);
 
@@ -2945,13 +3125,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settingsDialogLayout->addWidget(workspaceCard);
     settingsDialogLayout->addStretch();
 
+    auto *footerRow = new QHBoxLayout;
+    footerRow->setContentsMargins(0, 0, 0, 0);
+
+    auto *restoreDefaultsButton = new QPushButton("Restore defaults", settingsDialog);
+    restoreDefaultsButton->setObjectName("restoreDefaults");
+    restoreDefaultsButton->setProperty("role", "secondary");
+    restoreDefaultsButton->setAutoDefault(false);
+    restoreDefaultsButton->setToolTip("Restore all preferences to default values");
+    connect(restoreDefaultsButton, &QPushButton::clicked, this, &MainWindow::restoreDefaultSettings);
+    footerRow->addWidget(restoreDefaultsButton, 0, Qt::AlignLeft);
+
+    footerRow->addStretch();
+
     auto *settingsButtonBox = new QDialogButtonBox(settingsDialog);
     settingsButtonBox->setObjectName("settingsButtonBox");
     auto *closeButton = settingsButtonBox->addButton("Close", QDialogButtonBox::RejectRole);
     closeButton->setObjectName("closeSettings");
     closeButton->setIcon(QIcon());
     connect(settingsButtonBox, &QDialogButtonBox::rejected, settingsDialog, &QDialog::accept);
-    settingsDialogLayout->addWidget(settingsButtonBox);
+    footerRow->addWidget(settingsButtonBox, 0, Qt::AlignRight);
+
+    settingsDialogLayout->addLayout(footerRow);
 
     auto *appMenuBar = menuBar();
     appMenuBar->setObjectName("appMenuBar");
@@ -2984,14 +3179,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         QDialog dialog(this);
         dialog.setObjectName("aboutDialog");
         dialog.setWindowTitle("About MAVLinkLab");
+        dialog.setWindowIcon(appIcon());
         auto *layout = new QVBoxLayout(&dialog);
         layout->setContentsMargins(20, 16, 20, 16);
         layout->setSpacing(12);
         layout = addDialogTitleBar(&dialog, layout);
-        dialog.setMinimumWidth(480);
-        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_LAB_VERSION), &dialog);
-        version->setObjectName("secondaryText");
-        layout->addWidget(version);
+        dialog.setMinimumWidth(440);
 
         QString mavlinkLib = QString("Wire v%1 · %2").arg(MAVLINK_WIRE_PROTOCOL_VERSION, MAVLINK_BUILD_DATE);
         QFile gitRef(".git/modules/third_party/mavlink/refs/heads/master");
@@ -3004,29 +3197,46 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             }
         }
 
-        auto *mavVersion = new QLabel(QString("MAVLink library: %1").arg(mavlinkLib), &dialog);
-        mavVersion->setObjectName("secondaryText");
-        layout->addWidget(mavVersion);
+        auto *headerRow = new QHBoxLayout;
+        headerRow->setSpacing(16);
+        headerRow->setContentsMargins(0, 0, 0, 0);
+
+        auto *logoLabel = new QLabel(&dialog);
+        logoLabel->setObjectName("aboutLogo");
+        logoLabel->setPixmap(QPixmap(":/icons/mavlink-lab-64.png"));
+        logoLabel->setFixedSize(64, 64);
+        headerRow->addWidget(logoLabel, 0, Qt::AlignVCenter);
+
+        auto *titleCol = new QVBoxLayout;
+        titleCol->setSpacing(4);
+        titleCol->setAlignment(Qt::AlignVCenter);
+
+        auto *appName = new QLabel("MAVLinkLab", &dialog);
+        appName->setObjectName("aboutAppName");
+        appName->setStyleSheet("font-size: 20px; font-weight: 700;");
+
+        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_LAB_VERSION), &dialog);
+        version->setObjectName("secondaryText");
+
+        titleCol->addWidget(appName);
+        titleCol->addWidget(version);
+
+        headerRow->addLayout(titleCol, 1);
+        layout->addLayout(headerRow);
 
         auto *details = new QLabel(
             QString(
-                "<p>A desktop workbench for sending, receiving and inspecting MAVLink messages over serial UART.</p>"
-                "<p><b>Features</b><br>"
-                "Configurable serial connection<br>"
-                "Periodic and single-message transmission<br>"
-                "Live message rates and frame counters<br>"
-                "RX streams grouped by System and Component<br>"
-                "Decoded payload field inspection</p>"
-                "<p><b>Protocol</b><br>MAVLink 1 and 2<br>"
-                "Dialect: ardupilotmega (including common)<br>"
-                "Official MAVLink C library (%1)</p>"
-                "<p><b>Platform</b><br>Ubuntu / Linux<br>"
-                "C++17 · Qt Widgets · Qt SerialPort</p>").arg(mavlinkLib), &dialog);
+                "<p style='margin: 0 0 8px 0; line-height: 140%;'>"
+                "A desktop workbench for sending, receiving and inspecting MAVLink telemetry over serial UART.</p>"
+                "<p style='margin: 0; line-height: 140%;'>"
+                "<b>Author:</b> Tân Nguyễn &lt;tan.nguyen@gremsy.com&gt;<br>"
+                "<b>Protocol:</b> MAVLink 1 &amp; 2 · Dialect: ardupilotmega<br>"
+                "<b>Library:</b> %1<br>"
+                "<b>Platform:</b> Linux · C++17 · Qt %2</p>")
+                .arg(mavlinkLib, qVersion()), &dialog);
         details->setObjectName("aboutDetails");
         details->setWordWrap(true);
         details->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        details->ensurePolished();
-        details->setMinimumHeight(details->heightForWidth(440) + details->fontMetrics().lineSpacing());
         layout->addWidget(details);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
         connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -3159,6 +3369,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     addCombo(firstRow, "Parity", parityBox, {"None", "Even", "Odd", "Mark", "Space"});
     addCombo(secondRow, "Stop bits", stopBox, {"1", "2"});
     addCombo(secondRow, "Flow control", flowBox, {"None", "Hardware RTS/CTS", "Software XON/XOFF"});
+    dataBox->setObjectName("dataBits");
+    parityBox->setObjectName("parity");
+    stopBox->setObjectName("stopBits");
+    flowBox->setObjectName("flowControl");
     for (auto *row : {firstRow, secondRow})
     {
         row->setStretch(0, 1);
@@ -3190,7 +3404,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     for (auto *combo : {dataBox, parityBox, stopBox, flowBox})
     {
-        connect(combo, &QComboBox::currentIndexChanged, this, &MainWindow::updateSerialSummary);
+        connect(combo, &QComboBox::currentIndexChanged, this, [this]()
+        {
+            updateSerialSummary();
+            saveSettings();
+        });
     }
     updateSerialSummary();
     uart->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
@@ -3224,14 +3442,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txSummary = new TxSummaryWidget;
     txSummary->setObjectName("txSummary");
-    txHeading->addWidget(txSummary, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
-
-    txHeading->setColumnStretch(1, 1);
-
-    auto *addButton = new QPushButton("Add message");
-    addButton->setObjectName("addMessage");
-    addButton->setProperty("role", "primary");
-    txHeading->addWidget(addButton, 0, 2);
+    txHeading->addWidget(txSummary, 0, 1, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
 
     auto *batchActions = new QHBoxLayout;
     batchActions->setContentsMargins(0, 0, 0, 0);
@@ -3257,7 +3468,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     deleteAllButton->setToolTip("Delete all");
     deleteAllButton->setAccessibleName("Delete all messages");
 
-    txHeading->addLayout(batchActions, 1, 2);
+    txHeading->addLayout(batchActions, 1, 0);
+
+    txHeading->setColumnStretch(2, 1);
+
+    auto *addButton = new QPushButton("Add message");
+    addButton->setObjectName("addMessage");
+    addButton->setProperty("role", "primary");
+    txHeading->addWidget(addButton, 1, 3, Qt::AlignRight | Qt::AlignVCenter);
+
     txLayout->addLayout(txHeading);
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
@@ -3324,7 +3543,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxHeader->addWidget(rxTitle);
     rxSummary = new QLabel("0 streams");
     rxSummary->setObjectName("summaryBadge");
+    rxSummary->setFixedHeight(24);
+    rxSummary->setAlignment(Qt::AlignCenter);
     rxHeader->addWidget(rxSummary);
+    rxThroughput = new QLabel;
+    rxThroughput->setObjectName("rxThroughput");
+    rxThroughput->setFixedHeight(24);
+    rxThroughput->setAlignment(Qt::AlignCenter);
+    rxThroughput->hide();
+    rxHeader->addWidget(rxThroughput);
     rxHeader->addStretch();
     rxLayout->addLayout(rxHeader);
     auto *rxActions = new QHBoxLayout;
@@ -3532,7 +3759,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
     dashboards->addWidget(rxGroup);
-    dashboards->setSizes({488, 892});
+    dashboards->setSizes({467, 929});
     dashboards->setStretchFactor(0, 0);
     dashboards->setStretchFactor(1, 1);
     workspace->addWidget(dashboards, 1);
@@ -3566,6 +3793,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             connectionStatusPill->setStatus(state, open);
         }
         connected = open;
+        if (rxThroughput)
+        {
+            if (!open)
+            {
+                rxThroughput->hide();
+            }
+            else
+            {
+                if (latest)
+                {
+                    setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
+                }
+                else
+                {
+                    setRxThroughputStats(0.0, 0.0, baudBox ? baudBox->currentText().toInt() : 115200);
+                }
+            }
+        }
         connecting = state == "Connecting";
         reconnecting = state == "Reconnecting";
         if (reconnecting)
@@ -3590,7 +3835,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         if (open)
         {
             connectingByUser = false;
-            // Persist the serial port and baudrate of the last successful connection
+            // Persist the serial port, baudrate and advanced parameters of the last successful connection
             QSettings settings("MAVLinkSimulator", "Preferences");
             if (portBox)
             {
@@ -3599,6 +3844,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             if (baudBox)
             {
                 settings.setValue("serial/baud", baudBox->currentText());
+            }
+            if (dataBox)
+            {
+                settings.setValue("serial/dataBits", dataBox->currentText());
+            }
+            if (parityBox)
+            {
+                settings.setValue("serial/parity", parityBox->currentIndex());
+            }
+            if (stopBox)
+            {
+                settings.setValue("serial/stopBits", stopBox->currentIndex());
+            }
+            if (flowBox)
+            {
+                settings.setValue("serial/flowControl", flowBox->currentIndex());
             }
             settings.sync();
 
@@ -3729,6 +3990,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         {
             statusBarCard->setVisible(visible);
         }
+        if (statsRateUnitBox)
+        {
+            statsRateUnitBox->setEnabled(visible);
+        }
+        if (statsRateUnitLabel)
+        {
+            statsRateUnitLabel->setEnabled(visible);
+        }
+        saveSettings();
+    });
+    connect(statsRateUnitBox, &QComboBox::currentIndexChanged, this, [this](int index)
+    {
+        if (metricsWidget)
+        {
+            metricsWidget->setRateUnit(index);
+        }
         saveSettings();
     });
     connect(restoreTxBox, &QCheckBox::toggled, this, [this]()
@@ -3823,7 +4100,7 @@ void MainWindow::resetLayout()
     auto *dashboards = findChild<QSplitter *>("dashboards");
     if (dashboards)
     {
-        dashboards->setSizes({488, 892});
+        dashboards->setSizes({467, 929});
     }
     auto *rxSplit = findChild<QSplitter *>("rxSplit");
     if (rxSplit)
@@ -3843,6 +4120,109 @@ void MainWindow::resetLayout()
     if (lastError)
     {
         lastError->setText("Layout reset to defaults");
+    }
+}
+
+/** @brief Reset application preferences and configurations to default values. */
+void MainWindow::restoreDefaultSettings()
+{
+    const auto answer = QMessageBox::question(
+        settingsDialog,
+        "Restore Default Settings",
+        "Are you sure you want to restore all settings to their default values?",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (answer != QMessageBox::Yes)
+    {
+        return;
+    }
+
+    if (themeBox)
+    {
+        themeBox->setCurrentIndex(0);
+    }
+    if (showDebugBarBox)
+    {
+        showDebugBarBox->setChecked(true);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setCurrentIndex(1);
+    }
+    if (defaultSysIdBox)
+    {
+        defaultSysIdBox->setValue(1);
+    }
+    if (defaultCompIdBox)
+    {
+        defaultCompIdBox->setValue(1);
+    }
+    if (defaultVersionBox)
+    {
+        defaultVersionBox->setCurrentIndex(0);
+    }
+    if (autoReconnectBox)
+    {
+        autoReconnectBox->setChecked(false);
+    }
+    if (restoreTxBox)
+    {
+        restoreTxBox->setChecked(false);
+    }
+    if (deassertControlLinesBox)
+    {
+        deassertControlLinesBox->setChecked(true);
+    }
+    if (baudBox)
+    {
+        baudBox->setCurrentText("115200");
+    }
+    if (dataBox)
+    {
+        const int idx = dataBox->findText("8");
+        dataBox->setCurrentIndex(idx >= 0 ? idx : 3);
+    }
+    if (parityBox)
+    {
+        parityBox->setCurrentIndex(0);
+    }
+    if (stopBox)
+    {
+        stopBox->setCurrentIndex(0);
+    }
+    if (flowBox)
+    {
+        flowBox->setCurrentIndex(0);
+    }
+
+    saveSettings();
+
+    if (worker)
+    {
+        QMetaObject::invokeMethod(worker, "setAutoReconnect", Qt::QueuedConnection, Q_ARG(bool, false));
+        QMetaObject::invokeMethod(worker, "setDeassertControlLines", Qt::QueuedConnection, Q_ARG(bool, true));
+    }
+    if (statusBarCard)
+    {
+        statusBarCard->setVisible(true);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setEnabled(true);
+    }
+    if (statsRateUnitLabel)
+    {
+        statsRateUnitLabel->setEnabled(true);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(1);
+    }
+    updateSerialSummary();
+
+    if (lastError)
+    {
+        lastError->setText("Settings restored to defaults");
     }
 }
 
@@ -3924,6 +4304,65 @@ void MainWindow::restoreSettings()
     {
         statusBarCard->setVisible(showDebugBar);
     }
+    const int statsUnit = settings.value("ui/statsRateUnit", 1).toInt();
+    if (statsRateUnitBox && statsUnit >= 0 && statsUnit < statsRateUnitBox->count())
+    {
+        const QSignalBlocker blocker(statsRateUnitBox);
+        statsRateUnitBox->setCurrentIndex(statsUnit);
+    }
+    if (statsRateUnitBox)
+    {
+        statsRateUnitBox->setEnabled(showDebugBar);
+    }
+    if (statsRateUnitLabel)
+    {
+        statsRateUnitLabel->setEnabled(showDebugBar);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(statsRateUnitBox ? statsRateUnitBox->currentIndex() : 1);
+    }
+    const QString savedData = settings.value("serial/dataBits", "").toString();
+    if (dataBox && !savedData.isEmpty())
+    {
+        const int idx = dataBox->findText(savedData);
+        if (idx >= 0)
+        {
+            const QSignalBlocker blocker(dataBox);
+            dataBox->setCurrentIndex(idx);
+        }
+    }
+    const QVariant savedParity = settings.value("serial/parity");
+    if (parityBox && savedParity.isValid())
+    {
+        const int pIdx = savedParity.toInt();
+        if (pIdx >= 0 && pIdx < parityBox->count())
+        {
+            const QSignalBlocker blocker(parityBox);
+            parityBox->setCurrentIndex(pIdx);
+        }
+    }
+    const QVariant savedStop = settings.value("serial/stopBits");
+    if (stopBox && savedStop.isValid())
+    {
+        const int sIdx = savedStop.toInt();
+        if (sIdx >= 0 && sIdx < stopBox->count())
+        {
+            const QSignalBlocker blocker(stopBox);
+            stopBox->setCurrentIndex(sIdx);
+        }
+    }
+    const QVariant savedFlow = settings.value("serial/flowControl");
+    if (flowBox && savedFlow.isValid())
+    {
+        const int fIdx = savedFlow.toInt();
+        if (fIdx >= 0 && fIdx < flowBox->count())
+        {
+            const QSignalBlocker blocker(flowBox);
+            flowBox->setCurrentIndex(fIdx);
+        }
+    }
+    updateSerialSummary();
 }
 
 /** @brief Save application preferences such as theme and MAVLink defaults to storage. */
@@ -3937,6 +4376,10 @@ void MainWindow::saveSettings()
     if (showDebugBarBox)
     {
         settings.setValue("ui/showDebugBar", showDebugBarBox->isChecked());
+    }
+    if (statsRateUnitBox)
+    {
+        settings.setValue("ui/statsRateUnit", statsRateUnitBox->currentIndex());
     }
     if (defaultSysIdBox)
     {
@@ -3961,6 +4404,26 @@ void MainWindow::saveSettings()
     if (deassertControlLinesBox)
     {
         settings.setValue("serial/deassertControlLines", deassertControlLinesBox->isChecked());
+    }
+    if (baudBox)
+    {
+        settings.setValue("serial/baud", baudBox->currentText());
+    }
+    if (dataBox)
+    {
+        settings.setValue("serial/dataBits", dataBox->currentText());
+    }
+    if (parityBox)
+    {
+        settings.setValue("serial/parity", parityBox->currentIndex());
+    }
+    if (stopBox)
+    {
+        settings.setValue("serial/stopBits", stopBox->currentIndex());
+    }
+    if (flowBox)
+    {
+        settings.setValue("serial/flowControl", flowBox->currentIndex());
     }
     settings.sync();
 }
@@ -4207,16 +4670,37 @@ void MainWindow::checkForUpdates()
     QDialog dialog(this);
     dialog.setObjectName("updateDialog");
     dialog.setWindowTitle("Check for Updates");
+    dialog.setWindowIcon(appIcon());
     dialog.setMinimumWidth(440);
 
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(20, 16, 20, 16);
-    layout->setSpacing(12);
+    layout->setSpacing(14);
     layout = addDialogTitleBar(&dialog, layout);
 
+    auto *headerRow = new QHBoxLayout;
+    headerRow->setSpacing(16);
+    headerRow->setContentsMargins(0, 4, 0, 6);
+
+    auto *logoLabel = new QLabel(&dialog);
+    logoLabel->setObjectName("updateLogo");
+    logoLabel->setPixmap(QPixmap(":/icons/mavlink-lab-64.png"));
+    logoLabel->setFixedSize(64, 64);
+    headerRow->addWidget(logoLabel, 0, Qt::AlignVCenter);
+
+    auto *titleCol = new QVBoxLayout;
+    titleCol->setSpacing(4);
+    titleCol->setAlignment(Qt::AlignVCenter);
+    auto *appName = new QLabel("MAVLinkLab", &dialog);
+    appName->setObjectName("updateAppName");
+    appName->setStyleSheet("font-size: 20px; font-weight: 700;");
     auto *currentVersionLabel = new QLabel(QString("Current Version: v%1").arg(MAVLINK_LAB_VERSION), &dialog);
     currentVersionLabel->setObjectName("currentVersionLabel");
-    layout->addWidget(currentVersionLabel);
+    titleCol->addWidget(appName);
+    titleCol->addWidget(currentVersionLabel);
+    headerRow->addLayout(titleCol, 1);
+
+    layout->addLayout(headerRow);
 
     auto *statusLabel = new QLabel("Connecting to GitHub to check for updates…", &dialog);
     statusLabel->setObjectName("updateStatusLabel");
@@ -4543,6 +5027,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     settings.remove("rxColumns");
     settings.setValue("fieldColumns", inspector->horizontalHeader()->saveState());
+    // Ensure periodic transmissions are stopped and the serial port is closed immediately on window exit.
+    QMetaObject::invokeMethod(worker, "closePort", Qt::BlockingQueuedConnection);
     QMainWindow::closeEvent(event);
 }
 
@@ -4581,6 +5067,49 @@ void MainWindow::refreshPorts()
     }
 }
 
+PortConfig MainWindow::currentPortConfig() const
+{
+    PortConfig config;
+    if (portBox)
+    {
+        config.port = portBox->currentText().trimmed();
+    }
+    if (baudBox)
+    {
+        bool ok = false;
+        const int baud = baudBox->currentText().toInt(&ok);
+        config.baud = (ok && baud > 0) ? baud : 0;
+    }
+    if (dataBox)
+    {
+        config.data = static_cast<QSerialPort::DataBits>(dataBox->currentText().toInt());
+    }
+    if (parityBox && parityBox->currentIndex() >= 0 && parityBox->currentIndex() < 5)
+    {
+        const QSerialPort::Parity parities[] = {QSerialPort::NoParity, QSerialPort::EvenParity,
+                                                QSerialPort::OddParity, QSerialPort::MarkParity, QSerialPort::SpaceParity};
+        config.parity = parities[parityBox->currentIndex()];
+    }
+    if (stopBox)
+    {
+        config.stop = stopBox->currentIndex() == 0 ? QSerialPort::OneStop :
+                      stopBox->currentIndex() == 1 ? QSerialPort::TwoStop : QSerialPort::OneAndHalfStop;
+    }
+    if (flowBox)
+    {
+        config.flow = static_cast<QSerialPort::FlowControl>(flowBox->currentIndex());
+    }
+    if (autoReconnectBox)
+    {
+        config.autoReconnect = autoReconnectBox->isChecked();
+    }
+    if (deassertControlLinesBox)
+    {
+        config.deassertControlLines = deassertControlLinesBox->isChecked();
+    }
+    return config;
+}
+
 void MainWindow::toggleConnection()
 {
     if (connected || reconnecting)
@@ -4589,31 +5118,19 @@ void MainWindow::toggleConnection()
         QMetaObject::invokeMethod(worker, "closePort", Qt::QueuedConnection);
         return;
     }
-    bool ok = false;
-    PortConfig config;
-    config.port = portBox->currentText().trimmed();
-    config.baud = baudBox->currentText().toInt(&ok);
+    PortConfig config = currentPortConfig();
     if (config.port.isEmpty())
     {
         showConnectionError("No Port Selected", "Please select an available serial port before connecting.");
         return;
     }
-    if (!ok || config.baud <= 0 || config.baud > 12000000)
+    if (config.baud <= 0 || config.baud > 12000000)
     {
         showConnectionError("Invalid Baud Rate",
                             QString("Baud rate '%1' is invalid. Please select or enter a rate from 1 to 12,000,000.")
                                 .arg(baudBox->currentText()));
         return;
     }
-    config.autoReconnect = autoReconnectBox ? autoReconnectBox->isChecked() : false;
-    config.deassertControlLines = deassertControlLinesBox ? deassertControlLinesBox->isChecked() : true;
-    config.data = static_cast<QSerialPort::DataBits>(dataBox->currentText().toInt());
-    const QSerialPort::Parity parities[] = {QSerialPort::NoParity, QSerialPort::EvenParity,
-                                          QSerialPort::OddParity, QSerialPort::MarkParity, QSerialPort::SpaceParity};
-    config.parity = parities[parityBox->currentIndex()];
-    config.stop = stopBox->currentIndex() == 0 ? QSerialPort::OneStop :
-                  stopBox->currentIndex() == 1 ? QSerialPort::TwoStop : QSerialPort::OneAndHalfStop;
-    config.flow = static_cast<QSerialPort::FlowControl>(flowBox->currentIndex());
     connectButton->setEnabled(false);
     connectingByUser = true;
     connectingPort = config.port;
@@ -4664,6 +5181,82 @@ void MainWindow::updateSerialSummary()
     }
 }
 
+/**
+ * @brief Event filter for message editor dialog to complete the active field or dropdown
+ * and clear its focus when Enter is pressed, preventing premature dialog submission.
+ */
+class MessageDialogKeyFilter : public QObject
+{
+public:
+    /**
+     * @brief Construct key filter with reference to the dialog's save button and commit callback.
+     * @param saveBtn Save/Add message button.
+     * @param commitCallback Callback to commit active table cell editors.
+     * @param parent Optional parent QObject.
+     */
+    explicit MessageDialogKeyFilter(QPushButton *saveBtn, std::function<void()> commitCallback, QObject *parent = nullptr)
+        : QObject(parent), saveButton(saveBtn), onCommit(std::move(commitCallback))
+    {
+    }
+
+protected:
+    /**
+     * @brief Intercept Enter/Return key to finish editing current field and clear focus without submitting dialog.
+     * @param watched Watched dialog object.
+     * @param event Key press event.
+     * @return True if event is consumed, false otherwise.
+     */
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress)
+        {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            {
+                QWidget *focused = QApplication::focusWidget();
+                if (focused == saveButton)
+                {
+                    return false;
+                }
+                if (qobject_cast<QPushButton *>(focused))
+                {
+                    return false;
+                }
+                if (focused)
+                {
+                    if (auto *line = qobject_cast<QLineEdit *>(focused))
+                    {
+                        emit line->editingFinished();
+                    }
+                    else if (auto *spin = qobject_cast<QAbstractSpinBox *>(focused))
+                    {
+                        spin->interpretText();
+                    }
+                    focused->clearFocus();
+                    if (auto *parent = focused->parentWidget())
+                    {
+                        parent->clearFocus();
+                    }
+                }
+                if (onCommit)
+                {
+                    onCommit();
+                }
+                if (QWidget *currentFocus = QApplication::focusWidget())
+                {
+                    currentFocus->clearFocus();
+                }
+                return true;
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QPushButton *saveButton = nullptr;
+    std::function<void()> onCommit;
+};
+
 /** @brief Configure message identity, sender and payload with contextual validation feedback. */
 void MainWindow::editMessage(bool edit)
 {
@@ -4701,12 +5294,6 @@ void MainWindow::editMessage(bool edit)
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(12);
     layout = addDialogTitleBar(&dialog, layout);
-    if (edit)
-    {
-        auto *description = new QLabel("Saving stops this TX entry. Review its payload before restarting.");
-        description->setObjectName("secondaryText");
-        layout->addWidget(description);
-    }
     auto *body = new QSplitter(Qt::Horizontal);
     body->setObjectName("messageSplitter");
     body->setChildrenCollapsible(false);
@@ -4743,7 +5330,6 @@ void MainWindow::editMessage(bool edit)
         auto *item = new CatalogItem(QString("[%1] %2").arg(info.msgid).arg(info.name), catalogList);
         item->setData(Qt::UserRole, info.msgid);
         item->setData(Qt::UserRole + 3, QString::fromLatin1(info.name));
-        item->setToolTip(item->text());
     }
     catalogPane->addWidget(catalogList, 1);
     auto *noMatches = new QLabel("No matching messages");
@@ -4758,10 +5344,25 @@ void MainWindow::editMessage(bool edit)
     auto *editor = new QVBoxLayout(editorWidget);
     editor->setContentsMargins(0, 0, 0, 0);
     editor->setSpacing(10);
+
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(8);
+
     auto *messageTitle = new QLabel;
     messageTitle->setObjectName("selectedMessageTitle");
-    messageTitle->setWordWrap(true);
-    editor->addWidget(messageTitle);
+    messageTitle->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    titleRow->addWidget(messageTitle, 0, Qt::AlignVCenter);
+
+    auto *payloadSizeBadge = new QLabel;
+    payloadSizeBadge->setObjectName("messagePayloadSize");
+    payloadSizeBadge->setFixedHeight(24);
+    payloadSizeBadge->setAlignment(Qt::AlignCenter);
+    payloadSizeBadge->hide();
+    titleRow->addWidget(payloadSizeBadge, 0, Qt::AlignVCenter);
+
+    titleRow->addStretch();
+    editor->addLayout(titleRow);
     auto *form = new QHBoxLayout;
     auto *sysid = new WorkbenchSpinBox<QSpinBox>;
     sysid->setObjectName("messageSysId");
@@ -4780,6 +5381,31 @@ void MainWindow::editMessage(bool edit)
         compid->setItemData(compid->count() - 1, QString::number(entryItem.value), Qt::ToolTipRole);
     }
 
+    class CompIdLineFilter : public QObject
+    {
+    public:
+        explicit CompIdLineFilter(QLineEdit *line)
+            : QObject(line), m_line(line)
+        {
+        }
+
+    protected:
+        bool eventFilter(QObject *watched, QEvent *event) override
+        {
+            if (event->type() == QEvent::FocusOut || event->type() == QEvent::Show)
+            {
+                if (m_line && !m_line->hasFocus())
+                {
+                    m_line->setCursorPosition(0);
+                }
+            }
+            return QObject::eventFilter(watched, event);
+        }
+
+    private:
+        QLineEdit *m_line = nullptr;
+    };
+
     if (auto *line = compid->lineEdit())
     {
         line->setObjectName("messageCompIdEditor");
@@ -4788,6 +5414,7 @@ void MainWindow::editMessage(bool edit)
         completer->setCaseSensitivity(Qt::CaseInsensitive);
         completer->setFilterMode(Qt::MatchContains);
         line->setCompleter(completer);
+        line->installEventFilter(new CompIdLineFilter(line));
     }
 
     const auto updateCompIdTooltipAndNormalize = [compid, &compEntries](bool normalizeNumber)
@@ -4839,12 +5466,7 @@ void MainWindow::editMessage(bool edit)
 
         if (matched)
         {
-            QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
-            if (matched->description && *matched->description)
-            {
-                tip += QString(" (%1)").arg(matched->description);
-            }
-            compid->setToolTip(tip);
+            compid->setToolTip(QString("%1 = %2").arg(matched->name).arg(matched->value));
         }
         else if (ok && numVal <= 255)
         {
@@ -4853,6 +5475,14 @@ void MainWindow::editMessage(bool edit)
         else
         {
             compid->setToolTip(QString());
+        }
+
+        if (auto *line = compid->lineEdit())
+        {
+            if (!line->hasFocus())
+            {
+                line->setCursorPosition(0);
+            }
         }
     };
 
@@ -4882,6 +5512,10 @@ void MainWindow::editMessage(bool edit)
         }
     }
     updateCompIdTooltipAndNormalize(false);
+    if (auto *line = compid->lineEdit())
+    {
+        line->setCursorPosition(0);
+    }
 
     QObject::connect(compid, &QComboBox::currentTextChanged, [updateCompIdTooltipAndNormalize](const QString &)
     {
@@ -4889,14 +5523,19 @@ void MainWindow::editMessage(bool edit)
     });
     if (auto *line = compid->lineEdit())
     {
-        QObject::connect(line, &QLineEdit::editingFinished, [updateCompIdTooltipAndNormalize]()
+        QObject::connect(line, &QLineEdit::editingFinished, [updateCompIdTooltipAndNormalize, line]()
         {
             updateCompIdTooltipAndNormalize(true);
+            line->setCursorPosition(0);
         });
     }
-    QObject::connect(compid, QOverload<int>::of(&QComboBox::activated), [updateCompIdTooltipAndNormalize](int)
+    QObject::connect(compid, QOverload<int>::of(&QComboBox::activated), [updateCompIdTooltipAndNormalize, compid](int)
     {
         updateCompIdTooltipAndNormalize(true);
+        if (auto *line = compid->lineEdit())
+        {
+            line->setCursorPosition(0);
+        }
     });
 
     sysid->setRange(1, 255);
@@ -4910,7 +5549,7 @@ void MainWindow::editMessage(bool edit)
     rate->setRange(1, 1000);
     rate->setSingleStep(1);
     rate->setValue(entry.hz);
-    const auto fieldControl = [&](const QString &name, QWidget *control, int stretch = 1)
+    const auto fieldControl = [&](const QString &name, QWidget *control, int stretch = 1, int fixedWidth = 0)
     {
         auto *field = new QVBoxLayout;
         field->setSpacing(6);
@@ -4919,16 +5558,26 @@ void MainWindow::editMessage(bool edit)
         label->setBuddy(control);
         field->addWidget(label);
         control->setFixedHeight(34);
-        control->setMinimumWidth(0);
-        control->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-        field->addWidget(control);
+        if (fixedWidth > 0)
+        {
+            control->setFixedWidth(fixedWidth);
+            control->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            field->addWidget(control);
+            form->addLayout(field, 0);
+        }
+        else
+        {
+            control->setMinimumWidth(0);
+            control->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            field->addWidget(control);
+            form->addLayout(field, stretch);
+        }
         control->setAccessibleName(name);
-        form->addLayout(field, stretch);
     };
-    fieldControl("System ID", sysid, 1);
-    fieldControl("Component ID", compid, 2);
+    fieldControl("System ID", sysid, 0, 110);
+    fieldControl("Component ID", compid, 1, 0);
     form->addSpacing(14);
-    fieldControl("Rate (Hz)", rate, 1);
+    fieldControl("Rate (Hz)", rate, 0, 110);
     editor->addLayout(form);
     auto *parameterSearch = new CatalogSearch;
     parameterSearch->setObjectName("parameterSearch");
@@ -4998,6 +5647,15 @@ void MainWindow::editMessage(bool edit)
     version->setFixedHeight(32);
     version->setAccessibleName("MAVLink Version");
     protocolLayout->addWidget(version, 0, Qt::AlignVCenter);
+
+    auto *loadEstimate = new QLabel;
+    loadEstimate->setObjectName("messageLoadEstimate");
+    loadEstimate->setFixedHeight(32);
+    loadEstimate->setAlignment(Qt::AlignCenter);
+    loadEstimate->hide();
+    protocolLayout->addSpacing(8);
+    protocolLayout->addWidget(loadEstimate, 0, Qt::AlignVCenter);
+
     footerRow->addLayout(protocolLayout);
 
     footerRow->addStretch();
@@ -5006,6 +5664,87 @@ void MainWindow::editMessage(bool edit)
     layout->addLayout(footerRow);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     const mavlink_message_info_t *selectedInfo = nullptr;
+
+    const PortConfig activeConfig = currentPortConfig();
+    const int currentBaud = activeConfig.baud > 0 ? activeConfig.baud : 115200;
+    const double bitsPerByte = framingBitsPerByte(activeConfig);
+    const QString framingName = framingFormatName(activeConfig);
+    const bool isDark = property("darkTheme").isValid() ?
+                        property("darkTheme").toBool() :
+                        (themeBox && themeBox->currentIndex() == 2);
+    const auto updateLoadEstimate = [&]()
+    {
+        if (!selectedInfo)
+        {
+            loadEstimate->hide();
+            return;
+        }
+        const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
+        if (!metadata)
+        {
+            loadEstimate->hide();
+            return;
+        }
+        Mav::TxEntry temp{};
+        temp.id = selectedInfo->msgid;
+        temp.version1 = (version->currentIndex() == 1);
+        temp.hz = rate->value();
+        temp.payload.assign(metadata->max_msg_len, 0);
+        const double bps = Mav::estimateEntryThroughput(temp);
+        const double util = currentBaud > 0 ? (bps * bitsPerByte / currentBaud) * 100.0 : 0.0;
+        loadEstimate->show();
+
+        const QString framingDetail = QString("%1 (%2 b/B: 1 start + %3 data + %4 parity + %5 stop)")
+                                          .arg(framingName)
+                                          .arg(bitsPerByte, 0, 'f', (bitsPerByte == std::floor(bitsPerByte) ? 0 : 1))
+                                          .arg(int(activeConfig.data))
+                                          .arg(activeConfig.parity == QSerialPort::NoParity ? 0 : 1)
+                                          .arg(activeConfig.stop == QSerialPort::TwoStop ? 2.0 :
+                                               activeConfig.stop == QSerialPort::OneAndHalfStop ? 1.5 : 1.0);
+
+        const QString badgeText = (util > 90.0) ?
+            QString("Est. load: ~%1 (%2% at %3 %4 - High!)")
+                .arg(QString::fromStdString(Mav::formatByteRate(bps)))
+                .arg(util, 0, 'f', 2)
+                .arg(currentBaud)
+                .arg(framingName) :
+            QString("Est. load: ~%1 (%2% at %3 %4)")
+                .arg(QString::fromStdString(Mav::formatByteRate(bps)))
+                .arg(util, 0, 'f', 2)
+                .arg(currentBaud)
+                .arg(framingName);
+
+        const QString tooltipText = QString("Estimated wire throughput: ~%1\n"
+                                            "Channel utilization: %2% of %3 baud\n"
+                                            "UART physical framing: %4\n"
+                                            "MAVLink wire size: %5 bytes (%6 payload + %7 header/CRC)")
+                                        .arg(QString::fromStdString(Mav::formatByteRate(bps)))
+                                        .arg(util, 0, 'f', 2)
+                                        .arg(currentBaud)
+                                        .arg(framingDetail)
+                                        .arg(Mav::frameSize(temp))
+                                        .arg(metadata->max_msg_len)
+                                        .arg(temp.version1 ? 8 : 12);
+
+        loadEstimate->setText(badgeText);
+        loadEstimate->setToolTip(tooltipText);
+
+        if (util > 90.0)
+        {
+            loadEstimate->setStyleSheet(isDark ?
+                "color: #f87171; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #2e1215; border: 1px solid #7f1d1d; border-radius: 6px;" :
+                "color: #dc2626; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;");
+        }
+        else
+        {
+            loadEstimate->setStyleSheet(isDark ?
+                "color: #94a3b8; font-size: 11px; padding: 2px 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px;" :
+                "color: #475569; font-size: 11px; padding: 2px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px;");
+        }
+    };
+    QObject::connect(rate, &QDoubleSpinBox::valueChanged, updateLoadEstimate);
+    QObject::connect(version, QOverload<int>::of(&QComboBox::currentIndexChanged), updateLoadEstimate);
+
     std::map<uint32_t, QStringList> drafts;
     bool loadingFields = false;
     bool submissionAttempted = false;
@@ -5121,12 +5860,7 @@ void MainWindow::editMessage(bool edit)
                 }
                 if (matched)
                 {
-                    QString tip = QString("%1 = %2").arg(matched->name).arg(matched->value);
-                    if (matched->description && *matched->description)
-                    {
-                        tip += QString(" (%1)").arg(matched->description);
-                    }
-                    item->setToolTip(tip);
+                    item->setToolTip(QString("%1 = %2").arg(matched->name).arg(matched->value));
                 }
                 else
                 {
@@ -5290,9 +6024,18 @@ void MainWindow::editMessage(bool edit)
         messageTitle->setText(selectedInfo ? QString("[%1] %2").arg(selectedInfo->msgid).arg(selectedInfo->name) : QString());
         if (!selectedInfo)
         {
+            payloadSizeBadge->hide();
             loadingFields = false;
             return;
         }
+        const auto *metadata = mavlink_get_msg_entry(selectedInfo->msgid);
+        const uint8_t payloadSize = metadata ? metadata->max_msg_len : 0;
+        payloadSizeBadge->setText(QString("%1 %2").arg(payloadSize).arg(payloadSize == 1 ? "Byte" : "Bytes"));
+        payloadSizeBadge->setStyleSheet(isDark ?
+            "color: #94a3b8; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px;" :
+            "color: #475569; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px;");
+        payloadSizeBadge->setToolTip(QString("Defined MAVLink schema payload length: %1 bytes").arg(payloadSize));
+        payloadSizeBadge->show();
         mavlink_message_t source{};
         source.msgid = selectedInfo->msgid;
         if (edit && source.msgid == entry.id)
@@ -5376,6 +6119,7 @@ void MainWindow::editMessage(bool edit)
             validateField(row);
         }
         filterParameters();
+        updateLoadEstimate();
     });
     connect(search, &QLineEdit::textChanged, &dialog, [=](const QString &query)
     {
@@ -5531,6 +6275,12 @@ void MainWindow::editMessage(bool edit)
         }
     }
     catalogList->setCurrentRow(initial);
+    for (auto *button : dialog.findChildren<QPushButton *>())
+    {
+        button->setAutoDefault(false);
+        button->setDefault(false);
+    }
+    dialog.installEventFilter(new MessageDialogKeyFilter(saveButton, commitEditor, &dialog));
     if (dialog.exec() == QDialog::Accepted)
     {
         QMetaObject::invokeMethod(worker, "saveEntry", Qt::QueuedConnection, Q_ARG(Mav::TxEntry, entry));
@@ -5550,7 +6300,9 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     {
         return view.entry.active;
     });
-    txSummary->setStats(int(latest->tx.size()), int(running));
+    txSummary->setStats(int(latest->tx.size()), int(running),
+                        latest->estimatedTxBps, latest->estimatedTxUtilization);
+    setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
     const uint64_t selected = selectedTx();
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
@@ -5568,9 +6320,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
         cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
         cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
-        const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\n%6 frames handed to Qt output\n%7")
+        const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\nEst. wire load: ~%6\n%7 frames handed to Qt output\n%8")
                                     .arg(messageName(entry.id), QString::number(entry.id), txTable->item(row, 2)->text(),
                                          txTable->item(row, 3)->text(), txTable->item(row, 4)->text(),
+                                         QString::fromStdString(Mav::formatByteRate(view.estimatedBps)),
                                          txTable->item(row, 5)->text(), txTable->item(row, 6)->text());
         txTable->item(row, 1)->setData(Qt::AccessibleTextRole, description);
         if (entry.key == selected && txTable->currentRow() != row)
@@ -5590,7 +6343,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                                      latest->crcErrors,
                                      latest->pending,
                                      latest->overflow,
-                                     dark);
+                                     dark,
+                                     latest->rxUtilizationPercent,
+                                     latest->txUtilizationPercent,
+                                     latest->baud);
     }
     if (!paused)
     {
@@ -5695,19 +6451,94 @@ void MainWindow::setTxSummaryMode(int mode)
     Q_UNUSED(mode);
 }
 
-void MainWindow::setTxSummaryStats(int total, int running)
+void MainWindow::setStatusBarRateUnit(int unit)
+{
+    if (statsRateUnitBox && unit >= 0 && unit < statsRateUnitBox->count())
+    {
+        const QSignalBlocker blocker(statsRateUnitBox);
+        statsRateUnitBox->setCurrentIndex(unit);
+    }
+    if (metricsWidget)
+    {
+        metricsWidget->setRateUnit(unit);
+    }
+}
+
+void MainWindow::setTxSummaryStats(int total, int running, double estimatedBps, double utilization)
 {
     if (txSummary)
     {
-        txSummary->setStats(total, running);
+        txSummary->setStats(total, running, estimatedBps, utilization);
     }
 }
 
 void MainWindow::setConnectionStatus(const QString &state, bool open)
 {
+    connected = open;
     if (connectionStatusPill)
     {
         connectionStatusPill->setStatus(state, open);
+    }
+    if (rxThroughput)
+    {
+        if (!open)
+        {
+            rxThroughput->hide();
+        }
+        else
+        {
+            rxThroughput->show();
+        }
+    }
+}
+
+void MainWindow::setRxThroughputStats(double bps, double utilization, int baud)
+{
+    if (!rxThroughput)
+    {
+        return;
+    }
+    if (!connected)
+    {
+        rxThroughput->hide();
+        return;
+    }
+    const QString text = (baud > 0) ?
+        QString("%1 (%2%)")
+            .arg(QString::fromStdString(Mav::formatByteRate(bps)))
+            .arg(utilization, 0, 'f', 1) :
+        QString::fromStdString(Mav::formatByteRate(bps));
+    rxThroughput->setText(text);
+    updateRxThroughputStyle(utilization);
+    rxThroughput->show();
+}
+
+void MainWindow::updateRxThroughputStyle(double util)
+{
+    lastRxUtil = util;
+    if (!rxThroughput)
+    {
+        return;
+    }
+    const bool dark = themeBox && (themeBox->currentIndex() == 2 ||
+                      (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128));
+    if (util > 90.0)
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #f87171; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #2e1215; border: 1px solid #7f1d1d; border-radius: 6px;" :
+            "color: #dc2626; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;");
+    }
+    else if (util > 70.0)
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #fbbf24; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #2b1a07; border: 1px solid #78350f; border-radius: 6px;" :
+            "color: #d97706; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px;");
+    }
+    else
+    {
+        rxThroughput->setStyleSheet(dark ?
+            "color: #60a5fa; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #0f233a; border: 1px solid #1e3a5f; border-radius: 6px;" :
+            "color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;");
     }
 }
 
@@ -5716,14 +6547,15 @@ void MainWindow::stopRefreshTimer()
     refresh.stop();
 }
 
-void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow)
+void MainWindow::setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow,
+                                  double rxUtil, double txUtil, int baud)
 {
     if (metricsWidget)
     {
         const bool dark = property("darkTheme").isValid() ?
                           property("darkTheme").toBool() :
                           (themeBox && themeBox->currentIndex() == 2);
-        metricsWidget->updateMetrics(rxBps, txBps, crc, pending, overflow, dark);
+        metricsWidget->updateMetrics(rxBps, txBps, crc, pending, overflow, dark, rxUtil, txUtil, baud);
     }
 }
 
@@ -6159,11 +6991,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (onRate || onBadge)
                 {
                     txTable->viewport()->setCursor(Qt::PointingHandCursor);
-                    if (onRate)
-                    {
-                        QToolTip::showText(mouseEvent->globalPosition().toPoint(), "Change transmission rate",
-                                           txTable->viewport(), ratePill);
-                    }
                 }
                 else
                 {
@@ -6298,7 +7125,7 @@ void MainWindow::applyTheme()
         "QPushButton#dismissConnectionError:hover { background:#4338ca; }"
         "QPushButton#dismissConnectionError:pressed { background:#3730a3; }"
         "QPushButton#dismissConnectionError:focus { outline:none; border-color:#818cf8; }"
-        "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
+        "QLabel#summaryBadge { color:%5; background:%6; border:1px solid %4; border-radius:6px; padding:0 10px; font-size:11px; font-weight:500; }"
         "QFrame#connectionBar { background:transparent; border:0; }"
         "QFrame#connectionCard { background:transparent; border:0; }"
         "QFrame#connectionCardDivider { background:%4; border:0; }"
@@ -6448,5 +7275,9 @@ void MainWindow::applyTheme()
     if (copyFeedbackBadge)
     {
         static_cast<CopyFeedbackBadge *>(copyFeedbackBadge)->refreshTheme(dark);
+    }
+    if (rxThroughput && connected)
+    {
+        updateRxThroughputStyle(lastRxUtil);
     }
 }

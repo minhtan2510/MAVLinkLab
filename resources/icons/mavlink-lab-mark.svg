@@ -1,0 +1,60 @@
+<svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Isometric Surface Gradients -->
+    <linearGradient id="topFace" x1="160" y1="120" x2="352" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#93a3fc" />
+      <stop offset="100%" stop-color="#c7d2fe" />
+    </linearGradient>
+
+    <linearGradient id="topFaceStep" x1="196" y1="290" x2="392" y2="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#a5b4fc" />
+    </linearGradient>
+
+    <linearGradient id="leftFace" x1="120" y1="180" x2="256" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#312e81" />
+    </linearGradient>
+
+    <linearGradient id="rightFace" x1="256" y1="180" x2="392" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0c4a6e" />
+    </linearGradient>
+
+    <linearGradient id="rightFaceShade" x1="332" y1="240" x2="392" y2="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0369a1" />
+      <stop offset="100%" stop-color="#082f49" />
+    </linearGradient>
+  </defs>
+
+  <!-- Isometric 3D Monogram Structure (M + L) -->
+  <g transform="translate(0, 10)">
+    <!-- 1. Left Pillar of 'M' -->
+    <path d="M120 220L180 185V355L120 390V220Z" fill="url(#leftFace)" />
+    <path d="M120 220L180 185L220 208L160 243L120 220Z" fill="url(#topFace)" opacity="0.95"/>
+
+    <!-- 2. Middle Chevron / Peak of 'M' -->
+    <path d="M180 185L256 230L332 185L256 140L180 185Z" fill="url(#topFace)"/>
+    <path d="M180 185L256 230V290L180 245V185Z" fill="url(#leftFace)"/>
+    <path d="M256 230L332 185V245L256 290V230Z" fill="url(#rightFace)"/>
+
+    <!-- 3. Right Pillar of 'M' descending into Workbench 'L' -->
+    <path d="M332 185L392 220V330L332 295V185Z" fill="url(#rightFace)"/>
+    <path d="M292 208L332 185L392 220L352 243L292 208Z" fill="url(#topFace)" opacity="0.95"/>
+
+    <!-- 4. Lab Bench Foundation Step (The 'L' Base) -->
+    <path d="M256 290L392 368L332 403L196 325L256 290Z" fill="url(#topFaceStep)" opacity="0.85"/>
+    <path d="M196 325L332 403V425L196 347V325Z" fill="url(#leftFace)"/>
+    <path d="M332 403L392 368V390L332 425V403Z" fill="url(#rightFaceShade)"/>
+
+    <!-- 5. Technical Telemetry Node Accents -->
+    <circle cx="256" cy="165" r="5" fill="#ffffff"/>
+    <line x1="256" y1="165" x2="310" y2="196" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="3 3"/>
+    <circle cx="310" cy="196" r="4.5" fill="#38bdf8"/>
+
+    <!-- 6. Precision Facet Edge Highlights -->
+    <path d="M120 220L180 185L256 140L332 185L392 220" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+    <path d="M256 140L256 230" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+  </g>
+</svg>
+

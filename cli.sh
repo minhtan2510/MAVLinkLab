@@ -308,7 +308,7 @@ build_core()
 }
 
 ##
-# @brief Launch N instances of the simulator application.
+# @brief Launch N instances of the simulator application as detached background processes.
 #
 # @param count Number of instances to launch (default: 1).
 # @param ... Additional arguments passed to the Qt application.
@@ -328,6 +328,8 @@ launch_instances()
     if [[ ! -x "$app" ]]; then
         printf "%bApplication not built yet. Building first...%b\n" "$YELLOW" "$NC"
         build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)" --target mavlink-lab >/dev/null 2>&1 || true
     fi
 
     if [[ ! -x "$app" ]]; then
@@ -338,37 +340,22 @@ launch_instances()
     setup_qt_env
 
     if [[ "$count" -eq 1 ]]; then
-        printf "\n%b=== Launching MAVLinkLab (Single Window) ===%b\n" "$GREEN" "$NC"
-        "$app" "$@"
-        return $?
+        printf "\n%b=== Launching MAVLinkLab (Detached Process) ===%b\n" "$GREEN" "$NC"
+        nohup "$app" "$@" >/dev/null 2>&1 &
+        local pid=$!
+        disown "$pid" 2>/dev/null || true
+        printf "  Started MAVLinkLab in background (PID: %d)\n" "$pid"
+        return 0
     fi
 
-    printf "\n%b=== Launching %d MAVLinkLab Windows ===%b\n" "$GREEN" "$count" "$NC"
-    local pids=()
+    printf "\n%b=== Launching %d MAVLinkLab Windows (Detached) ===%b\n" "$GREEN" "$count" "$NC"
     for ((i = 1; i <= count; i++)); do
-        "$app" "$@" &
+        nohup "$app" "$@" >/dev/null 2>&1 &
         local pid=$!
-        pids+=("$pid")
+        disown "$pid" 2>/dev/null || true
         printf "  Started instance #%d (PID: %d)\n" "$i" "$pid"
     done
-    printf "%bPress Ctrl+C to terminate all %d instances.%b\n" "$YELLOW" "$count" "$NC"
-
-    # @brief Stop child instances when interrupted.
-    stop_instances()
-    {
-        trap - INT TERM
-        printf "\n%bStopping %d child instances...%b\n" "$YELLOW" "${#pids[@]}" "$NC"
-        kill "${pids[@]}" 2>/dev/null || true
-        wait "${pids[@]}" 2>/dev/null || true
-    }
-
-    trap stop_instances INT TERM
-    local status=0
-    for pid in "${pids[@]}"; do
-        wait "$pid" || status=$?
-    done
-    trap - INT TERM
-    return "$status"
+    return 0
 }
 
 ##
@@ -392,18 +379,39 @@ run_n_interactive()
 }
 
 ##
-# @brief Run all automated tests (Core + Desktop PTY & UI tests).
+# @brief Run all automated tests (Core + Desktop PTY & UI tests) with visual tracking.
 #
 run_tests()
 {
     if [[ ! -d "$build_dir" ]]; then
         printf "%bBuild directory not found. Building project first...%b\n" "$YELLOW" "$NC"
         build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)"
     fi
 
-    printf "\n%b=== Running All Tests (Core + Desktop) ===%b\n" "$BLUE" "$NC"
     setup_qt_env
-    ctest --test-dir "$build_dir" --output-on-failure "$@"
+
+    local runner="$project_dir/tools/test_runner.py"
+    if command -v python3 &>/dev/null && [[ -f "$runner" ]]; then
+        local suite_arg=()
+        local filter_arg=()
+        if [[ $# -gt 0 && "$1" != -* ]]; then
+            case "$1" in
+                core|desktop|profile|control-lines)
+                    suite_arg=(--suite "$1")
+                    ;;
+                *)
+                    filter_arg=(--filter "$1")
+                    ;;
+            esac
+            shift
+        fi
+        python3 "$runner" --build-dir "$build_dir" "${suite_arg[@]}" "${filter_arg[@]}" "$@"
+    else
+        printf "\n%b=== Running All Tests (Core + Desktop) ===%b\n" "$BLUE" "$NC"
+        ctest --test-dir "$build_dir" --output-on-failure "$@"
+    fi
 }
 
 ##
@@ -411,7 +419,19 @@ run_tests()
 #
 run_core_tests()
 {
-    if [[ -d "$build_core_dir" && -x "$build_core_dir/core-tests" ]]; then
+    if [[ ! -d "$build_dir" ]]; then
+        printf "%bBuild directory not found. Building project first...%b\n" "$YELLOW" "$NC"
+        build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)"
+    fi
+
+    setup_qt_env
+
+    local runner="$project_dir/tools/test_runner.py"
+    if command -v python3 &>/dev/null && [[ -f "$runner" ]]; then
+        python3 "$runner" --build-dir "$build_dir" --suite core "$@"
+    elif [[ -d "$build_core_dir" && -x "$build_core_dir/core-tests" ]]; then
         printf "\n%b=== Running Core Tests (build-core) ===%b\n" "$BLUE" "$NC"
         ctest --test-dir "$build_core_dir" --output-on-failure "$@"
     elif [[ -d "$build_dir" && -x "$build_dir/core-tests" ]]; then
@@ -498,6 +518,50 @@ get_project_version()
 }
 
 ##
+# @brief Compare two semantic version strings (X.Y.Z).
+#
+# @param 1 First version string.
+# @param 2 Second version string.
+# @return Prints 1 if v1 > v2, -1 if v1 < v2, 0 if equal.
+#
+semver_compare()
+{
+    local v1="${1#v}"
+    local v2="${2#v}"
+    v1="${v1%%-*}"
+    v2="${v2%%-*}"
+    if [[ "$v1" == "$v2" ]]; then
+        printf "0\n"
+        return 0
+    fi
+    if command -v python3 &>/dev/null; then
+        python3 -c "
+try:
+    p1 = [int(x) for x in '${v1}'.split('.')]
+    p2 = [int(x) for x in '${v2}'.split('.')]
+    print(1 if p1 > p2 else (-1 if p1 < p2 else 0))
+except Exception:
+    print(0)
+"
+    else
+        local IFS=.
+        local i ver1=($v1) ver2=($v2)
+        for ((i = 0; i < 3; i++)); do
+            local n1=${ver1[i]:-0}
+            local n2=${ver2[i]:-0}
+            if (( n1 > n2 )); then
+                printf "1\n"
+                return 0
+            elif (( n1 < n2 )); then
+                printf "-1\n"
+                return 0
+            fi
+        done
+        printf "0\n"
+    fi
+}
+
+##
 # @brief Bump the project version in CMakeLists.txt.
 #
 # @param 1 New version string (e.g. 1.3.0 or v1.3.0).
@@ -516,6 +580,23 @@ bump_project_version()
     fi
     local old_ver
     old_ver="$(get_project_version)"
+
+    local cmp
+    cmp="$(semver_compare "$new_ver" "$old_ver")"
+    if [[ "$cmp" -eq 0 ]]; then
+        printf "%bProject version is already %s.%b\n" "$YELLOW" "$old_ver" "$NC"
+        return 0
+    elif [[ "$cmp" -lt 0 ]]; then
+        printf "%bWarning: New version (%s) is lower than current version (%s).%b\n" "$YELLOW" "$new_ver" "$old_ver" "$NC"
+        local confirm
+        read -rp "Are you sure you want to change to a lower version? [Y/n]: " confirm
+        confirm="${confirm:-Y}"
+        if ! [[ "$confirm" =~ ^[Yy]$ ]]; then
+            printf "%bVersion update cancelled.%b\n" "$YELLOW" "$NC"
+            return 0
+        fi
+    fi
+
     sed -i "s/^project(MAVLinkLab VERSION [0-9.]* LANGUAGES CXX)/project(MAVLinkLab VERSION ${new_ver} LANGUAGES CXX)/" "$project_dir/CMakeLists.txt"
     printf "%bUpdated project version: %s -> %s%b\n" "$GREEN" "$old_ver" "$new_ver" "$NC"
 }
@@ -535,6 +616,295 @@ bump_version_interactive()
         return 0
     fi
     bump_project_version "$input_ver"
+}
+
+##
+# @brief Install or update the Linux desktop launcher (.desktop) and application icons.
+#
+# @return 0 on success, 1 on error.
+#
+install_desktop_entry()
+{
+    printf "\n%b=== Installing MAVLinkLab Desktop Launcher ===%b\n" "$CYAN" "$NC"
+
+    local app_bin="$build_dir/mavlink-lab"
+    local apps_dir="$HOME/.local/share/applications"
+    local icons_base="$HOME/.local/share/icons/hicolor"
+    local desktop_file="$apps_dir/mavlink-lab.desktop"
+
+    if [[ ! -x "$app_bin" ]]; then
+        printf "%bApplication binary not found at: %s%b\n" "$YELLOW" "$app_bin" "$NC"
+        printf "Building application first...\n"
+        build_full
+        if [[ ! -x "$app_bin" ]]; then
+            printf "%bFailed to build application binary. Aborting desktop install.%b\n" "$RED" "$NC" >&2
+            return 1
+        fi
+    fi
+
+    # 1. Create target directories
+    mkdir -p "$apps_dir"
+    mkdir -p "$icons_base/scalable/apps"
+
+    # 2. Install application icons
+    printf "Installing application icons to %s...\n" "$icons_base"
+    local sizes=(16 24 32 48 64 128 256 512)
+    for size in "${sizes[@]}"; do
+        local src_png="$project_dir/resources/icons/mavlink-lab-${size}.png"
+        local dest_dir="$icons_base/${size}x${size}/apps"
+        if [[ -f "$src_png" ]]; then
+            mkdir -p "$dest_dir"
+            cp -f "$src_png" "$dest_dir/mavlink-lab.png"
+        fi
+    done
+
+    local src_svg="$project_dir/resources/icons/mavlink-lab.svg"
+    if [[ -f "$src_svg" ]]; then
+        cp -f "$src_svg" "$icons_base/scalable/apps/mavlink-lab.svg"
+    fi
+
+    # 3. Generate .desktop file
+    printf "Generating desktop entry at %s...\n" "$desktop_file"
+    cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Name=MAVLinkLab
+GenericName=Serial Workbench for MAVLink
+Comment=Desktop serial workbench for sending, receiving and inspecting MAVLink telemetry
+Exec=$app_bin %f
+Path=$project_dir
+Icon=mavlink-lab
+Terminal=false
+Type=Application
+Categories=Development;Engineering;Electronics;
+Keywords=mavlink;serial;uart;telemetry;drone;uav;robotics;ardupilot;px4;
+StartupWMClass=mavlink-lab
+EOF
+
+    chmod 644 "$desktop_file"
+
+    # 4. Update system caches if tools exist
+    if command -v update-desktop-database &>/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_base" 2>/dev/null || true
+    fi
+
+    printf "%b✔ Desktop launcher installed successfully!%b\n" "$GREEN" "$NC"
+    printf "  • Desktop entry: %s\n" "$desktop_file"
+    printf "  • Binary target: %s\n" "$app_bin"
+    printf "  • Icon installed: %s/scalable/apps/mavlink-lab.svg\n" "$icons_base"
+    printf "You can now launch MAVLinkLab from your application menu or dash.\n\n"
+    return 0
+}
+
+##
+# @brief Uninstall and remove the Linux desktop launcher (.desktop) and installed icons.
+#
+# @return 0 on success.
+#
+uninstall_desktop_entry()
+{
+    printf "\n%b=== Removing MAVLinkLab Desktop Launcher ===%b\n" "$CYAN" "$NC"
+
+    local apps_dir="$HOME/.local/share/applications"
+    local icons_base="$HOME/.local/share/icons/hicolor"
+    local desktop_file="$apps_dir/mavlink-lab.desktop"
+    local removed_any=0
+
+    # 1. Remove .desktop file
+    if [[ -f "$desktop_file" ]]; then
+        rm -f "$desktop_file"
+        printf "  • Removed desktop entry: %s\n" "$desktop_file"
+        removed_any=1
+    fi
+
+    # 2. Remove icons
+    local sizes=(16 24 32 48 64 128 256 512)
+    for size in "${sizes[@]}"; do
+        local icon_path="$icons_base/${size}x${size}/apps/mavlink-lab.png"
+        if [[ -f "$icon_path" ]]; then
+            rm -f "$icon_path"
+            removed_any=1
+        fi
+    done
+    if [[ -f "$icons_base/scalable/apps/mavlink-lab.svg" ]]; then
+        rm -f "$icons_base/scalable/apps/mavlink-lab.svg"
+        removed_any=1
+    fi
+
+    # 3. Update system caches
+    if command -v update-desktop-database &>/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_base" 2>/dev/null || true
+    fi
+
+    if [[ "$removed_any" -eq 1 ]]; then
+        printf "%b✔ Desktop launcher and icons removed successfully!%b\n\n" "$GREEN" "$NC"
+    else
+        printf "%bDesktop launcher was not found on your system.%b\n\n" "$YELLOW" "$NC"
+    fi
+    return 0
+}
+
+##
+# @brief Query GitHub Releases API for the latest version and prompt to update if newer.
+#
+# @return 0 on success, 1 on network or parse failure.
+#
+check_for_updates()
+{
+    printf "\n%b=== Checking for MAVLinkLab Updates ===%b\n" "$CYAN" "$NC"
+
+    local current_ver
+    current_ver="$(get_project_version)"
+    local current_clean="${current_ver#v}"
+
+    if ! command -v curl &>/dev/null; then
+        printf "%bError: 'curl' is required to check for updates.%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
+    printf "Querying GitHub Releases (minhtan2510/MAVLinkLab)...\n"
+    local api_url="https://api.github.com/repos/minhtan2510/MAVLinkLab/releases/latest"
+    local response
+    response="$(curl -sSfL -m 8 -H "Accept: application/vnd.github.v3+json" "$api_url" 2>/dev/null || true)"
+
+    if [[ -z "$response" ]]; then
+        printf "%bUnable to connect to GitHub API. Please check your internet connection.%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
+    local latest_tag=""
+    local release_name=""
+    local release_url=""
+
+    if command -v python3 &>/dev/null; then
+        {
+            read -r latest_tag
+            read -r release_name
+            read -r release_url
+        } < <(python3 -c '
+import sys, json
+try:
+    data = json.loads(sys.stdin.read())
+    print(data.get("tag_name", "").strip())
+    print(data.get("name", "").strip())
+    print(data.get("html_url", "").strip())
+except Exception:
+    pass
+' <<< "$response")
+    fi
+
+    if [[ -z "$latest_tag" ]]; then
+        latest_tag="$(sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$response" | head -n 1)"
+        release_name="$(sed -n 's/.*"name":[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$response" | head -n 1)"
+        release_url="$(sed -n 's/.*"html_url":[[:space:]]*"\([^"]*\)".*/\1/p' <<< "$response" | head -n 1)"
+    fi
+
+    if [[ -z "$latest_tag" ]]; then
+        printf "%bCould not parse release information from GitHub response.%b\n" "$RED" "$NC" >&2
+        return 1
+    fi
+
+    local latest_clean="${latest_tag#v}"
+    local cmp
+    cmp="$(semver_compare "$latest_clean" "$current_clean")"
+
+    printf "  • Current version: %bv%s%b\n" "$BOLD" "$current_clean" "$NC"
+    printf "  • Latest release:  %bv%s%b (%s)\n" "$BOLD" "$latest_clean" "$NC" "${release_name:-$latest_tag}"
+    printf "  • Release page:    %s\n\n" "$release_url"
+
+    if [[ "$cmp" -eq 1 ]]; then
+        printf "%b★ A new version is available: v%s -> v%s%b\n\n" "$YELLOW" "$current_clean" "$latest_clean" "$NC"
+
+        local confirm
+        read -rp "Do you want to update to ${latest_tag} now? [Y/n]: " confirm
+        confirm="${confirm:-Y}"
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            perform_update "$latest_tag"
+            return $?
+        else
+            printf "%bUpdate skipped.%b\n\n" "$YELLOW" "$NC"
+        fi
+    elif [[ "$cmp" -eq 0 ]]; then
+        printf "%b✔ MAVLinkLab is up to date (v%s).%b\n\n" "$GREEN" "$current_clean" "$NC"
+    else
+        printf "%bYou are running a newer/pre-release build (v%s) than the latest GitHub release (v%s).%b\n\n" "$CYAN" "$current_clean" "$latest_clean" "$NC"
+    fi
+    return 0
+}
+
+##
+# @brief Perform update by fetching the target tag or remote branch, updating submodules, and rebuilding.
+#
+# @param 1 Target release tag (e.g. v1.4.0).
+# @return 0 on success, 1 on error.
+#
+perform_update()
+{
+    local target_tag="${1:-}"
+    printf "\n%b=== Updating MAVLinkLab to %s ===%b\n" "$CYAN" "${target_tag:-latest}" "$NC"
+
+    # Check for uncommitted working tree changes
+    if [[ -d "$project_dir/.git" ]]; then
+        if [[ -n "$(git -C "$project_dir" status --porcelain 2>/dev/null)" ]]; then
+            printf "%bWarning: You have uncommitted changes in your repository.%b\n" "$YELLOW" "$NC"
+            read -rp "Discard uncommitted changes and continue with update? [y/N]: " force_update
+            if ! [[ "$force_update" =~ ^[Yy]$ ]]; then
+                printf "%bUpdate aborted. Please commit or stash your changes first.%b\n" "$RED" "$NC"
+                return 1
+            fi
+            git -C "$project_dir" reset --hard HEAD
+        fi
+
+        printf "Fetching latest tags and commits from origin...\n"
+        git -C "$project_dir" fetch origin --tags
+
+        local current_branch
+        current_branch="$(git -C "$project_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
+
+        if [[ -n "$target_tag" ]]; then
+            if git -C "$project_dir" rev-parse "refs/tags/$target_tag" &>/dev/null; then
+                printf "Checking out release tag: %s...\n" "$target_tag"
+                git -C "$project_dir" checkout "$target_tag"
+            else
+                printf "Pulling latest changes on branch '%s'...\n" "$current_branch"
+                git -C "$project_dir" pull --ff-only origin "$current_branch" || git -C "$project_dir" pull origin "$current_branch"
+            fi
+        else
+            printf "Pulling latest changes on branch '%s'...\n" "$current_branch"
+            git -C "$project_dir" pull --ff-only origin "$current_branch" || git -C "$project_dir" pull origin "$current_branch"
+        fi
+
+        printf "Updating submodules...\n"
+        git -C "$project_dir" submodule update --init --recursive
+    fi
+
+    printf "Rebuilding application...\n"
+    build_full
+
+    # Re-apply desktop launcher if it was already installed
+    local desktop_installed="$HOME/.local/share/applications/mavlink-lab.desktop"
+    if [[ -f "$desktop_installed" ]]; then
+        printf "Updating installed desktop launcher...\n"
+        install_desktop_entry >/dev/null 2>&1 || true
+    fi
+
+    local new_ver
+    new_ver="$(get_project_version)"
+    printf "\n%b✔ Successfully updated MAVLinkLab to v%s!%b\n\n" "$GREEN" "$new_ver" "$NC"
+    return 0
+}
+
+##
+# @brief Interactive update entry point checking GitHub release and prompting user.
+#
+auto_update()
+{
+    check_for_updates 1
 }
 
 ##
@@ -560,11 +930,15 @@ show_help()
         printf "    test [all]          Run all tests (Core & Desktop offscreen)\n"
         printf "    test core           Run core tests only\n\n"
         printf "  Utilities:\n"
+        printf "    check-update        Check for latest version from GitHub Releases\n"
+        printf "    update              Check and update to latest GitHub release\n"
         printf "    clean               Delete build directories\n"
         printf "    rebuild             Clean and rebuild full project\n"
         printf "    submodules          Update git submodules\n"
         printf "    update-enums        Regenerate MAVLink enum tables from XML\n"
         printf "    sync-graph          Synchronize CodeGraph index\n"
+        printf "    install-desktop     Install desktop launcher (.desktop & icons)\n"
+        printf "    uninstall-desktop   Remove desktop launcher and icons\n"
         printf "    version             Display current project version\n"
         printf "    bump <version>      Update project version in CMakeLists.txt\n"
         printf "    menu                Open interactive menu (default when no args)\n"
@@ -584,12 +958,16 @@ show_help()
         printf "    run <N>             Launch N MAVLinkLab windows (e.g. ./cli.sh run 3)\n"
         printf "    run --two           Launch two MAVLinkLab windows\n\n"
         printf "  General:\n"
+        printf "    check-update        Check for latest version from GitHub Releases\n"
+        printf "    update              Check and update to latest GitHub release\n"
         printf "    clean               Delete build directories\n"
         printf "    rebuild             Clean and rebuild full project\n"
+        printf "    install-desktop     Install desktop launcher (.desktop & icons)\n"
+        printf "    uninstall-desktop   Remove desktop launcher and icons\n"
         printf "    menu                Open interactive menu (default when no args)\n"
         printf "    help, -h, --help    Show this help message\n\n"
         printf "Developer Mode:\n"
-        printf "    Pass '-dev' flag for development workbench (testing, CodeGraph, MAVLink tools, version bump).\n"
+        printf "    Pass '-dev' flag for development workbench (testing, CodeGraph, MAVLink tools, change version).\n"
         printf "    Example: %s -dev\n\n" "$0"
     fi
 }
@@ -856,10 +1234,13 @@ menu_tools()
         local cur_ver
         cur_ver="$(get_project_version)"
         prompt_menu "Tools & Utilities" choice \
-            "Bump project version (Current: ${cur_ver})" \
+            "Change project version (Current: ${cur_ver})" \
+            "Check for updates (GitHub Releases)" \
             "Update git submodules" \
             "Regenerate MAVLink enums from XML" \
             "Sync CodeGraph" \
+            "Install desktop launcher (.desktop & icons)" \
+            "Uninstall desktop launcher (remove .desktop & icons)" \
             "← Back to Main Menu"
 
         case "$choice" in
@@ -869,17 +1250,32 @@ menu_tools()
                 safe_clear
                 ;;
             1)
-                update_submodules || true
+                check_for_updates || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             2)
-                update_enums || true
+                update_submodules || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
             3)
+                update_enums || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            4)
                 sync_codegraph || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            5)
+                install_desktop_entry || true
+                read -rp "Press Enter to continue..." _dummy
+                safe_clear
+                ;;
+            6)
+                uninstall_desktop_entry || true
                 read -rp "Press Enter to continue..." _dummy
                 safe_clear
                 ;;
@@ -904,7 +1300,7 @@ interactive_menu()
                 "[Build]  Build all, rebuild, or clean project" \
                 "[Run]    Run project" \
                 "[Test]   Run all tests or core tests" \
-                "[Tools]  Version bump, submodules, CodeGraph" \
+                "[Tools]  Change version, submodules, CodeGraph, desktop entry" \
                 "[Exit]   Exit CLI"
 
             case "$choice" in
@@ -1050,6 +1446,18 @@ case "$cmd" in
     sync-graph)
         shift
         sync_codegraph "$@"
+        ;;
+    check-update|check-updates|update|self-update)
+        shift
+        check_for_updates "$@"
+        ;;
+    install-desktop|desktop)
+        shift
+        install_desktop_entry "$@"
+        ;;
+    uninstall-desktop|remove-desktop)
+        shift
+        uninstall_desktop_entry "$@"
         ;;
     version)
         printf "%s\n" "$(get_project_version)"
