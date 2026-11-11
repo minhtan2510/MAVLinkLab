@@ -53,8 +53,8 @@
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
   * Concise Doxygen comments in English (`@brief`, `@param`, `@return`) on all new or significantly modified functions.
 * **Commit Message Conventions:**
-  * Tiêu đề (subject line) phải ngắn gọn, súc tích nhất có thể (dạng `<type>(<scope>): <summary>`, ≤ 50–72 ký tự).
-  * Toàn bộ nội dung phân tích chi tiết, bối cảnh, lý do và danh sách thay đổi cụ thể phải được ghi vào phần **body** của commit (cách tiêu đề 1 dòng trống), không viết dồn vào tiêu đề.
+  * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
+  * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
 
 ---
 
@@ -158,6 +158,11 @@
   * When long message titles wrap across 2 lines (`lines.size() > 1`), `txRatePillRect` vertically centers the interactive rate badge across the full 40px two-line title block (`Y = badge.top() + 11`, center Y = `badge.top() + 20`).
   * Horizontally, `pillLeft` is positioned 8 px after the maximum horizontal advance of both lines (`max(advance[0], advance[1])`), ensuring the badge never collides with either line's text or the top-right status badge button.
 
+* **Permissive Rate Transmission Model (No Pre-Flight Capacity Gating):**
+  * `setActive()`, `setRate()`, and `runAll()` allow execution at any user-configured frequency without pre-flight `fitsLink()` rejection or artificial "Error" status transitions.
+  * When offered load exceeds physical UART baudrate capacity, transmissions are scheduled normally according to monotonic clocks; hardware/link throughput limits are naturally and transparently reflected in the live **Actual Rate** indicator (`Actual: X Hz`) on each TX card.
+  * Error status is strictly reserved for physical/runtime faults (e.g. `Port closed`, `Serial write failure`), never for theoretical bandwidth saturation.
+
 ---
 
 ## 4. Roadmap & Status
@@ -170,6 +175,10 @@
 ---
 
 ## 5. Verification Workflow
+* **Mandatory Full Build After Changes:**
+  - After any code modification or fix, **always execute a full build (`cmake --build build -j` or `./cli.sh build all`)** to compile all targets, ensuring the main application executable (`build/mavlink-lab`) is updated to the latest revision alongside all test binaries.
+  - Never compile only specific test targets (such as `--target desktop-tests`) and conclude, preventing situations where running the application from CLI launches an outdated binary.
+
 * **Full Build & Test:**
   ```bash
   git submodule update --init --recursive

@@ -220,19 +220,23 @@ void SerialWorker::setActive(quint64 key, bool active)
         if (!active)
         {
             entry.active = false;
+            entry.error.clear();
             discardOutput();
+            requestSnapshot();
             return;
         }
-        const double bits = framingBitsPerByte(config);
-        if (!port->isOpen() || !Mav::fitsLink(entries, entry, config.baud, bits))
+        if (!port->isOpen())
         {
-            entry.error = "Port closed or offered load exceeds link capacity";
-            fail(QString::fromStdString(entry.error));
+            entry.error = "Port closed";
+            fail("Cannot start: Serial port is closed");
+            requestSnapshot();
             return;
         }
         entry.error.clear();
         entry.active = true;
         entry.deadline = clock.nsecsElapsed() / 1000;
+        requestSnapshot();
+        return;
     }
 }
 
@@ -249,22 +253,10 @@ void SerialWorker::setRate(quint64 key, double hz)
         {
             continue;
         }
+        entry.hz = hz;
         if (entry.active)
         {
-            const double bits = framingBitsPerByte(config);
-            Mav::TxEntry candidate = entry;
-            candidate.hz = hz;
-            if (!port->isOpen() || !Mav::fitsLink(entries, candidate, config.baud, bits))
-            {
-                fail("Offered load exceeds link capacity");
-                return;
-            }
-            entry.hz = hz;
             entry.deadline = clock.nsecsElapsed() / 1000 + static_cast<int64_t>(1000000.0 / hz);
-        }
-        else
-        {
-            entry.hz = hz;
         }
         requestSnapshot();
         return;
@@ -348,24 +340,24 @@ void SerialWorker::runAll()
     {
         return;
     }
-    auto requested = entries;
-    for (auto &entry : requested)
+    if (!port || !port->isOpen())
     {
-        entry.active = true;
-    }
-    const double bits = framingBitsPerByte(config);
-    for (const auto &entry : requested)
-    {
-        if (!port->isOpen() || !Mav::fitsLink(requested, entry, config.baud, bits))
+        for (auto &entry : entries)
         {
-            fail("Cannot run all: port closed or total offered load exceeds link capacity");
-            return;
+            entry.active = false;
+            entry.error = "Port closed";
         }
+        fail("Cannot run all: Serial port is closed");
+        requestSnapshot();
+        return;
     }
     for (auto &entry : entries)
     {
-        setActive(entry.key, true);
+        entry.active = true;
+        entry.error.clear();
+        entry.deadline = clock.nsecsElapsed() / 1000;
     }
+    requestSnapshot();
 }
 
 void SerialWorker::deleteAll()

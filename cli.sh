@@ -328,6 +328,8 @@ launch_instances()
     if [[ ! -x "$app" ]]; then
         printf "%bApplication not built yet. Building first...%b\n" "$YELLOW" "$NC"
         build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)" --target mavlink-lab >/dev/null 2>&1 || true
     fi
 
     if [[ ! -x "$app" ]]; then
@@ -384,6 +386,8 @@ run_tests()
     if [[ ! -d "$build_dir" ]]; then
         printf "%bBuild directory not found. Building project first...%b\n" "$YELLOW" "$NC"
         build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)"
     fi
 
     printf "\n%b=== Running All Tests (Core + Desktop) ===%b\n" "$BLUE" "$NC"

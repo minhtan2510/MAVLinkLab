@@ -149,7 +149,7 @@ private slots:
         const auto reopened = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
         QCOMPARE(reopened->pending, size_t(0));
         QVERIFY(!reopened->tx[0].entry.active);
-        // Deliberately overload a configured link and verify rejection.
+        // Overload a configured link: must be accepted and active without artificial rejection.
         worker.closePort();
         config.baud = 9600;
         worker.openPort(config);
@@ -157,8 +157,8 @@ private slots:
         worker.saveEntry(entry);
         worker.setActive(1, true);
         worker.requestSnapshot();
-        QVERIFY(!qvariant_cast<SnapshotPtr>(snapshots.last()[0])->tx[0].entry.active);
-        QVERIFY(!errors.empty());
+        QVERIFY(qvariant_cast<SnapshotPtr>(snapshots.last()[0])->tx[0].entry.active);
+        QVERIFY(errors.empty());
         worker.closePort();
         config.port = "/dev/mavlink-lab-nonexistent";
         worker.openPort(config);
@@ -191,11 +191,19 @@ private slots:
         worker.runAll();
         worker.requestSnapshot();
         auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
-        QVERIFY(!errors.empty());
+        QVERIFY(errors.empty());
         for (const auto &view : snapshot->tx)
         {
-            QVERIFY(!view.entry.active);
+            QVERIFY(view.entry.active);
         }
+        // Changing rate to high frequency must succeed immediately without error or rollback
+        worker.setRate(1, 100.0);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(errors.empty());
+        QCOMPARE(snapshot->tx[0].entry.hz, 100.0);
+        QVERIFY(snapshot->tx[0].entry.active);
+
         entry.hz = 10;
         for (quint64 key : {1, 2})
         {
