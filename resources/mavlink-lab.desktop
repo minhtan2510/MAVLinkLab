@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=MAVLinkLab
+GenericName=Serial Workbench for MAVLink
+Comment=Desktop serial workbench for sending, receiving and inspecting MAVLink telemetry
+Exec=mavlink-lab %f
+Icon=mavlink-lab
+Terminal=false
+Type=Application
+Categories=Development;Engineering;Electronics;
+Keywords=mavlink;serial;uart;telemetry;drone;uav;robotics;ardupilot;px4;
+StartupWMClass=mavlink-lab
+

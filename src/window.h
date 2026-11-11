@@ -49,6 +49,8 @@ public:
     void stopRefreshTimer();
     /** @brief Return the currently configured serial port settings. */
     PortConfig currentPortConfig() const;
+    /** @brief Return the application icon containing multi-resolution raster assets. */
+    static QIcon appIcon();
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;

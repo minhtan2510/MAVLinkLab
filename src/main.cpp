@@ -9,6 +9,7 @@ int main(int argc, char **argv)
     std::setlocale(LC_NUMERIC, "C");
     application.setApplicationName("MAVLinkLab");
     application.setOrganizationName("MAVLinkLab");
+    application.setWindowIcon(MainWindow::appIcon());
     // Window settings use explicit legacy namespaces to retain existing user data.
     MainWindow window;
     window.show();

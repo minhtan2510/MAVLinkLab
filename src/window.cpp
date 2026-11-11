@@ -2903,9 +2903,29 @@ static QString messageName(uint32_t id)
     return info ? QString::fromLatin1(info->name) : "Unknown dialect message";
 }
 
+/**
+ * @brief Construct the multi-resolution application icon from bundled resources.
+ * @return QIcon containing standard raster sizes from 16x16 to 512x512.
+ */
+QIcon MainWindow::appIcon()
+{
+    Q_INIT_RESOURCE(resources);
+    QIcon icon;
+    icon.addFile(":/icons/mavlink-lab-16.png", QSize(16, 16));
+    icon.addFile(":/icons/mavlink-lab-24.png", QSize(24, 24));
+    icon.addFile(":/icons/mavlink-lab-32.png", QSize(32, 32));
+    icon.addFile(":/icons/mavlink-lab-48.png", QSize(48, 48));
+    icon.addFile(":/icons/mavlink-lab-64.png", QSize(64, 64));
+    icon.addFile(":/icons/mavlink-lab-128.png", QSize(128, 128));
+    icon.addFile(":/icons/mavlink-lab-256.png", QSize(256, 256));
+    icon.addFile(":/icons/mavlink-lab-512.png", QSize(512, 512));
+    return icon;
+}
+
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle("MAVLinkLab");
+    setWindowIcon(appIcon());
     setMinimumSize(1000, 720);
     resize(1440, 900);
     auto *central = new QWidget;
@@ -3159,14 +3179,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         QDialog dialog(this);
         dialog.setObjectName("aboutDialog");
         dialog.setWindowTitle("About MAVLinkLab");
+        dialog.setWindowIcon(appIcon());
         auto *layout = new QVBoxLayout(&dialog);
         layout->setContentsMargins(20, 16, 20, 16);
         layout->setSpacing(12);
         layout = addDialogTitleBar(&dialog, layout);
         dialog.setMinimumWidth(480);
-        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_LAB_VERSION), &dialog);
-        version->setObjectName("secondaryText");
-        layout->addWidget(version);
 
         QString mavlinkLib = QString("Wire v%1 · %2").arg(MAVLINK_WIRE_PROTOCOL_VERSION, MAVLINK_BUILD_DATE);
         QFile gitRef(".git/modules/third_party/mavlink/refs/heads/master");
@@ -3179,9 +3197,32 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             }
         }
 
-        auto *mavVersion = new QLabel(QString("MAVLink library: %1").arg(mavlinkLib), &dialog);
-        mavVersion->setObjectName("secondaryText");
-        layout->addWidget(mavVersion);
+        auto *headerRow = new QHBoxLayout;
+        headerRow->setSpacing(16);
+        headerRow->setContentsMargins(0, 4, 0, 6);
+
+        auto *logoLabel = new QLabel(&dialog);
+        logoLabel->setObjectName("aboutLogo");
+        logoLabel->setPixmap(QPixmap(":/icons/mavlink-lab-64.png"));
+        logoLabel->setFixedSize(64, 64);
+        headerRow->addWidget(logoLabel, 0, Qt::AlignVCenter);
+
+        auto *titleCol = new QVBoxLayout;
+        titleCol->setSpacing(4);
+        titleCol->setAlignment(Qt::AlignVCenter);
+
+        auto *appName = new QLabel("MAVLinkLab", &dialog);
+        appName->setObjectName("aboutAppName");
+        appName->setStyleSheet("font-size: 20px; font-weight: 700;");
+
+        auto *version = new QLabel(QString("Version %1").arg(MAVLINK_LAB_VERSION), &dialog);
+        version->setObjectName("secondaryText");
+
+        titleCol->addWidget(appName);
+        titleCol->addWidget(version);
+
+        headerRow->addLayout(titleCol, 1);
+        layout->addLayout(headerRow);
 
         auto *details = new QLabel(
             QString(
@@ -4635,16 +4676,37 @@ void MainWindow::checkForUpdates()
     QDialog dialog(this);
     dialog.setObjectName("updateDialog");
     dialog.setWindowTitle("Check for Updates");
+    dialog.setWindowIcon(appIcon());
     dialog.setMinimumWidth(440);
 
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(20, 16, 20, 16);
-    layout->setSpacing(12);
+    layout->setSpacing(14);
     layout = addDialogTitleBar(&dialog, layout);
 
+    auto *headerRow = new QHBoxLayout;
+    headerRow->setSpacing(16);
+    headerRow->setContentsMargins(0, 4, 0, 6);
+
+    auto *logoLabel = new QLabel(&dialog);
+    logoLabel->setObjectName("updateLogo");
+    logoLabel->setPixmap(QPixmap(":/icons/mavlink-lab-64.png"));
+    logoLabel->setFixedSize(64, 64);
+    headerRow->addWidget(logoLabel, 0, Qt::AlignVCenter);
+
+    auto *titleCol = new QVBoxLayout;
+    titleCol->setSpacing(4);
+    titleCol->setAlignment(Qt::AlignVCenter);
+    auto *appName = new QLabel("MAVLinkLab", &dialog);
+    appName->setObjectName("updateAppName");
+    appName->setStyleSheet("font-size: 20px; font-weight: 700;");
     auto *currentVersionLabel = new QLabel(QString("Current Version: v%1").arg(MAVLINK_LAB_VERSION), &dialog);
     currentVersionLabel->setObjectName("currentVersionLabel");
-    layout->addWidget(currentVersionLabel);
+    titleCol->addWidget(appName);
+    titleCol->addWidget(currentVersionLabel);
+    headerRow->addLayout(titleCol, 1);
+
+    layout->addLayout(headerRow);
 
     auto *statusLabel = new QLabel("Connecting to GitHub to check for updates…", &dialog);
     statusLabel->setObjectName("updateStatusLabel");

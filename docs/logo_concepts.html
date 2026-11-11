@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAVLinkLab - Logo Concepts Showcase</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --bg-card: #111827;
+      --bg-card-hover: #172033;
+      --border: #1f293d;
+      --border-focus: #6366f1;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent: #4f46e5;
+      --accent-light: #818cf8;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --mono: "JetBrains Mono", "Fira Code", monospace;
+    }
+
+    body.light-theme {
+      --bg: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f1f5f9;
+      --border: #e2e8f0;
+      --border-focus: #4f46e5;
+      --text: #0f172a;
+      --text-muted: #64748b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 32px 24px 60px;
+      transition: background-color 0.25s, color 0.25s;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-badge {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(79, 70, 229, 0.15);
+      color: var(--accent-light);
+      border: 1px solid rgba(79, 70, 229, 0.35);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #4338ca;
+    }
+
+    /* Intro section */
+    .intro-banner {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.12), rgba(6, 182, 212, 0.08));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 36px;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    .intro-banner strong { color: var(--text); }
+
+    /* Concept Grid */
+    .concepts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+      gap: 28px;
+      margin-bottom: 48px;
+    }
+
+    @media (max-width: 640px) {
+      .concepts-grid { grid-template-columns: 1fr; }
+    }
+
+    .concept-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      transition: border-color 0.2s, transform 0.2s;
+      position: relative;
+    }
+    .concept-card:hover {
+      border-color: var(--border-focus);
+      transform: translateY(-2px);
+    }
+    .concept-card.featured {
+      border-color: rgba(99, 102, 241, 0.6);
+      box-shadow: 0 8px 30px rgba(79, 70, 229, 0.2);
+    }
+    .featured-tag {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      z-index: 10;
+    }
+
+    .card-header {
+      padding: 20px 24px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .concept-num {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-light);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 4px;
+    }
+    .concept-title {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .concept-tagline {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Logo Canvas Preview Area */
+    .logo-canvas {
+      background: radial-gradient(circle at center, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%);
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    body.light-theme .logo-canvas {
+      background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+    }
+
+    .logo-display {
+      width: 220px;
+      height: 220px;
+      filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.3));
+      transition: transform 0.3s ease;
+    }
+    .logo-display:hover {
+      transform: scale(1.05);
+    }
+
+    /* Size Variations Row */
+    .size-strip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      margin-top: 24px;
+      padding: 12px 20px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    body.light-theme .size-strip {
+      background: rgba(0, 0, 0, 0.04);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .size-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .size-item span {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Details area */
+    .card-body {
+      padding: 20px 24px;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .symbol-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .symbol-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .symbol-bullet {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+    .symbol-text strong {
+      color: var(--text);
+    }
+    .symbol-text {
+      color: var(--text-muted);
+    }
+
+    .palette-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .swatch {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+      cursor: pointer;
+    }
+    .swatch-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+
+    /* Simulation Section */
+    .simulation-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      margin-top: 24px;
+    }
+    .section-heading {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Desktop Window Mockup */
+    .desktop-mockup {
+      background: #0f172a;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      overflow: hidden;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.4);
+      margin-bottom: 24px;
+    }
+    .mock-titlebar {
+      height: 38px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      border-bottom: 1px solid #334155;
+      gap: 12px;
+    }
+    .mock-dots {
+      display: flex;
+      gap: 7px;
+    }
+    .mock-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+
+    .mock-app-identity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-left: 8px;
+    }
+    .mock-app-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .mock-content {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 20px;
+      min-height: 140px;
+      background: #0b0f19;
+    }
+    .mock-tx-panel, .mock-rx-panel {
+      background: #131b2e;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .mock-header-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(79, 70, 229, 0.2);
+      color: #818cf8;
+      border-radius: 4px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    /* Ubuntu App Grid / Dock Mockup */
+    .dock-mockup {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      flex-wrap: wrap;
+    }
+    .dock-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+    }
+    .dock-icon-box {
+      width: 68px;
+      height: 68px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+      transition: transform 0.2s;
+    }
+    .dock-icon-box:hover {
+      transform: translateY(-4px) scale(1.05);
+    }
+    .dock-icon-box svg {
+      width: 48px;
+      height: 48px;
+    }
+    .dock-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    /* Radio Choice Selection */
+    .choice-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-top: 14px;
+    }
+    .choice-btn {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      font-weight: 600;
+      font-size: 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .choice-btn:hover {
+      border-color: var(--accent);
+      background: rgba(79, 70, 229, 0.1);
+    }
+    .choice-btn.selected {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand-title">
+        <h1>MAVLinkLab — Logo Design Exploration</h1>
+        <span class="brand-badge">Vector Concepts</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn" id="themeToggleBtn" onclick="toggleTheme()">
+          <span id="themeIcon">☀️</span> Light Mode
+        </button>
+      </div>
+    </header>
+
+    <!-- Intro Banner -->
+    <div class="intro-banner">
+      <strong>Bản phác thảo 4 hướng thiết kế nhận diện thương hiệu cho MAVLinkLab:</strong><br>
+      Tất cả biểu tượng được vẽ thuần vector (SVG không suy hao độ nét), cân đối về mặt thị giác giữa các yếu tố: <em>UAV/Drone Telemetry</em>, <em>Giao thức MAVLink</em>, <em>Bộ truyền nhận Serial/UART (TX/RX)</em> và <em>Phòng thí nghiệm/Workbench (Lab)</em>. Bạn có thể xem các tỉ lệ thu phóng từ 220px xuống 16px và mô phỏng trên thanh tiêu đề ứng dụng Qt.
+    </div>
+
+    <!-- 4 Concepts Grid -->
+    <div class="concepts-grid">
+
+      <!-- ================= CONCEPT 1 ================= -->
+      <div class="concept-card" id="card-concept-1">
+        <div class="card-header">
+          <div class="concept-num">Concept 01</div>
+          <div class="concept-title">The Telemetry Flask</div>
+          <div class="concept-tagline">Bình thí nghiệm giao thức kết hợp drone và xung sóng UART</div>
+        </div>
+
+        <div class="logo-canvas">
+          <div class="logo-display">
+            <!-- SVG CONCEPT 1 -->
+            <svg id="svg-concept-1" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bgGrad1" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#1e1b4b" />
+                  <stop offset="100%" stop-color="#0f172a" />
+                </linearGradient>
+                <linearGradient id="flaskGrad" x1="120" y1="80" x2="392" y2="440" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#818cf8" />
+                  <stop offset="50%" stop-color="#4f46e5" />
+                  <stop offset="100%" stop-color="#06b6d4" />
+                </linearGradient>
+                <linearGradient id="fluidGrad" x1="160" y1="280" x2="352" y2="420" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="rgba(79, 70, 229, 0.45)" />
+                  <stop offset="100%" stop-color="rgba(6, 182, 212, 0.75)" />
+                </linearGradient>
+                <filter id="glow1" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="8" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
+
+              <!-- App Icon Rounded Squircle Container -->
+              <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bgGrad1)" stroke="#312e81" stroke-width="6"/>
+
+              <!-- Grid background lines -->
+              <path d="M120 180H392 M120 256H392 M120 332H392" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 6" opacity="0.4"/>
+              <path d="M180 120V392 M256 120V392 M332 120V392" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 6" opacity="0.4"/>
+
+              <!-- Lab Fluid in Flask Base -->
+              <path d="M152 350L132 402C128 412 135 422 146 422H366C377 422 384 412 380 402L360 350C330 365 300 345 256 352C212 360 180 340 152 350Z" fill="url(#fluidGrad)"/>
+
+              <!-- Outer Chemical Flask Outline -->
+              <path d="M226 90H286M226 90V160L126 398C117 419 132 442 155 442H357C380 442 395 419 386 398L286 160V90H226Z" 
+                    stroke="url(#flaskGrad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+
+              <!-- Measurement ticks on flask side -->
+              <line x1="168" y1="360" x2="190" y2="360" stroke="#a5b4fc" stroke-width="6" stroke-linecap="round"/>
+              <line x1="188" y1="310" x2="204" y2="310" stroke="#a5b4fc" stroke-width="6" stroke-linecap="round"/>
+              <line x1="206" y1="260" x2="222" y2="260" stroke="#a5b4fc" stroke-width="6" stroke-linecap="round"/>
+
+              <!-- Central Tech Element: Stylized Quadcopter Drone inside -->
+              <g transform="translate(256, 260)" filter="url(#glow1)">
+                <!-- Drone Central Core -->
+                <circle cx="0" cy="0" r="16" fill="#38bdf8" />
+                <circle cx="0" cy="0" r="8" fill="#ffffff" />
+                <!-- 4 Rotor Arms (X-Frame) -->
+                <line x1="-36" y1="-36" x2="36" y2="36" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+                <line x1="36" y1="-36" x2="-36" y2="36" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+                <!-- 4 Rotors -->
+                <circle cx="-38" cy="-38" r="12" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <circle cx="38" cy="-38" r="12" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <circle cx="-38" cy="38" r="12" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <circle cx="38" cy="38" r="12" fill="none" stroke="#38bdf8" stroke-width="5"/>
+              </g>
+
+              <!-- Digital Wave / Telemetry Pulse at bottom -->
+              <path d="M165 405H200L212 385H232L244 425H268L280 395H300L312 405H345" 
+                    stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+
+              <!-- Top UART data entry bits into flask neck -->
+              <circle cx="256" cy="62" r="7" fill="#06b6d4"/>
+              <circle cx="256" cy="116" r="5" fill="#818cf8"/>
+              <circle cx="256" cy="144" r="6" fill="#a5b4fc"/>
+            </svg>
+          </div>
+
+          <!-- Scaled icons strip -->
+          <div class="size-strip">
+            <div class="size-item">
+              <svg width="48" height="48" viewBox="0 0 512 512"><use href="#svg-concept-1"/></svg>
+              <span>48px</span>
+            </div>
+            <div class="size-item">
+              <svg width="32" height="32" viewBox="0 0 512 512"><use href="#svg-concept-1"/></svg>
+              <span>32px</span>
+            </div>
+            <div class="size-item">
+              <svg width="20" height="20" viewBox="0 0 512 512"><use href="#svg-concept-1"/></svg>
+              <span>20px (Title)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="symbol-list">
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Bình Erlenmeyer:</strong> Biểu tượng đặc trưng cho tinh thần "Lab" — phân tích, kiểm thử và thí nghiệm sâu.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Lõi Drone X-Frame:</strong> Định danh rõ ràng phương tiện UAV/Robotics sử dụng giao thức MAVLink.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Xung sóng số UART:</strong> Thể hiện truyền nhận dữ liệu bitstream nối tiếp ở đáy bình.</div>
+            </div>
+          </div>
+
+          <div class="palette-row">
+            <div class="swatch" style="background:#4f46e5" title="Electric Indigo"></div>
+            <div class="swatch" style="background:#06b6d4" title="Cyan Telemetry"></div>
+            <div class="swatch" style="background:#1e1b4b" title="Deep Lab Navy"></div>
+            <span class="swatch-label">#4f46e5 · #06b6d4 · #1e1b4b</span>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ================= CONCEPT 2 ================= -->
+      <div class="concept-card featured" id="card-concept-2">
+        <span class="featured-tag">Đề xuất hàng đầu ⭐</span>
+        <div class="card-header">
+          <div class="concept-num">Concept 02</div>
+          <div class="concept-title">Hexacore & Dual Flow</div>
+          <div class="concept-tagline">Lục giác MAVLink Frame + Chữ M cách điệu luồng TX/RX</div>
+        </div>
+
+        <div class="logo-canvas">
+          <div class="logo-display">
+            <!-- SVG CONCEPT 2 -->
+            <svg id="svg-concept-2" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bgGrad2" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#0f172a" />
+                  <stop offset="50%" stop-color="#1e1b4b" />
+                  <stop offset="100%" stop-color="#090d16" />
+                </linearGradient>
+                <linearGradient id="txGrad" x1="140" y1="360" x2="256" y2="150" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#4f46e5" />
+                  <stop offset="100%" stop-color="#818cf8" />
+                </linearGradient>
+                <linearGradient id="rxGrad" x1="256" y1="150" x2="372" y2="360" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#06b6d4" />
+                  <stop offset="100%" stop-color="#38bdf8" />
+                </linearGradient>
+                <linearGradient id="hexRingGrad" x1="60" y1="60" x2="452" y2="452" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#6366f1" />
+                  <stop offset="50%" stop-color="#38bdf8" />
+                  <stop offset="100%" stop-color="#4f46e5" />
+                </linearGradient>
+                <filter id="neonGlow2" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="12" result="blur2" />
+                  <feComposite in="SourceGraphic" in2="blur2" operator="over" />
+                </filter>
+              </defs>
+
+              <!-- App Icon Container with Subtle Carbon Fiber feel -->
+              <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bgGrad2)" stroke="#312e81" stroke-width="6"/>
+
+              <!-- Outer Technological Hexagon (MAVLink frame boundary) -->
+              <path d="M256 70L416 162.5V349.5L256 442L96 349.5V162.5L256 70Z" 
+                    stroke="url(#hexRingGrad)" stroke-width="14" stroke-linejoin="round" opacity="0.9"/>
+
+              <!-- Inner Hexagon Circuit Grid -->
+              <path d="M256 102L388 178V334L256 410L124 334V178L256 102Z" 
+                    stroke="#334155" stroke-width="3" stroke-dasharray="6 8" stroke-linejoin="round" opacity="0.6"/>
+
+              <!-- 4 Corner Drone Motor Mounts (PCB Nodes) -->
+              <circle cx="152" cy="148" r="9" fill="#1e293b" stroke="#818cf8" stroke-width="4"/>
+              <circle cx="360" cy="148" r="9" fill="#1e293b" stroke="#38bdf8" stroke-width="4"/>
+              <circle cx="152" cy="364" r="9" fill="#1e293b" stroke="#4f46e5" stroke-width="4"/>
+              <circle cx="360" cy="364" r="9" fill="#1e293b" stroke="#06b6d4" stroke-width="4"/>
+
+              <!-- Central Letter 'M' & Drone Wing formed by TX / RX dual dynamic arrows -->
+              <g filter="url(#neonGlow2)">
+                <!-- Left Wing / TX Path: Ascending arrow (TX ↑) -->
+                <path d="M148 350L198 176L256 264" 
+                      stroke="url(#txGrad)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- Right Wing / RX Path: Descending arrow (RX ↓) -->
+                <path d="M256 264L314 176L364 350" 
+                      stroke="url(#rxGrad)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+                
+                <!-- Central Apex Drone Cockpit / Waypoint Node -->
+                <polygon points="256,152 278,214 256,200 234,214" fill="#ffffff" />
+                <circle cx="256" cy="286" r="11" fill="#ffffff" />
+                <circle cx="256" cy="286" r="6" fill="#4f46e5" />
+              </g>
+
+              <!-- TX & RX Mini Indicators in center bottom -->
+              <path d="M198 392L198 376M192 382L198 376L204 382" stroke="#818cf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <text x="210" y="388" fill="#818cf8" font-family="'JetBrains Mono', monospace" font-size="16" font-weight="700">TX</text>
+
+              <path d="M302 376L302 392M296 386L302 392L308 386" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <text x="314" y="388" fill="#38bdf8" font-family="'JetBrains Mono', monospace" font-size="16" font-weight="700">RX</text>
+            </svg>
+          </div>
+
+          <!-- Scaled icons strip -->
+          <div class="size-strip">
+            <div class="size-item">
+              <svg width="48" height="48" viewBox="0 0 512 512"><use href="#svg-concept-2"/></svg>
+              <span>48px</span>
+            </div>
+            <div class="size-item">
+              <svg width="32" height="32" viewBox="0 0 512 512"><use href="#svg-concept-2"/></svg>
+              <span>32px</span>
+            </div>
+            <div class="size-item">
+              <svg width="20" height="20" viewBox="0 0 512 512"><use href="#svg-concept-2"/></svg>
+              <span>20px (Title)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="symbol-list">
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Hình lục giác (Hexagon):</strong> Đại diện cho cấu trúc gói tin MAVLink frame và thân vỏ drone composite.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Chữ `M` từ luồng TX ↑ & RX ↓:</strong> Nét trái vút lên biểu thị truyền lệnh (TX), nét phải hướng xuống nhận telemetry (RX).</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Mũi phi cơ hướng tâm:</strong> Khắc họa chiếc UAV đang lao về phía trước, tràn đầy năng lượng công nghệ.</div>
+            </div>
+          </div>
+
+          <div class="palette-row">
+            <div class="swatch" style="background:#4f46e5" title="Indigo Primary"></div>
+            <div class="swatch" style="background:#06b6d4" title="Cyan RX"></div>
+            <div class="swatch" style="background:#818cf8" title="Violet TX"></div>
+            <span class="swatch-label">#4f46e5 · #06b6d4 · #818cf8</span>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ================= CONCEPT 3 ================= -->
+      <div class="concept-card" id="card-concept-3">
+        <div class="card-header">
+          <div class="concept-num">Concept 03</div>
+          <div class="concept-title">Isometric Monogram M-L</div>
+          <div class="concept-tagline">Khối kiến trúc 3D kết hợp ký tự M (MAVLink) và L (Lab)</div>
+        </div>
+
+        <div class="logo-canvas">
+          <div class="logo-display">
+            <!-- SVG CONCEPT 3 -->
+            <svg id="svg-concept-3" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bgGrad3" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#090d16" />
+                  <stop offset="100%" stop-color="#1e1b4b" />
+                </linearGradient>
+                <linearGradient id="topFace" x1="160" y1="120" x2="352" y2="240" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#818cf8" />
+                  <stop offset="100%" stop-color="#a5b4fc" />
+                </linearGradient>
+                <linearGradient id="leftFace" x1="120" y1="200" x2="256" y2="400" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#4f46e5" />
+                  <stop offset="100%" stop-color="#3730a3" />
+                </linearGradient>
+                <linearGradient id="rightFace" x1="256" y1="200" x2="392" y2="400" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#0284c7" />
+                  <stop offset="100%" stop-color="#0f172a" />
+                </linearGradient>
+              </defs>
+
+              <!-- App Icon Container -->
+              <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bgGrad3)" stroke="#312e81" stroke-width="6"/>
+
+              <!-- Isometric 3D Monogram Structure -->
+              <g transform="translate(0, -10)">
+                <!-- Left Pillar of 'M' -->
+                <path d="M120 220L180 185V355L120 390V220Z" fill="url(#leftFace)" />
+                <path d="M120 220L180 185L220 208L160 243L120 220Z" fill="url(#topFace)" opacity="0.9"/>
+
+                <!-- Middle V-shape of 'M' -->
+                <path d="M180 185L256 230L332 185L256 140L180 185Z" fill="url(#topFace)"/>
+                <path d="M180 185L256 230V290L180 245V185Z" fill="url(#leftFace)"/>
+                <path d="M256 230L332 185V245L256 290V230Z" fill="url(#rightFace)"/>
+
+                <!-- Right Pillar of 'M' extending into 'L' base -->
+                <path d="M332 185L392 220V330L332 295V185Z" fill="url(#rightFace)"/>
+                <path d="M292 208L332 185L392 220L352 243L292 208Z" fill="url(#topFace)" opacity="0.9"/>
+
+                <!-- Lab Bench Foundation / Step (L base) -->
+                <path d="M256 290L392 368L332 403L196 325L256 290Z" fill="url(#topFace)" opacity="0.6"/>
+                <path d="M196 325L332 403V425L196 347V325Z" fill="url(#leftFace)"/>
+                <path d="M332 403L392 368V390L332 425V403Z" fill="url(#rightFace)"/>
+
+                <!-- Tech Data Dots on Top Face -->
+                <circle cx="256" cy="165" r="6" fill="#ffffff"/>
+                <line x1="256" y1="165" x2="310" y2="196" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="3 3"/>
+                <circle cx="310" cy="196" r="4" fill="#38bdf8"/>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Scaled icons strip -->
+          <div class="size-strip">
+            <div class="size-item">
+              <svg width="48" height="48" viewBox="0 0 512 512"><use href="#svg-concept-3"/></svg>
+              <span>48px</span>
+            </div>
+            <div class="size-item">
+              <svg width="32" height="32" viewBox="0 0 512 512"><use href="#svg-concept-3"/></svg>
+              <span>32px</span>
+            </div>
+            <div class="size-item">
+              <svg width="20" height="20" viewBox="0 0 512 512"><use href="#svg-concept-3"/></svg>
+              <span>20px (Title)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="symbol-list">
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Khối Isometric 3D:</strong> Đại diện cho trạm điều khiển mặt đất (GCS) và phần cứng tráng lệ.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Lồng ghép M & L:</strong> Khối chóp tạo hình chữ `M`, phần chân đế vát tạo thành chữ `L` (Lab Workbench).</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Tính ổn định cao:</strong> Tạo cảm giác phần mềm máy tính để bàn (Desktop App) vững chãi, tin cậy.</div>
+            </div>
+          </div>
+
+          <div class="palette-row">
+            <div class="swatch" style="background:#4f46e5" title="Indigo Base"></div>
+            <div class="swatch" style="background:#a5b4fc" title="Light Slate"></div>
+            <div class="swatch" style="background:#0284c7" title="Cyan Accent"></div>
+            <span class="swatch-label">#4f46e5 · #a5b4fc · #0284c7</span>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ================= CONCEPT 4 ================= -->
+      <div class="concept-card" id="card-concept-4">
+        <div class="card-header">
+          <div class="concept-num">Concept 04</div>
+          <div class="concept-title">Radar Waypoint & Serial Wave</div>
+          <div class="concept-tagline">Tọa độ mục tiêu telemetry bay và sóng quét phân đoạn bit UART</div>
+        </div>
+
+        <div class="logo-canvas">
+          <div class="logo-display">
+            <!-- SVG CONCEPT 4 -->
+            <svg id="svg-concept-4" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bgGrad4" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#020617" />
+                  <stop offset="100%" stop-color="#0f172a" />
+                </linearGradient>
+                <linearGradient id="ringGrad" x1="100" y1="100" x2="412" y2="412" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#38bdf8" />
+                  <stop offset="50%" stop-color="#4f46e5" />
+                  <stop offset="100%" stop-color="#10b981" />
+                </linearGradient>
+              </defs>
+
+              <!-- App Icon Container -->
+              <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bgGrad4)" stroke="#1e293b" stroke-width="6"/>
+
+              <!-- Radar Concentric Range Rings -->
+              <circle cx="256" cy="256" r="170" stroke="#1e293b" stroke-width="3" />
+              <circle cx="256" cy="256" r="120" stroke="#334155" stroke-width="2" stroke-dasharray="6 8" />
+              <circle cx="256" cy="256" r="70" stroke="#475569" stroke-width="2" />
+
+              <!-- Crosshairs with Degree ticks -->
+              <line x1="256" y1="66" x2="256" y2="446" stroke="#334155" stroke-width="2" stroke-dasharray="4 6"/>
+              <line x1="66" y1="256" x2="446" y2="256" stroke="#334155" stroke-width="2" stroke-dasharray="4 6"/>
+
+              <!-- Outer Telemetry Byte Ring (Segmented byte packets) -->
+              <circle cx="256" cy="256" r="170" stroke="url(#ringGrad)" stroke-width="14" 
+                      stroke-dasharray="65 24 95 30 45 20 120 28" stroke-linecap="round"/>
+
+              <!-- Top Heading Pointer (North waypoint indicator) -->
+              <polygon points="256,64 266,88 246,88" fill="#38bdf8"/>
+
+              <!-- Central UAV Target Node -->
+              <circle cx="256" cy="256" r="28" fill="#1e1b4b" stroke="#818cf8" stroke-width="6"/>
+              <polygon points="256,238 270,268 256,260 242,268" fill="#38bdf8"/>
+
+              <!-- 4 Quadcopter Satellite Nodes -->
+              <circle cx="190" cy="190" r="10" fill="#4f46e5"/>
+              <circle cx="322" cy="190" r="10" fill="#38bdf8"/>
+              <circle cx="190" cy="322" r="10" fill="#4f46e5"/>
+              <circle cx="322" cy="322" r="10" fill="#10b981"/>
+
+              <!-- Telemetry sweep vector beam -->
+              <path d="M256 256L376 136" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+              <line x1="376" y1="136" x2="410" y2="136" stroke="#38bdf8" stroke-width="2"/>
+              <text x="415" y="140" fill="#38bdf8" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700">LOCK</text>
+            </svg>
+          </div>
+
+          <!-- Scaled icons strip -->
+          <div class="size-strip">
+            <div class="size-item">
+              <svg width="48" height="48" viewBox="0 0 512 512"><use href="#svg-concept-4"/></svg>
+              <span>48px</span>
+            </div>
+            <div class="size-item">
+              <svg width="32" height="32" viewBox="0 0 512 512"><use href="#svg-concept-4"/></svg>
+              <span>32px</span>
+            </div>
+            <div class="size-item">
+              <svg width="20" height="20" viewBox="0 0 512 512"><use href="#svg-concept-4"/></svg>
+              <span>20px (Title)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="symbol-list">
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Radar Telemetry:</strong> Cảm hứng từ màn hình trinh sát bay và khóa tọa độ waypoint tự động.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Vành khuyên Byte Framing:</strong> Vòng cung đứt khúc mô phỏng trực quan khung truyền dữ liệu nối tiếp UART.</div>
+            </div>
+            <div class="symbol-item">
+              <div class="symbol-bullet"></div>
+              <div class="symbol-text"><strong>Node khóa mục tiêu:</strong> Đánh dấu trạng thái kết nối thông suốt (Link Quality & Lock).</div>
+            </div>
+          </div>
+
+          <div class="palette-row">
+            <div class="swatch" style="background:#020617" title="Obsidian Base"></div>
+            <div class="swatch" style="background:#38bdf8" title="Sky Radar"></div>
+            <div class="swatch" style="background:#10b981" title="Live Emerald"></div>
+            <span class="swatch-label">#020617 · #38bdf8 · #10b981</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- End Concepts Grid -->
+
+    <!-- ================= MOCKUP SIMULATION ================= -->
+    <div class="simulation-section">
+      <div class="section-heading">
+        <span>🖥️</span> Mô phỏng thực tế trên giao diện Linux Desktop & Qt Window
+      </div>
+
+      <!-- Window Titlebar Mockup with Concept 2 (Default candidate) -->
+      <div class="desktop-mockup">
+        <div class="mock-titlebar">
+          <div class="mock-dots">
+            <div class="mock-dot dot-red"></div>
+            <div class="mock-dot dot-yellow"></div>
+            <div class="mock-dot dot-green"></div>
+          </div>
+          <div class="mock-app-identity">
+            <div class="mock-app-icon" id="mockTitleIcon">
+              <svg viewBox="0 0 512 512" width="20" height="20"><use href="#svg-concept-2"/></svg>
+            </div>
+            <span>MAVLinkLab — Serial Workbench</span>
+          </div>
+        </div>
+        <div class="mock-content">
+          <div class="mock-tx-panel">
+            <div class="mock-header-pill">TX Dashboard</div>
+            <p>• HEARTBEAT (1 Hz)</p>
+            <p>• ATTITUDE (10 Hz)</p>
+            <p style="margin-top: 8px; color: #38bdf8;">~264 B/s (2.3% at 115200)</p>
+          </div>
+          <div class="mock-rx-panel">
+            <div class="mock-header-pill" style="background:rgba(6,182,212,0.15); color:#22d3ee;">RX Dashboard</div>
+            <p>Active Streams: 8 msg types · 100% Valid CRC · 0 Drops</p>
+            <p style="margin-top: 8px; color: #10b981;">Connected: /dev/ttyACM0 (115200 8N1)</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ubuntu Launcher Dock -->
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px; font-weight:600;">
+        Xem trước biểu tượng trên Ubuntu Desktop Dock / Launcher (Click để thử đổi icon trên Titlebar):
+      </p>
+      <div class="dock-mockup">
+        <div class="dock-item" onclick="selectMockIcon('svg-concept-1', 'Concept 1')">
+          <div class="dock-icon-box">
+            <svg viewBox="0 0 512 512"><use href="#svg-concept-1"/></svg>
+          </div>
+          <span class="dock-label">01. Telemetry Flask</span>
+        </div>
+
+        <div class="dock-item" onclick="selectMockIcon('svg-concept-2', 'Concept 2')">
+          <div class="dock-icon-box" style="border-color:#6366f1;">
+            <svg viewBox="0 0 512 512"><use href="#svg-concept-2"/></svg>
+          </div>
+          <span class="dock-label" style="color:var(--accent-light);">02. Hexacore (⭐)</span>
+        </div>
+
+        <div class="dock-item" onclick="selectMockIcon('svg-concept-3', 'Concept 3')">
+          <div class="dock-icon-box">
+            <svg viewBox="0 0 512 512"><use href="#svg-concept-3"/></svg>
+          </div>
+          <span class="dock-label">03. Monogram 3D</span>
+        </div>
+
+        <div class="dock-item" onclick="selectMockIcon('svg-concept-4', 'Concept 4')">
+          <div class="dock-icon-box">
+            <svg viewBox="0 0 512 512"><use href="#svg-concept-4"/></svg>
+          </div>
+          <span class="dock-label">04. Radar Waypoint</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const isLight = document.body.classList.toggle('light-theme');
+      const btn = document.getElementById('themeToggleBtn');
+      const icon = document.getElementById('themeIcon');
+      if (isLight) {
+        btn.innerHTML = '<span id="themeIcon">🌙</span> Dark Mode';
+      } else {
+        btn.innerHTML = '<span id="themeIcon">☀️</span> Light Mode';
+      }
+    }
+
+    function selectMockIcon(svgId, label) {
+      const iconContainer = document.getElementById('mockTitleIcon');
+      iconContainer.innerHTML = `<svg viewBox="0 0 512 512" width="20" height="20"><use href="#${svgId}"/></svg>`;
+    }
+  </script>
+</body>
+</html>

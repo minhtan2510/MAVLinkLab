@@ -41,7 +41,9 @@ public:
     /** @brief Allocate a nonblocking PTY master and retain the slave path. */
     Pty()
     {
-        if (openpty(&master, &slave, name, nullptr, nullptr) == 0)
+        termios raw{};
+        cfmakeraw(&raw);
+        if (openpty(&master, &slave, name, &raw, nullptr) == 0)
         {
             fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
         }
