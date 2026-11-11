@@ -7,6 +7,7 @@
 #include <cstring>
 #include <limits>
 #include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
 
 /** @brief Retry an interrupted modem-control ioctl without changing its mask. */
@@ -125,6 +126,15 @@ void SerialWorker::openPort(PortConfig requested)
         fail(controlError);
         return;
     }
+    // Discard any residual bytes lingering in the kernel TTY queues, driver USB FIFOs,
+    // or Qt internal read buffers from prior sessions or unread transmissions.
+    if (port->handle() >= 0)
+    {
+        ::tcflush(port->handle(), TCIOFLUSH);
+    }
+    port->clear(QSerialPort::AllDirections);
+    port->readAll();
+
     parser = {};
     receiver = {};
     rxThroughput.clear();
@@ -144,6 +154,11 @@ void SerialWorker::closePort()
     stopAll();
     if (port && port->isOpen())
     {
+        if (port->handle() >= 0)
+        {
+            ::tcflush(port->handle(), TCIOFLUSH);
+        }
+        port->clear(QSerialPort::AllDirections);
         port->close();
     }
     parser = {};
@@ -483,9 +498,11 @@ void SerialWorker::tick()
     const int64_t now = clock.nsecsElapsed() / 1000;
     for (auto &entry : entries)
     {
-        if (Mav::due(entry, now))
+        int bursts = 0;
+        while (entry.active && Mav::due(entry, now) && bursts < 2)
         {
             enqueue(entry);
+            ++bursts;
         }
     }
     pump();

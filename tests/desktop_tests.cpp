@@ -142,11 +142,16 @@ private slots:
         QVERIFY(!output.isEmpty());
         worker.closePort();
         pty.read();
+        // Verify openPort flushes residual stale bytes remaining in the hardware/kernel buffer
+        const char staleGarbage[] = "residual-stale-data-from-prior-session";
+        QCOMPARE(::write(pty.master, staleGarbage, sizeof(staleGarbage)), ssize_t(sizeof(staleGarbage)));
         worker.openPort(config);
         QTest::qWait(150);
         QVERIFY(pty.read().isEmpty());
         worker.requestSnapshot();
         const auto reopened = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(reopened->rx.empty());
+        QCOMPARE(reopened->rxBytesPerSecond, 0.0);
         QCOMPARE(reopened->pending, size_t(0));
         QVERIFY(!reopened->tx[0].entry.active);
         // Overload a configured link: must be accepted and active without artificial rejection.

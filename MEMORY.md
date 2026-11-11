@@ -34,6 +34,10 @@
   * Manual disconnect (`closePort()`) immediately cancels any active reconnection loop and transitions directly to `Disconnected`.
   * Reconnection strictly maintains safety: no frames or heartbeats are sent automatically upon re-establishing the link.
   * Serial port enumeration automatically focuses on active plugged devices (USB converters, CDC-ACM, active onboard UARTs) to keep the toolbar dropdown clean.
+* **Serial Port Buffer Purge & Clean Session Transitions:**
+  * Upon `openPort()`, both kernel TTY queues (`::tcflush(fd, TCIOFLUSH)`) and Qt buffers (`port->clear(AllDirections)`, `port->readAll()`) are rigorously drained before transitioning to `Connected`, eliminating residual backlog/stale frames from prior high-throughput stress tests.
+  * Upon `closePort()`, all pending TX is stopped and buffers are purged before closing the OS file descriptor.
+  * In `MainWindow::closeEvent()`, `worker->closePort()` is invoked synchronously to halt periodic transmissions and release the serial device immediately when a window is closed.
 * **Custom Vector Form Controls & Batch Action Icons:**
   * Indicators for controls (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) and batch TX action buttons (`runAll`, `stopAll`, `deleteAll`) are painted via vector paths with antialiased `QPainter` instead of crude QSS or text labels.
   * Batch action buttons use 28x28 px compact icon buttons with semantic tooltips (`Run all`, `Stop all`, `Delete all`).
@@ -163,6 +167,11 @@
   * When offered load exceeds physical UART baudrate capacity, transmissions are scheduled normally according to monotonic clocks; hardware/link throughput limits are naturally and transparently reflected in the live **Actual Rate** indicator (`Actual: X Hz`) on each TX card.
   * Error status is strictly reserved for physical/runtime faults (e.g. `Port closed`, `Serial write failure`), never for theoretical bandwidth saturation.
 
+* **TX Stream Isochronous Pacing & Anti-Drift Scheduling:**
+  * In `Mav::due(entry, now)`, progression advances deadlines isochronously (`entry.deadline += interval`) to preserve exact transmission frequency, eliminating cumulative phase drift caused by OS scheduler jitter.
+  * To prevent catch-up bursts without dropping packets under normal OS multi-tasking jitter (which can delay ticks by 2-3ms), a generous jitter tolerance threshold is enforced (`maxJitterLag = max(20ms, 2 * interval)`). Only true stalls/sleeps exceeding this threshold trigger deadline resynchronization (`entry.deadline = now + interval`).
+  * In `SerialWorker::tick()`, bounded micro-catchup (`bursts < 2`) allows recovering up to 2 due frames per tick when a scheduler tick is delayed, keeping high-frequency streams (such as 500 Hz) firmly locked at their exact target rate without jitter fluctuation.
+
 * **Comprehensive Desktop Testing & Modal Dialog Automation:**
   * When testing blocking modal dialogs (`QDialog::exec()`) in QtTest offscreen platform, schedule dismiss handlers via `QTimer::singleShot` with `&window` as context object *before* invoking the triggering action or button.
   * In offscreen QPA, fallback to `QApplication::activeModalWidget()` if `window.findChild<QDialog *>()` returns `nullptr`.
@@ -184,6 +193,15 @@
     10. Receiver stream bounding (`MaxEntries = 2048`, `overflow` accounting) and per-device parameter collection isolation.
     11. WriteQueue multi-step partial writes, head frame transitions, no-mutation consumption guarantee, and exact `16384` byte capacity limit.
     12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
+
+* **Application Icon & Visual Brand Identity Integration:**
+  * Official Logo Identity: **Concept 3: Isometric Monogram M-L** (3D isometric block representing MAVLink GCS and laboratory workbench).
+  * Asset Location: Embedded via Qt Resource System (`resources/resources.qrc` mapped to `:/icons/`).
+  * Vector master files: `resources/icons/mavlink-lab.svg` (full squircle app icon) and `resources/icons/mavlink-lab-mark.svg` (transparent mark).
+  * Multi-resolution raster icons: Bundled from 16x16 to 512x512 PNGs and multi-layer ICO (`resources/icons/mavlink-lab.ico`).
+  * Application-wide icon: Instantiated via `MainWindow::appIcon()` and attached to `QApplication::setWindowIcon()` and `MainWindow::setWindowIcon()`.
+  * Linux Desktop Integration: `resources/mavlink-lab.desktop` installed to `share/applications`, icons installed to `share/icons/hicolor/` for Ubuntu Dash/Launcher.
+  * UI Alignment Invariant: Window title bar heading row begins strictly with `QLabel#heading` at $x=20$ px to maintain exact pixel-level alignment with `txPanel` left boundary (`interactionStates` test check).
 
 ---
 

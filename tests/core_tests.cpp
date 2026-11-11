@@ -768,6 +768,39 @@ static void testRatesAndThroughputEstimation()
         // High elapsed time must advance deadline to next period without bursting
         check(Mav::due(entry, 10000000), "Due after long sleep");
         check(!Mav::due(entry, 10000000), "No immediate burst at same timestamp");
+
+        // High frequency stream pacing without cumulative drift despite OS timer jitter
+        auto entry100Hz = fixture(0);
+        entry100Hz.active = true;
+        entry100Hz.hz = 100.0;
+        entry100Hz.deadline = 0;
+        int framesSent100 = 0;
+        for (int64_t tickMs = 0; tickMs <= 1000; ++tickMs)
+        {
+            // Simulate 1ms timer ticks with 150us jitter
+            const int64_t nowUs = tickMs * 1000 + 150;
+            if (Mav::due(entry100Hz, nowUs))
+            {
+                ++framesSent100;
+            }
+        }
+        check(framesSent100 == 101, "100Hz stream sends exactly 101 frames across 1000ms with jitter");
+
+        auto entry500Hz = fixture(0);
+        entry500Hz.active = true;
+        entry500Hz.hz = 500.0;
+        entry500Hz.deadline = 0;
+        int framesSent500 = 0;
+        for (int64_t tickMs = 0; tickMs <= 1000; ++tickMs)
+        {
+            // Simulate 1ms timer ticks with 150us jitter
+            const int64_t nowUs = tickMs * 1000 + 150;
+            if (Mav::due(entry500Hz, nowUs))
+            {
+                ++framesSent500;
+            }
+        }
+        check(framesSent500 == 501, "500Hz stream sends exactly 501 frames across 1000ms with jitter");
     }
 
     // Link capacity and bandwidth utilization estimation

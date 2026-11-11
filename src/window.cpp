@@ -4971,6 +4971,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     settings.remove("rxColumns");
     settings.setValue("fieldColumns", inspector->horizontalHeader()->saveState());
+    // Ensure periodic transmissions are stopped and the serial port is closed immediately on window exit.
+    QMetaObject::invokeMethod(worker, "closePort", Qt::BlockingQueuedConnection);
     QMainWindow::closeEvent(event);
 }
 

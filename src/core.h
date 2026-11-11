@@ -156,7 +156,7 @@ size_t frameSize(const TxEntry &entry);
 /** @brief Check offered load against baud rate and serial framing bits. */
 bool fitsLink(const std::vector<TxEntry> &entries, const TxEntry &candidate,
               int baud, double bitsPerByte);
-/** @brief Advance a due deadline without catch-up bursts. */
+/** @brief Advance a due deadline isochronously without catch-up bursts or cumulative drift. */
 bool due(TxEntry &entry, int64_t now);
 
 /**

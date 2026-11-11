@@ -557,7 +557,22 @@ bool due(TxEntry &entry, int64_t now)
     {
         return false;
     }
-    entry.deadline = now + static_cast<int64_t>(1000000.0 / entry.hz);
+    const int64_t interval = static_cast<int64_t>(1000000.0 / entry.hz);
+    if (interval <= 0)
+    {
+        return false;
+    }
+    const int64_t maxJitterLag = std::max<int64_t>(20000, 2 * interval);
+    if (now - entry.deadline >= maxJitterLag)
+    {
+        // Lagged behind excessively (e.g. suspension, long sleep, stall):
+        // resynchronize to the future to strictly prevent massive catch-up bursts.
+        entry.deadline = now + interval;
+    }
+    else
+    {
+        entry.deadline += interval;
+    }
     return true;
 }
 
