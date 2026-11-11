@@ -163,6 +163,28 @@
   * When offered load exceeds physical UART baudrate capacity, transmissions are scheduled normally according to monotonic clocks; hardware/link throughput limits are naturally and transparently reflected in the live **Actual Rate** indicator (`Actual: X Hz`) on each TX card.
   * Error status is strictly reserved for physical/runtime faults (e.g. `Port closed`, `Serial write failure`), never for theoretical bandwidth saturation.
 
+* **Comprehensive Desktop Testing & Modal Dialog Automation:**
+  * When testing blocking modal dialogs (`QDialog::exec()`) in QtTest offscreen platform, schedule dismiss handlers via `QTimer::singleShot` with `&window` as context object *before* invoking the triggering action or button.
+  * In offscreen QPA, fallback to `QApplication::activeModalWidget()` if `window.findChild<QDialog *>()` returns `nullptr`.
+  * Always initialize empty payload fields with valid defaults (`"0"`) before saving in `messageDialog`, preventing validation failures from blocking dialog acceptance and hanging the test suite.
+  * Rate formatting in `txTable`: frequencies $\ge 10.0$ Hz format as integers with 0 decimals (`"16"` for `15.5 Hz`), while frequencies $< 10.0$ Hz with fractional parts retain 1 decimal (`"5.5"` for `5.5 Hz`).
+  * Serial port baud validation: `currentPortConfig()` strictly assigns `config.baud = 0` for non-numeric text (`"abc"`), allowing `connectSerial()` to reject invalid rates with an immediate modal error dialog instead of silently falling back to 115200.
+
+* **Exhaustive Core Unit Testing & Protocol Verification:**
+  * The core telemetry engine (`Mav` namespace in `src/core.*`) is validated by 12 independent, strict sub-suites in `tests/core_tests.cpp` without Qt dependencies:
+    1. Type metadata & byte width lookup (`typeName`, `typeSize`, out-of-bounds guards).
+    2. Parser noise rejection, single-byte fragmented feeds, and recovery after line corruption.
+    3. MAVLink 1 & 2 mixed frame parsing, bad CRC counting, and signature error accounting.
+    4. Field reflection for all primitive integers (`int8` through `uint64`), preserving full 64-bit precision without float casting.
+    5. IEEE-754 floats and doubles, scientific notation (`1.5e-3`), and strict non-finite (`nan`, `inf`) and overflow rejection.
+    6. String/char array bounds, null-termination, numeric array length validation, and enum symbol mapping.
+    7. Defensive metadata wire offset validation against buffer overrun.
+    8. Full dialect catalog integrity, zero-initialization, and serialization across all messages.
+    9. Parameter protocol type-punning via `mavlink_param_union_t` preserving negative signed integers and boundary parsing.
+    10. Receiver stream bounding (`MaxEntries = 2048`, `overflow` accounting) and per-device parameter collection isolation.
+    11. WriteQueue multi-step partial writes, head frame transitions, no-mutation consumption guarantee, and exact `16384` byte capacity limit.
+    12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
+
 ---
 
 ## 4. Roadmap & Status

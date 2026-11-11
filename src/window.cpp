@@ -3334,6 +3334,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     addCombo(firstRow, "Parity", parityBox, {"None", "Even", "Odd", "Mark", "Space"});
     addCombo(secondRow, "Stop bits", stopBox, {"1", "2"});
     addCombo(secondRow, "Flow control", flowBox, {"None", "Hardware RTS/CTS", "Software XON/XOFF"});
+    dataBox->setObjectName("dataBits");
+    parityBox->setObjectName("parity");
+    stopBox->setObjectName("stopBits");
+    flowBox->setObjectName("flowControl");
     for (auto *row : {firstRow, secondRow})
     {
         row->setStretch(0, 1);
@@ -5014,10 +5018,7 @@ PortConfig MainWindow::currentPortConfig() const
     {
         bool ok = false;
         const int baud = baudBox->currentText().toInt(&ok);
-        if (ok && baud > 0)
-        {
-            config.baud = baud;
-        }
+        config.baud = (ok && baud > 0) ? baud : 0;
     }
     if (dataBox)
     {

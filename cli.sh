@@ -379,7 +379,7 @@ run_n_interactive()
 }
 
 ##
-# @brief Run all automated tests (Core + Desktop PTY & UI tests).
+# @brief Run all automated tests (Core + Desktop PTY & UI tests) with visual tracking.
 #
 run_tests()
 {
@@ -390,9 +390,28 @@ run_tests()
         cmake --build "$build_dir" -j"$(nproc)"
     fi
 
-    printf "\n%b=== Running All Tests (Core + Desktop) ===%b\n" "$BLUE" "$NC"
     setup_qt_env
-    ctest --test-dir "$build_dir" --output-on-failure "$@"
+
+    local runner="$project_dir/tools/test_runner.py"
+    if command -v python3 &>/dev/null && [[ -f "$runner" ]]; then
+        local suite_arg=()
+        local filter_arg=()
+        if [[ $# -gt 0 && "$1" != -* ]]; then
+            case "$1" in
+                core|desktop|profile|control-lines)
+                    suite_arg=(--suite "$1")
+                    ;;
+                *)
+                    filter_arg=(--filter "$1")
+                    ;;
+            esac
+            shift
+        fi
+        python3 "$runner" --build-dir "$build_dir" "${suite_arg[@]}" "${filter_arg[@]}" "$@"
+    else
+        printf "\n%b=== Running All Tests (Core + Desktop) ===%b\n" "$BLUE" "$NC"
+        ctest --test-dir "$build_dir" --output-on-failure "$@"
+    fi
 }
 
 ##
@@ -400,7 +419,19 @@ run_tests()
 #
 run_core_tests()
 {
-    if [[ -d "$build_core_dir" && -x "$build_core_dir/core-tests" ]]; then
+    if [[ ! -d "$build_dir" ]]; then
+        printf "%bBuild directory not found. Building project first...%b\n" "$YELLOW" "$NC"
+        build_full
+    elif [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        cmake --build "$build_dir" -j"$(nproc)"
+    fi
+
+    setup_qt_env
+
+    local runner="$project_dir/tools/test_runner.py"
+    if command -v python3 &>/dev/null && [[ -f "$runner" ]]; then
+        python3 "$runner" --build-dir "$build_dir" --suite core "$@"
+    elif [[ -d "$build_core_dir" && -x "$build_core_dir/core-tests" ]]; then
         printf "\n%b=== Running Core Tests (build-core) ===%b\n" "$BLUE" "$NC"
         ctest --test-dir "$build_core_dir" --output-on-failure "$@"
     elif [[ -d "$build_dir" && -x "$build_dir/core-tests" ]]; then

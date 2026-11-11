@@ -3085,12 +3085,770 @@ private slots:
         settings.setValue("serial/stopBits", 0); // 1 Stop bit
         settings.sync();
     }
+
+    /**
+     * @brief Verify menu actions, shortcuts, view toggles, settings, about dialog, and graceful exit.
+     */
+    void menuAndWindowActions()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        auto *actionPause = window.findChild<QAction *>("actionPauseDisplay");
+        auto *actionClear = window.findChild<QAction *>("actionClearDisplay");
+        auto *actionSettings = window.findChild<QAction *>("actionSettings");
+        auto *actionAbout = window.findChild<QAction *>("actionAbout");
+        auto *actionExit = window.findChild<QAction *>("actionExit");
+        auto *pauseBtn = window.findChild<QPushButton *>("pauseDisplay");
+        auto *pausedLabel = window.findChild<QLabel *>("displayPaused");
+        auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+        auto *inspector = window.findChild<QTableWidget *>("inspector");
+        auto *inspectorTitle = window.findChild<QLabel *>("inspectorMessageTitle");
+
+        QVERIFY(actionPause && actionClear && actionSettings && actionAbout && actionExit);
+        QVERIFY(pauseBtn && pausedLabel && rxTree && inspector && inspectorTitle);
+
+        // Test actionPauseDisplay toggle sync
+        QCOMPARE(actionPause->isChecked(), false);
+        QCOMPARE(pausedLabel->isVisible(), false);
+        actionPause->trigger();
+        QTest::qWait(30);
+        QCOMPARE(actionPause->isChecked(), true);
+        QCOMPARE(pauseBtn->isChecked(), true);
+        QCOMPARE(pausedLabel->isVisible(), true);
+        actionPause->trigger();
+        QTest::qWait(30);
+        QCOMPARE(actionPause->isChecked(), false);
+        QCOMPARE(pauseBtn->isChecked(), false);
+        QCOMPARE(pausedLabel->isVisible(), false);
+
+        // Test actionClearDisplay
+        auto snapshot = std::make_shared<Snapshot>();
+        mavlink_message_t hb;
+        mavlink_msg_heartbeat_pack(1, 200, &hb, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0);
+        snapshot->rx.push_back({hb, 1, 1.0, 0.0});
+        window.applySnapshot(snapshot);
+        QTest::qWait(30);
+        QCOMPARE(rxTree->topLevelItemCount(), 1);
+
+        actionClear->trigger();
+        QTest::qWait(30);
+        QCOMPARE(rxTree->topLevelItemCount(), 0);
+        QCOMPARE(inspector->rowCount(), 0);
+        QCOMPARE(inspectorTitle->text(), QString("DECODED FIELDS"));
+
+        // Test actionSettings opening and dismissal
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("settingsDialog");
+            if (dialog)
+            {
+                dialog->reject();
+            }
+        });
+        actionSettings->trigger();
+        QTest::qWait(80);
+
+        // Test actionAbout opening, content verification and dismissal
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("aboutDialog");
+            if (dialog)
+            {
+                auto *buttons = dialog->findChild<QDialogButtonBox *>();
+                if (buttons && buttons->button(QDialogButtonBox::Ok))
+                {
+                    buttons->button(QDialogButtonBox::Ok)->click();
+                }
+                else
+                {
+                    dialog->accept();
+                }
+            }
+        });
+        actionAbout->trigger();
+        QTest::qWait(80);
+
+        // Test actionExit closes the window
+        actionExit->trigger();
+        QTest::qWait(30);
+        QCOMPARE(window.isVisible(), false);
+    }
+
+    /**
+     * @brief Verify TX context menu operations, direct badge clicks in connected/disconnected states,
+     *        double-click card editing, and deselection.
+     */
+    void txContextMenuAndCardInteraction()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        auto *portBox = window.findChild<QComboBox *>("port");
+        auto *connectBtn = window.findChild<QPushButton *>("connect");
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *addBtn = window.findChild<QPushButton *>("addMessage");
+        auto *removeAction = window.findChild<QAction *>("removeMessage");
+        auto *editAction = window.findChild<QAction *>("editMessage");
+
+        QVERIFY(portBox && connectBtn && tx && addBtn && removeAction && editAction);
+
+        // Helper to add a message from catalog
+        const auto addTxMessage = [&](int catalogIndex, double hz)
+        {
+            QTimer::singleShot(30, [&window, catalogIndex, hz]()
+            {
+                auto *dialog = window.findChild<QDialog *>("messageDialog");
+                if (!dialog)
+                {
+                    return;
+                }
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                if (catalog && catalogIndex < catalog->count())
+                {
+                    catalog->setCurrentRow(catalogIndex);
+                }
+                auto *spin = dialog->findChild<QDoubleSpinBox *>();
+                if (spin)
+                {
+                    spin->setValue(hz);
+                }
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int r = 0; r < fields->rowCount(); ++r)
+                    {
+                        if (fields->item(r, 2) && fields->item(r, 2)->text().isEmpty())
+                        {
+                            fields->item(r, 2)->setText("0");
+                        }
+                    }
+                }
+                auto *box = dialog->findChild<QDialogButtonBox *>();
+                if (box && box->button(QDialogButtonBox::Save))
+                {
+                    box->button(QDialogButtonBox::Save)->click();
+                }
+            });
+            addBtn->click();
+            QTest::qWait(150);
+        };
+
+        // Add 2 messages: HEARTBEAT (index 0) and ATTITUDE (index 30)
+        addTxMessage(0, 1.0);
+        addTxMessage(30, 2.0);
+        QTRY_COMPARE(tx->rowCount(), 2);
+
+        // 1. Direct status badge click when DISCONNECTED -> should remain Stopped
+        const QRect card0Rect = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect badge0(card0Rect.right() - 88, card0Rect.top() + 8, 80, 24);
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTest::qWait(100);
+        QCOMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+
+        // Connect serial port via PTY
+        portBox->setEditable(true);
+        portBox->setCurrentText(pty.name);
+        connectBtn->click();
+        QTRY_COMPARE(connectBtn->text(), QString("Disconnect"));
+
+        // 2. Direct status badge click when CONNECTED -> toggle Running / Stopped
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+
+        // 3. Double click on card row opens Edit dialog
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                dialog->reject();
+            }
+        });
+        emit tx->cellDoubleClicked(0, 1);
+        QTest::qWait(100);
+
+        // 4. Test removeAction on selected message
+        tx->selectRow(0);
+        QVERIFY(removeAction->isEnabled());
+        removeAction->trigger();
+        QTRY_COMPARE(tx->rowCount(), 1);
+
+        // 5. Test removeAction on RUNNING message
+        const QRect cardRemRect = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect badgeRem(cardRemRect.right() - 88, cardRemRect.top() + 8, 80, 24);
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgeRem.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        tx->selectRow(0);
+        removeAction->trigger();
+        QTRY_COMPARE(tx->rowCount(), 0);
+
+        // 6. Test deselection disables context actions
+        QCOMPARE(removeAction->isEnabled(), false);
+        QCOMPARE(editAction->isEnabled(), false);
+
+        connectBtn->click();
+        QTRY_COMPARE(connectBtn->text(), QString("Connect"));
+    }
+
+    /**
+     * @brief Verify custom rate dialog invocation, spinbox boundaries, decimal rates, and Cancel/Apply actions.
+     */
+    void customRateDialogUi()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *addBtn = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(tx && addBtn);
+
+        // Add HEARTBEAT at 1.0 Hz
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (!dialog) return;
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            if (catalog) catalog->setCurrentRow(0);
+            dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            auto *box = dialog->findChild<QDialogButtonBox *>();
+            if (box && box->button(QDialogButtonBox::Save))
+            {
+                box->button(QDialogButtonBox::Save)->click();
+            }
+        });
+        addBtn->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+        QCOMPARE(tx->item(0, 3)->text(), QString("1"));
+
+        const QRect rect = tx->visualRect(tx->model()->index(0, 0));
+        const QRect card = rect.adjusted(1, 5, -2, -5);
+        QFont titleFont = tx->font();
+        titleFont.setPixelSize(13);
+        titleFont.setWeight(QFont::Normal);
+        const int advance = QFontMetrics(titleFont).horizontalAdvance("[0] HEARTBEAT");
+        const int pillLeft = card.left() + 24 + advance + 8;
+        const QPoint pillClickPos(pillLeft + 10, card.top() + 8 + 3 + 9);
+
+        // 1. Test Cancel on custom rate dialog
+        QTimer::singleShot(100, &window, [&window]()
+        {
+            auto *menu = window.findChild<QMenu *>("quickRateMenu");
+            if (menu)
+            {
+                for (auto *action : menu->actions())
+                {
+                    if (action->text().contains("Custom"))
+                    {
+                        QTimer::singleShot(50, &window, [&window]()
+                        {
+                            auto *dialog = window.findChild<QDialog *>("customRateDialog");
+                            if (!dialog)
+                            {
+                                dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                            }
+                            if (dialog)
+                            {
+                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                if (spin)
+                                {
+                                    QCOMPARE(spin->minimum(), 0.1);
+                                    QCOMPARE(spin->maximum(), 1000.0);
+                                    spin->setValue(45.0);
+                                }
+                                dialog->reject();
+                            }
+                        });
+                        action->trigger();
+                        break;
+                    }
+                }
+            }
+        });
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
+        QTest::qWait(250);
+        QCOMPARE(tx->item(0, 3)->text(), QString("1")); // Preserved
+
+        // 2. Test Apply with decimal rate 5.5 Hz
+        QTimer::singleShot(100, &window, [&window]()
+        {
+            auto *menu = window.findChild<QMenu *>("quickRateMenu");
+            if (menu)
+            {
+                for (auto *action : menu->actions())
+                {
+                    if (action->text().contains("Custom"))
+                    {
+                        QTimer::singleShot(50, &window, [&window]()
+                        {
+                            auto *dialog = window.findChild<QDialog *>("customRateDialog");
+                            if (!dialog)
+                            {
+                                dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                            }
+                            if (dialog)
+                            {
+                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                if (spin)
+                                {
+                                    spin->setValue(5.5);
+                                }
+                                dialog->accept();
+                            }
+                        });
+                        action->trigger();
+                        break;
+                    }
+                }
+            }
+        });
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
+        QTRY_COMPARE(tx->item(0, 3)->text(), QString("5.5"));
+    }
+
+    /**
+     * @brief Verify invalid baud rate rejection, UART framing combos update, rapid connect clicks,
+     *        and abrupt port disconnection cleanup.
+     */
+    void serialConnectionEdgeCases()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        auto *portBox = window.findChild<QComboBox *>("port");
+        auto *baudBox = window.findChild<QComboBox *>("baudRate");
+        auto *connectBtn = window.findChild<QPushButton *>("connect");
+        auto *dataBox = window.findChild<QComboBox *>("dataBits");
+        auto *parityBox = window.findChild<QComboBox *>("parity");
+        auto *stopBox = window.findChild<QComboBox *>("stopBits");
+        auto *flowBox = window.findChild<QComboBox *>("flowControl");
+        auto *serialSummary = window.findChild<QLabel *>("serialSummary");
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *addBtn = window.findChild<QPushButton *>("addMessage");
+
+        QVERIFY(portBox && baudBox && connectBtn && dataBox && parityBox && stopBox && flowBox && serialSummary);
+
+        portBox->setEditable(true);
+        portBox->setCurrentText(pty.name);
+
+        // 1. Invalid baud rates validation: "-115200", "0", "abc", "99999999"
+        const QStringList invalidBauds = {"-115200", "0", "abc", "99999999"};
+        for (const QString &invalidBaud : invalidBauds)
+        {
+            baudBox->setCurrentText(invalidBaud);
+            QTimer::singleShot(50, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("connectionErrorDialog");
+                if (!dialog)
+                {
+                    dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                }
+                if (dialog)
+                {
+                    QCOMPARE(dialog->windowTitle(), QString("Invalid Baud Rate"));
+                    dialog->accept();
+                }
+            });
+            connectBtn->click();
+            QTest::qWait(80);
+            QCOMPARE(connectBtn->text(), QString("Connect"));
+        }
+
+        // 2. UART framing parameters & live summary update
+        dataBox->setCurrentText("7");
+        parityBox->setCurrentIndex(1); // Even
+        stopBox->setCurrentText("2");
+        flowBox->setCurrentIndex(1); // RTS/CTS
+        QCOMPARE(framingFormatName(window.currentPortConfig()), QString("7E2"));
+        QVERIFY(serialSummary->text().contains("7E2"));
+        QVERIFY(serialSummary->text().contains("RTS/CTS"));
+
+        // Restore standard 8N1
+        dataBox->setCurrentText("8");
+        parityBox->setCurrentIndex(0); // None
+        stopBox->setCurrentText("1");
+        flowBox->setCurrentIndex(0); // None
+        baudBox->setCurrentText("115200");
+        QCOMPARE(framingFormatName(window.currentPortConfig()), QString("8N1"));
+
+        // 3. Rapid repeated connect clicks: verify no crash or unhandled state
+        for (int i = 0; i < 5; ++i)
+        {
+            connectBtn->click();
+        }
+        QTest::qWait(100);
+
+        // Ensure connected
+        if (connectBtn->text() == "Connect")
+        {
+            connectBtn->click();
+            QTRY_COMPARE(connectBtn->text(), QString("Disconnect"));
+        }
+
+        // 4. Abrupt disconnect when messages are actively transmitting
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (!dialog) return;
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            if (catalog) catalog->setCurrentRow(0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            auto *box = dialog->findChild<QDialogButtonBox *>();
+            if (box && box->button(QDialogButtonBox::Save))
+            {
+                box->button(QDialogButtonBox::Save)->click();
+            }
+        });
+        addBtn->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+
+        const QRect card = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Click Disconnect
+        connectBtn->click();
+        QTRY_COMPARE(connectBtn->text(), QString("Connect"));
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+    }
+
+    /**
+     * @brief Verify MAVLink version switching, payload length/estimate recalculation,
+     *        numeric field bounds, and array dialog editing.
+     */
+    void messageEditorPayloadBoundsAndArray()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(30);
+
+        auto *addBtn = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(addBtn);
+
+        QTimer::singleShot(30, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            auto *versionBox = dialog->findChild<QComboBox *>("messageVersion");
+            auto *payloadBadge = dialog->findChild<QLabel *>("messagePayloadSize");
+            auto *loadBadge = dialog->findChild<QLabel *>("messageLoadEstimate");
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            auto *arrayBtn = dialog->findChild<QPushButton *>("editPayloadArray");
+
+            QVERIFY(catalog && versionBox && payloadBadge && loadBadge && fields && arrayBtn);
+
+            // Select STATUSTEXT (msgid 253) which has text[50] array field
+            for (int r = 0; r < catalog->count(); ++r)
+            {
+                if (catalog->item(r)->data(Qt::UserRole).toUInt() == 253)
+                {
+                    catalog->setCurrentRow(r);
+                    break;
+                }
+            }
+            QTest::qWait(50);
+
+            // 1. Version switching verification
+            versionBox->setCurrentIndex(1); // MAVLink 1
+            QTest::qWait(30);
+            QVERIFY(loadBadge->text().contains("Est. load"));
+            versionBox->setCurrentIndex(0); // MAVLink 2
+            QTest::qWait(30);
+            QVERIFY(loadBadge->text().contains("Est. load"));
+
+            // 2. Select array field "text" (typically row 1 in STATUSTEXT)
+            int textRow = -1;
+            for (int r = 0; r < fields->rowCount(); ++r)
+            {
+                if (fields->item(r, 0) && fields->item(r, 0)->text() == "text")
+                {
+                    textRow = r;
+                    break;
+                }
+            }
+            QVERIFY(textRow >= 0);
+            fields->setCurrentCell(textRow, 2);
+            QTest::qWait(30);
+            QVERIFY(arrayBtn->isVisible());
+
+            // 3. Test array dialog: Cancel maintains value
+            const QString originalVal = fields->item(textRow, 2)->text();
+            QTimer::singleShot(50, [dialog]()
+            {
+                auto *arrDialog = dialog->findChild<QDialog *>("arrayDialog");
+                if (arrDialog)
+                {
+                    auto *edit = arrDialog->findChild<QPlainTextEdit *>();
+                    if (edit) edit->setPlainText("Temp Text");
+                    auto *box = arrDialog->findChild<QDialogButtonBox *>();
+                    if (box && box->button(QDialogButtonBox::Cancel))
+                    {
+                        box->button(QDialogButtonBox::Cancel)->click();
+                    }
+                }
+            });
+            arrayBtn->click();
+            QTest::qWait(80);
+            QCOMPARE(fields->item(textRow, 2)->text(), originalVal);
+
+            // 4. Test array dialog: Apply updates cell value
+            QTimer::singleShot(50, [dialog]()
+            {
+                auto *arrDialog = dialog->findChild<QDialog *>("arrayDialog");
+                if (arrDialog)
+                {
+                    auto *edit = arrDialog->findChild<QPlainTextEdit *>();
+                    if (edit) edit->setPlainText("MAVLinkLab Test Status");
+                    // Find array dialog's buttonbox
+                    for (auto *bb : arrDialog->findChildren<QDialogButtonBox *>())
+                    {
+                        if (bb->button(QDialogButtonBox::Save))
+                        {
+                            bb->button(QDialogButtonBox::Save)->click();
+                            break;
+                        }
+                    }
+                }
+            });
+            arrayBtn->click();
+            QTest::qWait(80);
+            QVERIFY(fields->item(textRow, 2)->text().contains("MAVLinkLab Test Status"));
+
+            dialog->reject();
+        });
+
+        addBtn->click();
+        QTest::qWait(300);
+    }
+
+    /**
+     * @brief Verify direct SerialWorker slots (sendRawMessage, requestParameters, setParameter)
+     *        in port-closed and port-open states, and UI parameter double-click editing with validation.
+     */
+    void workerDirectSlotsAndParameters()
+    {
+        // 1. Direct SerialWorker slot verification when port is CLOSED
+        {
+            SerialWorker worker;
+            worker.initialize();
+            QSignalSpy errors(&worker, &SerialWorker::failure);
+
+            mavlink_message_t dummy{};
+            worker.sendRawMessage(dummy);
+            QCOMPARE(errors.count(), 1);
+            QCOMPARE(errors.takeFirst().at(0).toString(), QString("Connect a serial port first"));
+
+            worker.requestParameters(1, 1);
+            QCOMPARE(errors.count(), 1);
+            QCOMPARE(errors.takeFirst().at(0).toString(), QString("Connect a serial port first"));
+
+            worker.setParameter(1, 1, "TEST_PARAM", 1.0f, MAV_PARAM_TYPE_UINT8);
+            QCOMPARE(errors.count(), 1);
+            QCOMPARE(errors.takeFirst().at(0).toString(), QString("Connect a serial port first"));
+        }
+
+        // 2. Direct SerialWorker slot verification when port is OPEN (PTY)
+        {
+            Pty pty;
+            QVERIFY(pty.master >= 0);
+
+            SerialWorker worker;
+            worker.initialize();
+            PortConfig cfg;
+            cfg.port = pty.name;
+            cfg.baud = 115200;
+            worker.openPort(cfg);
+            QTest::qWait(40);
+
+            // Send raw heartbeat
+            mavlink_message_t hb;
+            mavlink_msg_heartbeat_pack(1, 200, &hb, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0);
+            worker.sendRawMessage(hb);
+            QTest::qWait(40);
+            QByteArray raw = pty.read();
+            QVERIFY(!raw.isEmpty());
+
+            // Request parameter list (msgid 21)
+            worker.requestParameters(1, 1);
+            QTest::qWait(40);
+            QByteArray req = pty.read();
+            QVERIFY(!req.isEmpty());
+
+            // Set parameter (msgid 23)
+            worker.setParameter(1, 1, "SYSID_THISMAV", 1.0f, MAV_PARAM_TYPE_UINT8);
+            QTest::qWait(40);
+            QByteArray paramSet = pty.read();
+            QVERIFY(!paramSet.isEmpty());
+
+            worker.closePort();
+        }
+
+        // 3. UI Parameter editing, validation errors, and view transition
+        {
+            MainWindow window;
+            window.show();
+            window.stopRefreshTimer();
+            QTest::qWait(30);
+
+            auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            auto *inspectorTitle = window.findChild<QLabel *>("inspectorMessageTitle");
+            auto *paramFilter = window.findChild<QLineEdit *>("paramFilter");
+
+            QVERIFY(rxTree && inspector && inspectorTitle && paramFilter);
+
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = true;
+
+            const uint32_t sysid = 1;
+            const uint8_t compid = 100;
+            mavlink_message_t msgParam, msgHb;
+            mavlink_param_union_t uBaud{};
+            uBaud.param_uint32 = 115200;
+
+            mavlink_msg_param_value_pack(sysid, compid, &msgParam, "SER_BAUD", uBaud.param_float, MAV_PARAM_TYPE_UINT32, 1, 0);
+            mavlink_msg_heartbeat_pack(sysid, compid, &msgHb, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0);
+
+            snapshot->rx.push_back({msgParam, 1, 1.0, 0.0});
+            snapshot->rx.push_back({msgHb, 1, 1.0, 0.0});
+
+            Mav::ParamCollection col;
+            col.totalCount = 1;
+            Mav::ParamItem item{"SER_BAUD", uBaud.param_float, MAV_PARAM_TYPE_UINT32, 0, 1};
+            col.byId[item.id] = item;
+            col.byIndex[0] = item.id;
+            snapshot->params[{sysid, compid}] = col;
+
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            // Select PARAM_VALUE
+            auto *devItem = rxTree->topLevelItem(0);
+            QVERIFY(devItem && devItem->childCount() >= 2);
+            rxTree->setCurrentItem(devItem->child(0)); // PARAM_VALUE
+            QTest::qWait(30);
+
+            QVERIFY(paramFilter->isVisible());
+            QCOMPARE(inspector->rowCount(), 1);
+            QCOMPARE(inspector->item(0, 0)->text(), QString("SER_BAUD"));
+            QCOMPARE(inspector->item(0, 2)->text(), QString("115200"));
+
+            // Double click row 0: test invalid input error dialog
+            QTimer::singleShot(50, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("editParamDialog");
+                if (!dialog)
+                {
+                    dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                }
+                if (dialog)
+                {
+                    auto *input = dialog->findChild<QLineEdit *>("paramValueInput");
+                    if (input)
+                    {
+                        input->setText("invalid_string_not_uint32");
+                    }
+                    QTimer::singleShot(50, &window, [&window]()
+                    {
+                        auto *errDialog = window.findChild<QDialog *>("connectionErrorDialog");
+                        if (!errDialog)
+                        {
+                            errDialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                        }
+                        if (errDialog)
+                        {
+                            QCOMPARE(errDialog->windowTitle(), QString("Invalid Value"));
+                            errDialog->accept();
+                        }
+                    });
+                    auto *box = dialog->findChild<QDialogButtonBox *>();
+                    if (box && box->button(QDialogButtonBox::Ok))
+                    {
+                        box->button(QDialogButtonBox::Ok)->click();
+                    }
+                }
+            });
+            emit inspector->cellDoubleClicked(0, 2);
+            QTest::qWait(150);
+
+            // Double click row 0: test valid input
+            QTimer::singleShot(50, &window, [&window]()
+            {
+                auto *dialog = window.findChild<QDialog *>("editParamDialog");
+                if (!dialog)
+                {
+                    dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                }
+                if (dialog)
+                {
+                    auto *input = dialog->findChild<QLineEdit *>("paramValueInput");
+                    if (input)
+                    {
+                        input->setText("230400");
+                    }
+                    auto *box = dialog->findChild<QDialogButtonBox *>();
+                    if (box && box->button(QDialogButtonBox::Ok))
+                    {
+                        box->button(QDialogButtonBox::Ok)->click();
+                    }
+                }
+            });
+            emit inspector->cellDoubleClicked(0, 2);
+            QTest::qWait(150);
+            QCOMPARE(inspector->item(0, 2)->text(), QString("230400"));
+
+            // Transition: select non-param message (HEARTBEAT) -> paramFilter hides, title displays message name
+            rxTree->setCurrentItem(devItem->child(1)); // HEARTBEAT
+            QTest::qWait(30);
+            QVERIFY(!paramFilter->isVisible());
+            QCOMPARE(inspectorTitle->text(), QString("[0] HEARTBEAT"));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */
 int main(int argc, char **argv)
 {
     QApplication application(argc, argv);
+    qRegisterMetaType<uint8_t>("uint8_t");
     qRegisterMetaType<PortConfig>();
     qRegisterMetaType<Mav::TxEntry>();
     qRegisterMetaType<SnapshotPtr>();
