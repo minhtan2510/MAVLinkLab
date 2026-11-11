@@ -59,6 +59,27 @@
 * **Commit Message Conventions:**
   * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
   * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
+* **Release Notes Standard Template:**
+  * Keep release notes concise, clean, and avoid over-explaining technical details.
+  * Title format must be strictly `## What's Changed in <version>` (do not append "compared to ...").
+  * All entries under `New`, `Changed`, and `Removed` must be compared strictly against the **previous official release tag**, never against internal staging/draft commits made during development of the current version.
+  * Strictly structure release notes into 3 concise categories:
+    * `🚀 New`: Features, tools, or major assets introduced since the previous release.
+    * `🔄 Changed`: Behavior, UI adjustments, or performance refinements compared to the previous release.
+    * `🗑️ Removed`: Features, UI elements, or options present in the previous release that are now removed.
+  * Always present in **raw markdown code blocks** for quick one-click copying to GitHub Releases, providing both standard **English** and **Vietnamese** versions:
+    ```markdown
+    ## What's Changed in <version>
+
+    ### 🚀 New
+    - ...
+
+    ### 🔄 Changed
+    - ...
+
+    ### 🗑️ Removed
+    - ...
+    ```
 
 ---
 
