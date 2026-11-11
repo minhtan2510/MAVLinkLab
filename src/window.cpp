@@ -3508,6 +3508,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxHeader->addWidget(rxTitle);
     rxSummary = new QLabel("0 streams");
     rxSummary->setObjectName("summaryBadge");
+    rxSummary->setFixedHeight(24);
+    rxSummary->setAlignment(Qt::AlignCenter);
     rxHeader->addWidget(rxSummary);
     rxThroughput = new QLabel;
     rxThroughput->setObjectName("rxThroughput");
@@ -7065,7 +7067,7 @@ void MainWindow::applyTheme()
         "QPushButton#dismissConnectionError:hover { background:#4338ca; }"
         "QPushButton#dismissConnectionError:pressed { background:#3730a3; }"
         "QPushButton#dismissConnectionError:focus { outline:none; border-color:#818cf8; }"
-        "QLabel#summaryBadge { color:%5; background:%6; border-radius:8px; padding:5px 10px; font-size:12px; }"
+        "QLabel#summaryBadge { color:%5; background:%6; border:1px solid %4; border-radius:6px; padding:0 10px; font-size:11px; font-weight:500; }"
         "QFrame#connectionBar { background:transparent; border:0; }"
         "QFrame#connectionCard { background:transparent; border:0; }"
         "QFrame#connectionCardDivider { background:%4; border:0; }"
