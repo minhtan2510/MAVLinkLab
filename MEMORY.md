@@ -60,7 +60,7 @@
   * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
   * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
 * **Clarification & Approval Gate Workflow:**
-  * Before making any code or project changes requested in user prompts: Must ensure complete and unambiguous understanding of all requirements. Assumptions are strictly forbidden; if any point is unclear, actively ask the user until 100% clarity is achieved.
+  * Before making any code or project changes requested in user prompts: Must ensure complete and unambiguous understanding of all requirements. Assumptions are strictly forbidden; if any point is unclear or if there are questions/doubts, actively interview and clarify with the user using the `/grill-me` skill until 100% clarity is achieved.
   * Once requirements are understood, **do NOT jump straight into implementation**. Instead, summarize the understood requirements and outline the planned execution steps.
   * Proceed with implementation **only after receiving explicit user approval/confirmation**.
 

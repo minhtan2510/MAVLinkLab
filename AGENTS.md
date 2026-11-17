@@ -10,7 +10,7 @@ This document is the comprehensive behavioral guide and technical knowledge base
 - **Conversational Responses:** Reply and explain to the user in **Vietnamese**.
 - **Source Code & Documentation:** Code, identifiers, API names, keywords, code comments, Doxygen, UI text, and all project documentation (`README.md`, `MEMORY.md`, `docs/*.md`) must strictly use **English**.
 - **Clarification & Approval Gate (MANDATORY):**
-  - Before making any code or project changes requested in user prompts: Must ensure complete, unambiguous understanding of all requirements. If any point is unclear, **assumptions are strictly forbidden**; ask the user until 100% clarity is achieved.
+  - Before making any code or project changes requested in user prompts: Must ensure complete, unambiguous understanding of all requirements. If any point is unclear or if there are questions/doubts, **assumptions are strictly forbidden**; actively interview and clarify with the user using the `/grill-me` skill until 100% clarity is achieved.
   - After understanding, **do NOT jump straight into implementation**. Instead, summarize your understanding of the user's requirements and outline the planned execution steps.
   - **Proceed with implementation ONLY after receiving explicit user approval/confirmation.**
 - **Mandatory `MEMORY.md` Review:** Always read `MEMORY.md` at the very start of a session before analyzing or implementing tasks to master architectural decisions (ADRs), conventions, and known gotchas. Record new lessons learned into `MEMORY.md` after resolving significant issues.
