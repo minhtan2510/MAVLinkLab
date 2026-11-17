@@ -18,6 +18,7 @@
 #include <utility>
 
 struct Snapshot;
+class QCloseEvent;
 
 /**
  * @brief Representation of an individual telemetry channel displayed on the real-time plotter.
@@ -142,6 +143,7 @@ class TelemetryPlotWidget : public QFrame
 public:
     std::function<void()> onClosed;
     std::function<void()> onChannelsChanged;
+    std::function<void(bool floating)> onFloatingChanged;
 
     /**
      * @brief Construct the telemetry plotter toolbar, canvas, and control container.
@@ -268,6 +270,24 @@ public:
     QPushButton *exportButton() const;
 
     /**
+     * @brief Configure whether the plotter is floating as an independent window or docked.
+     * @param floating True to pop-out as standalone window, false to dock into parent container.
+     */
+    void setFloating(bool floating);
+
+    /**
+     * @brief Return whether the plotter is currently in floating window mode.
+     * @return True if floating, false if docked.
+     */
+    bool isFloating() const;
+
+    /**
+     * @brief Return pointer to the pop-out / dock button.
+     * @return Pointer to pop-out button.
+     */
+    QPushButton *popoutButton() const;
+
+    /**
      * @brief Return pointer to close plotter button.
      * @return Pointer to close button.
      */
@@ -278,6 +298,13 @@ public:
      * @return Pointer to time range combo box.
      */
     QComboBox *timeRangeBox() const;
+
+protected:
+    /**
+     * @brief Handle window close event when in floating mode, docking back and notifying owner.
+     * @param event Close event.
+     */
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     void rebuildChannelTags();
@@ -292,8 +319,10 @@ private:
     QPushButton *pauseBtn_ = nullptr;
     QPushButton *clearBtn_ = nullptr;
     QPushButton *exportBtn_ = nullptr;
+    QPushButton *popoutBtn_ = nullptr;
     QPushButton *closeBtn_ = nullptr;
     bool dark_ = false;
+    bool isFloating_ = false;
 };
 
 #endif // MAVLINK_LAB_PLOTTER_H

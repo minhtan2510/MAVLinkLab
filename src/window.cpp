@@ -3891,13 +3891,38 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         if (checked)
         {
             telemetryPlotter->show();
-            inspectorContentSplitter->setSizes({350, 550});
+            if (telemetryPlotter->isFloating())
+            {
+                telemetryPlotter->raise();
+                telemetryPlotter->activateWindow();
+            }
+            else
+            {
+                inspectorContentSplitter->setSizes({350, 550});
+            }
         }
         else
         {
             telemetryPlotter->hide();
         }
     });
+
+    telemetryPlotter->onFloatingChanged = [this](bool floating)
+    {
+        if (floating)
+        {
+            telemetryPlotter->setWindowIcon(windowIcon());
+        }
+        else
+        {
+            inspectorContentSplitter->addWidget(telemetryPlotter);
+            if (plotToggleBtn && plotToggleBtn->isChecked())
+            {
+                telemetryPlotter->show();
+                inspectorContentSplitter->setSizes({350, 550});
+            }
+        }
+    };
 
     telemetryPlotter->onClosed = [this]()
     {
@@ -5199,6 +5224,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     settings.remove("rxColumns");
     settings.setValue("fieldColumns", inspector->horizontalHeader()->saveState());
+    if (telemetryPlotter && telemetryPlotter->isFloating())
+    {
+        telemetryPlotter->close();
+    }
     // Ensure periodic transmissions are stopped and the serial port is closed immediately on window exit.
     QMetaObject::invokeMethod(worker, "closePort", Qt::BlockingQueuedConnection);
     QMainWindow::closeEvent(event);
@@ -6650,7 +6679,12 @@ void MainWindow::togglePlotField(uint32_t sysid, uint8_t compid, uint32_t msgid,
         if (telemetryPlotter->addChannel(sysid, compid, msgid, fieldName, label))
         {
             telemetryPlotter->show();
-            if (inspectorContentSplitter)
+            if (telemetryPlotter->isFloating())
+            {
+                telemetryPlotter->raise();
+                telemetryPlotter->activateWindow();
+            }
+            else if (inspectorContentSplitter)
             {
                 inspectorContentSplitter->setSizes({350, 550});
             }
@@ -7468,11 +7502,11 @@ void MainWindow::applyTheme()
         "QLabel#plotterTitle { color:%4; font-size:12px; font-weight:600; }"
         "QPushButton#plotToggleBtn { background:%3; color:%4; border:1px solid %2; border-radius:4px; font-size:11px; padding:0 8px; }"
         "QPushButton#plotToggleBtn:checked { background:#4f46e5; color:#ffffff; border-color:#4338ca; }"
-        "QPushButton#plotAutoScaleBtn,QPushButton#plotPauseBtn,QPushButton#plotClearBtn,QPushButton#plotExportBtn,QPushButton#plotCloseBtn {"
+        "QPushButton#plotAutoScaleBtn,QPushButton#plotPauseBtn,QPushButton#plotClearBtn,QPushButton#plotExportBtn,QPushButton#plotCloseBtn,QPushButton#plotPopoutBtn {"
         "  background:%3; color:%4; border:1px solid %2; border-radius:3px; padding:2px 7px; font-size:11px; }"
         "QPushButton#plotAutoScaleBtn:checked,QPushButton#plotPauseBtn:checked {"
         "  background:#4f46e5; color:#ffffff; border-color:#4338ca; }"
-        "QPushButton#plotCloseBtn { padding:0; }"
+        "QPushButton#plotCloseBtn,QPushButton#plotPopoutBtn { padding:0; }"
         "QComboBox#plotTimeRange { background:%1; color:%4; border:1px solid %2; border-radius:3px; font-size:11px; padding:0 4px; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",

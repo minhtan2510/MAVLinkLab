@@ -261,6 +261,59 @@ private slots:
         plotter.setDarkTheme(false);
         plotter.updateCanvas();
     }
+
+    /** @brief Test pop-out floating window transition, docking, and close event. */
+    void testPopoutAndDocking()
+    {
+        QWidget parent;
+        TelemetryPlotWidget plotter(&parent);
+        QVERIFY(!plotter.isFloating());
+        QVERIFY(plotter.popoutButton() != nullptr);
+        QCOMPARE(plotter.popoutButton()->text(), QString("⧉"));
+
+        bool floatingState = false;
+        plotter.onFloatingChanged = [&](bool f)
+        {
+            floatingState = f;
+        };
+
+        // 1. Pop-out to floating window
+        plotter.setFloating(true);
+        QVERIFY(plotter.isFloating());
+        QVERIFY(floatingState);
+        QCOMPARE(plotter.popoutButton()->text(), QString("⤓"));
+        QCOMPARE(plotter.windowTitle(), QString("MAVLinkLab — Telemetry Plotter"));
+        QVERIFY(plotter.windowFlags() & Qt::Window);
+        QVERIFY(plotter.width() >= 800);
+        QVERIFY(plotter.height() >= 500);
+
+        // 2. Dock back into container
+        plotter.setFloating(false);
+        QVERIFY(!plotter.isFloating());
+        QVERIFY(!floatingState);
+        QCOMPARE(plotter.popoutButton()->text(), QString("⧉"));
+        QVERIFY(!(plotter.windowFlags() & Qt::Window));
+
+        // 3. Test pop-out button click toggle
+        plotter.popoutButton()->click();
+        QVERIFY(plotter.isFloating());
+        QVERIFY(floatingState);
+        QCOMPARE(plotter.popoutButton()->text(), QString("⤓"));
+
+        // 4. Test close event when floating
+        bool closedCalled = false;
+        plotter.onClosed = [&]()
+        {
+            closedCalled = true;
+        };
+
+        QCloseEvent closeEv;
+        QApplication::sendEvent(&plotter, &closeEv);
+
+        QVERIFY(!plotter.isFloating());
+        QVERIFY(closedCalled);
+        QCOMPARE(plotter.popoutButton()->text(), QString("⧉"));
+    }
 };
 
 /** @brief Execute the standalone plotter test suite. */

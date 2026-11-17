@@ -4,6 +4,7 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QMouseEvent>
+#include <QCloseEvent>
 #include <QFileDialog>
 #include <QFile>
 #include <QTextStream>
@@ -526,6 +527,12 @@ TelemetryPlotWidget::TelemetryPlotWidget(QWidget *parent)
     exportBtn_->setFixedHeight(24);
     headerLayout->addWidget(exportBtn_);
 
+    popoutBtn_ = new QPushButton("⧉", headerFrame);
+    popoutBtn_->setObjectName("plotPopoutBtn");
+    popoutBtn_->setFixedSize(24, 24);
+    popoutBtn_->setToolTip("Pop-out to separate window");
+    headerLayout->addWidget(popoutBtn_);
+
     closeBtn_ = new QPushButton("✕", headerFrame);
     closeBtn_->setObjectName("plotCloseBtn");
     closeBtn_->setFixedSize(24, 24);
@@ -568,8 +575,17 @@ TelemetryPlotWidget::TelemetryPlotWidget(QWidget *parent)
         exportCsv(QString());
     });
 
+    connect(popoutBtn_, &QPushButton::clicked, this, [this]()
+    {
+        setFloating(!isFloating_);
+    });
+
     connect(closeBtn_, &QPushButton::clicked, this, [this]()
     {
+        if (isFloating_)
+        {
+            setFloating(false);
+        }
         if (onClosed)
         {
             onClosed();
@@ -953,6 +969,15 @@ QPushButton *TelemetryPlotWidget::exportButton() const
 }
 
 /**
+ * @brief Return pointer to the pop-out / dock button.
+ * @return Pointer to pop-out button.
+ */
+QPushButton *TelemetryPlotWidget::popoutButton() const
+{
+    return popoutBtn_;
+}
+
+/**
  * @brief Return pointer to close plotter button.
  * @return Pointer to close button.
  */
@@ -968,6 +993,85 @@ QPushButton *TelemetryPlotWidget::closeButton() const
 QComboBox *TelemetryPlotWidget::timeRangeBox() const
 {
     return timeRangeBox_;
+}
+
+/**
+ * @brief Configure whether the plotter is floating as an independent window or docked.
+ * @param floating True to pop-out as standalone window, false to dock into parent container.
+ */
+void TelemetryPlotWidget::setFloating(bool floating)
+{
+    if (isFloating_ == floating)
+    {
+        return;
+    }
+
+    isFloating_ = floating;
+
+    if (isFloating_)
+    {
+        setWindowFlags(Qt::Window);
+        setWindowTitle("MAVLinkLab — Telemetry Plotter");
+        if (parentWidget())
+        {
+            setWindowIcon(parentWidget()->windowIcon());
+        }
+        resize(850, 550);
+        if (popoutBtn_)
+        {
+            popoutBtn_->setText("⤓");
+            popoutBtn_->setToolTip("Dock into main window");
+        }
+        if (onFloatingChanged)
+        {
+            onFloatingChanged(true);
+        }
+        show();
+        raise();
+        activateWindow();
+    }
+    else
+    {
+        setWindowFlags(Qt::Widget);
+        if (popoutBtn_)
+        {
+            popoutBtn_->setText("⧉");
+            popoutBtn_->setToolTip("Pop-out to separate window");
+        }
+        if (onFloatingChanged)
+        {
+            onFloatingChanged(false);
+        }
+    }
+}
+
+/**
+ * @brief Return whether the plotter is currently in floating window mode.
+ * @return True if floating, false if docked.
+ */
+bool TelemetryPlotWidget::isFloating() const
+{
+    return isFloating_;
+}
+
+/**
+ * @brief Handle window close event when in floating mode, docking back and notifying owner.
+ * @param event Close event.
+ */
+void TelemetryPlotWidget::closeEvent(QCloseEvent *event)
+{
+    if (isFloating_)
+    {
+        setFloating(false);
+    }
+    if (onClosed)
+    {
+        onClosed();
+    }
+    if (event)
+    {
+        event->accept();
+    }
 }
 
 void TelemetryPlotWidget::rebuildChannelTags()
