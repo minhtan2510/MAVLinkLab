@@ -5086,16 +5086,14 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
         dialogLayout->setSpacing(14);
         dialogLayout = addDialogTitleBar(&dialog, dialogLayout);
 
-        auto *label = new QLabel("Target transmission rate:", &dialog);
+        auto *label = new QLabel("Target transmission rate (Hz):", &dialog);
         label->setObjectName("secondaryText");
         dialogLayout->addWidget(label);
 
-        auto *spin = new WorkbenchDoubleSpinBox(&dialog);
+        auto *spin = new WorkbenchSpinBox<QSpinBox>(&dialog);
         spin->setObjectName("customRateSpin");
-        spin->setRange(0.1, 1000.0);
-        spin->setDecimals(1);
-        spin->setSuffix(" Hz");
-        spin->setValue(currentHz);
+        spin->setRange(1, 1000);
+        spin->setValue(std::max(1, static_cast<int>(std::round(currentHz))));
         spin->setMinimumHeight(36);
         spin->selectAll();
         dialogLayout->addWidget(spin);
@@ -5111,7 +5109,7 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
 
         if (dialog.exec() == QDialog::Accepted)
         {
-            const double newHz = spin->value();
+            const double newHz = static_cast<double>(spin->value());
             QMetaObject::invokeMethod(worker, "setRate", Qt::QueuedConnection,
                                       Q_ARG(quint64, key), Q_ARG(double, newHz));
             saveTxMessages();

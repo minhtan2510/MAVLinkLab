@@ -3385,12 +3385,12 @@ private slots:
                             }
                             if (dialog)
                             {
-                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                auto *spin = dialog->findChild<QSpinBox *>("customRateSpin");
                                 if (spin)
                                 {
-                                    QCOMPARE(spin->minimum(), 0.1);
-                                    QCOMPARE(spin->maximum(), 1000.0);
-                                    spin->setValue(45.0);
+                                    QCOMPARE(spin->minimum(), 1);
+                                    QCOMPARE(spin->maximum(), 1000);
+                                    spin->setValue(45);
                                 }
                                 dialog->reject();
                             }
@@ -3405,7 +3405,7 @@ private slots:
         QTest::qWait(250);
         QCOMPARE(tx->item(0, 3)->text(), QString("1")); // Preserved
 
-        // 2. Test Apply with decimal rate 5.5 Hz
+        // 2. Test Apply with integer rate 6 Hz
         QTimer::singleShot(100, &window, [&window]()
         {
             auto *menu = window.findChild<QMenu *>("quickRateMenu");
@@ -3424,10 +3424,10 @@ private slots:
                             }
                             if (dialog)
                             {
-                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                auto *spin = dialog->findChild<QSpinBox *>("customRateSpin");
                                 if (spin)
                                 {
-                                    spin->setValue(5.5);
+                                    spin->setValue(6);
                                 }
                                 dialog->accept();
                             }
@@ -3439,7 +3439,7 @@ private slots:
             }
         });
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
-        QTRY_COMPARE(tx->item(0, 3)->text(), QString("5.5"));
+        QTRY_COMPARE(tx->item(0, 3)->text(), QString("6"));
     }
 
     /**
