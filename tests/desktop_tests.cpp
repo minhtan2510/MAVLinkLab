@@ -3849,6 +3849,369 @@ private slots:
             QCOMPARE(inspectorTitle->text(), QString("[0] HEARTBEAT"));
         }
     }
+
+    /** @brief Test real-time telemetry plotter: channel pinning, strip-chart canvas, controls and CSV export. */
+    void telemetryRealTimePlotter()
+    {
+        for (const QString &themeSuffix : {QString("light"), QString("dark")})
+        {
+            MainWindow window;
+            window.stopRefreshTimer();
+            window.resize(1440, 900);
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+            auto *themeBox = window.findChild<QComboBox *>("theme");
+            QVERIFY(themeBox);
+            themeBox->setCurrentIndex(themeSuffix == "dark" ? 2 : 1);
+            QTest::qWait(30);
+
+            auto *plotter = window.plotterWidget();
+            QVERIFY(plotter);
+            auto *plotToggleBtn = window.findChild<QPushButton *>("plotToggleBtn");
+            QVERIFY(plotToggleBtn);
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            QVERIFY(inspector);
+            auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+            QVERIFY(rxTree);
+
+            // 1. Initial State: Plotter is hidden by default, zero channels
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+            QCOMPARE(plotter->channelCount(), size_t(0));
+
+            // 2. Synthetic Telemetry Snapshot with ATTITUDE and STATUSTEXT
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = true;
+            snapshot->baud = 115200;
+
+            // ATTITUDE (msgid 30)
+            mavlink_message_t attitudeMsg{};
+            mavlink_attitude_t attitudeData{};
+            attitudeData.time_boot_ms = 12345;
+            attitudeData.roll = 0.5235f;  // ~30 deg
+            attitudeData.pitch = -0.2618f; // ~-15 deg
+            attitudeData.yaw = 1.5708f;   // ~90 deg
+            attitudeData.rollspeed = 0.05f;
+            attitudeData.pitchspeed = -0.02f;
+            attitudeData.yawspeed = 0.1f;
+            mavlink_msg_attitude_encode(1, 1, &attitudeMsg, &attitudeData);
+
+            RxView attitudeView;
+            attitudeView.message = attitudeMsg;
+            attitudeView.count = 42;
+            attitudeView.hz = 20.0;
+            attitudeView.age = 0.05;
+            snapshot->rx.push_back(attitudeView);
+
+            // STATUSTEXT (msgid 253)
+            mavlink_message_t statusMsg{};
+            mavlink_statustext_t statusData{};
+            statusData.severity = 6;
+            std::strncpy(statusData.text, "PreArm: EKF healthy", sizeof(statusData.text));
+            mavlink_msg_statustext_encode(1, 1, &statusMsg, &statusData);
+
+            RxView statusView;
+            statusView.message = statusMsg;
+            statusView.count = 5;
+            statusView.hz = 1.0;
+            statusView.age = 0.1;
+            snapshot->rx.push_back(statusView);
+
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            // Expand device and select ATTITUDE
+            QVERIFY(rxTree->topLevelItemCount() > 0);
+            auto *deviceItem = rxTree->topLevelItem(0);
+            deviceItem->setExpanded(true);
+            QVERIFY(deviceItem->childCount() >= 2);
+
+            QTreeWidgetItem *attitudeItem = nullptr;
+            QTreeWidgetItem *statusItem = nullptr;
+            for (int i = 0; i < deviceItem->childCount(); ++i)
+            {
+                if (deviceItem->child(i)->data(0, Qt::UserRole).toUInt() == 30)
+                {
+                    attitudeItem = deviceItem->child(i);
+                }
+                if (deviceItem->child(i)->data(0, Qt::UserRole).toUInt() == 253)
+                {
+                    statusItem = deviceItem->child(i);
+                }
+            }
+            QVERIFY(attitudeItem && statusItem);
+
+            // 3. Test non-numeric field (STATUSTEXT text char[50]) -> context menu hides plot action
+            rxTree->setCurrentItem(statusItem);
+            QTest::qWait(30);
+            auto *valueMenu = inspector->findChild<QMenu *>("inspectorMenu");
+            QVERIFY(valueMenu);
+            auto *plotFieldAction = valueMenu->findChild<QAction *>("plotFieldAction");
+            QVERIFY(plotFieldAction);
+
+            // Row 1 in STATUSTEXT is text char[50]
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QVERIFY(!plotFieldAction->isVisible());
+            valueMenu->close();
+
+            // 4. Test numeric field (ATTITUDE roll and pitch) -> plotFieldAction visible
+            rxTree->setCurrentItem(attitudeItem);
+            QTest::qWait(30);
+            QVERIFY(inspector->rowCount() >= 4);
+
+            // Row 1 is roll (float)
+            inspector->setCurrentCell(1, 2);
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QVERIFY(plotFieldAction->isVisible());
+            QCOMPARE(plotFieldAction->text(), QString("Plot this field"));
+
+            // Click "Plot this field"
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+
+            // Verify plotter opened and roll channel added
+            QVERIFY(plotter->isVisible());
+            QVERIFY(plotToggleBtn->isChecked());
+            QCOMPARE(plotter->channelCount(), size_t(1));
+            QCOMPARE(plotter->channels()[0].fieldName, QString("roll"));
+            QCOMPARE(plotter->channels()[0].label, QString("ATTITUDE.roll"));
+
+            // Verify right-clicking roll now shows "Unplot this field"
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QCOMPARE(plotFieldAction->text(), QString("Unplot this field"));
+            valueMenu->close();
+
+            // Add second channel: row 2 (pitch)
+            inspector->setCurrentCell(2, 2);
+            emit inspector->customContextMenuRequested(QPoint(10, 90));
+            QTest::qWait(20);
+            QCOMPARE(plotFieldAction->text(), QString("Plot this field"));
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+            QCOMPARE(plotter->channelCount(), size_t(2));
+            QCOMPARE(plotter->channels()[1].fieldName, QString("pitch"));
+
+            // 5. Channel capacity boundary (Max 6 channels)
+            // Add remaining fields (yaw, rollspeed, pitchspeed, yawspeed)
+            QVERIFY(plotter->addChannel(1, 1, 30, "yaw", "ATTITUDE.yaw"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "rollspeed", "ATTITUDE.rollspeed"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "pitchspeed", "ATTITUDE.pitchspeed"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "yawspeed", "ATTITUDE.yawspeed"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // Attempting 7th channel must be rejected
+            QVERIFY(!plotter->addChannel(1, 1, 30, "time_boot_ms", "ATTITUDE.time_boot_ms"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // Attempting duplicate channel must be rejected
+            QVERIFY(!plotter->addChannel(1, 1, 30, "roll", "ATTITUDE.roll"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // 6. Data Feed into Plotter via applySnapshot
+            // Feed updated values
+            attitudeData.roll = 0.75f;
+            attitudeData.pitch = -0.45f;
+            mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            QVERIFY(plotter->channels()[0].hasValue);
+            QVERIFY(std::abs(plotter->channels()[0].latestValue - 0.75) < 1e-4);
+            QVERIFY(std::abs(plotter->channels()[1].latestValue - (-0.45)) < 1e-4);
+            QVERIFY(plotter->channels()[0].buffer.size() > 0);
+
+            // Feed multiple samples to exercise waveform accumulation
+            for (int step = 0; step < 5; ++step)
+            {
+                attitudeData.roll = 0.75f + float(step) * 0.05f;
+                attitudeData.pitch = -0.45f - float(step) * 0.05f;
+                mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+                window.applySnapshot(snapshot);
+            }
+            QTest::qWait(30);
+            QVERIFY(plotter->channels()[0].buffer.size() >= 5);
+
+            // 7. Time Window Selector
+            auto *timeRangeBox = plotter->timeRangeBox();
+            QVERIFY(timeRangeBox);
+            timeRangeBox->setCurrentIndex(0); // 10s
+            QCOMPARE(plotter->canvas()->timeWindow(), 10);
+            timeRangeBox->setCurrentIndex(2); // 60s
+            QCOMPARE(plotter->canvas()->timeWindow(), 60);
+            timeRangeBox->setCurrentIndex(1); // 30s
+            QCOMPARE(plotter->canvas()->timeWindow(), 30);
+
+            // 8. Auto-Scale Y and Range Verification
+            auto *autoScaleBtn = plotter->autoScaleButton();
+            QVERIFY(autoScaleBtn);
+            QVERIFY(autoScaleBtn->isChecked());
+            QVERIFY(plotter->canvas()->isAutoScale());
+
+            const auto yRange = plotter->canvas()->currentYRange();
+            QVERIFY(yRange.first <= -0.45); // Min covers negative pitch
+            QVERIFY(yRange.second >= 0.75); // Max covers positive roll
+
+            // Toggle Auto-Scale off (manual lock)
+            autoScaleBtn->click();
+            QVERIFY(!autoScaleBtn->isChecked());
+            QVERIFY(!plotter->canvas()->isAutoScale());
+            autoScaleBtn->click();
+            QVERIFY(autoScaleBtn->isChecked());
+
+            // 9. Pause / Freeze Control
+            auto *pauseBtn = plotter->pauseButton();
+            QVERIFY(pauseBtn);
+            QVERIFY(!pauseBtn->isChecked());
+            QVERIFY(!plotter->canvas()->isPaused());
+
+            pauseBtn->click();
+            QVERIFY(pauseBtn->isChecked());
+            QCOMPARE(pauseBtn->text(), QString("Resume"));
+            QVERIFY(plotter->canvas()->isPaused());
+
+            // Apply snapshot while paused (canvas remains frozen)
+            attitudeData.roll = 0.99f;
+            mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+            window.applySnapshot(snapshot);
+            QTest::qWait(20);
+
+            pauseBtn->click();
+            QVERIFY(!pauseBtn->isChecked());
+            QCOMPARE(pauseBtn->text(), QString("Pause"));
+            QVERIFY(!plotter->canvas()->isPaused());
+
+            // 10. Inspection Hover Cursor Simulation
+            const QRect canvasRect = plotter->canvas()->rect();
+            QMouseEvent moveEvent(QEvent::MouseMove, QPointF(canvasRect.center()), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(plotter->canvas(), &moveEvent);
+            QTest::qWait(20);
+
+            QEvent leaveEvent(QEvent::Leave);
+            QApplication::sendEvent(plotter->canvas(), &leaveEvent);
+            QTest::qWait(20);
+
+            // 11. CSV Export Functionality
+            QTemporaryDir exportDir;
+            QVERIFY(exportDir.isValid());
+            const QString csvPath = exportDir.filePath("test_telemetry.csv");
+
+            QVERIFY(plotter->exportCsv(csvPath));
+            QVERIFY(QFile::exists(csvPath));
+
+            QFile csvFile(csvPath);
+            QVERIFY(csvFile.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString csvContent = QString::fromUtf8(csvFile.readAll());
+            csvFile.close();
+
+            QVERIFY(csvContent.startsWith("Time_us,Relative_s"));
+            QVERIFY(csvContent.contains("ATTITUDE.roll"));
+            QVERIFY(csvContent.contains("ATTITUDE.pitch"));
+
+            // 12. Parameter Protocol Field Plotting
+            auto paramSnapshot = std::make_shared<Snapshot>();
+            paramSnapshot->connected = true;
+            paramSnapshot->baud = 115200;
+
+            mavlink_message_t paramMsg{};
+            mavlink_param_value_t paramVal{};
+            std::strncpy(paramVal.param_id, "BATT_VOLT", sizeof(paramVal.param_id));
+            paramVal.param_value = 16.4f; // 4S battery
+            paramVal.param_type = MAV_PARAM_TYPE_REAL32;
+            paramVal.param_index = 0;
+            paramVal.param_count = 1;
+            mavlink_msg_param_value_encode(1, 1, &paramMsg, &paramVal);
+
+            RxView paramView;
+            paramView.message = paramMsg;
+            paramView.count = 1;
+            paramView.hz = 1.0;
+            paramView.age = 0.1;
+            paramSnapshot->rx.push_back(paramView);
+
+            Mav::ParamItem item;
+            item.id = "BATT_VOLT";
+            item.value = 16.4f;
+            item.type = MAV_PARAM_TYPE_REAL32;
+            item.index = 0;
+            item.count = 1;
+            paramSnapshot->params[{1, 1}].byId["BATT_VOLT"] = item;
+            paramSnapshot->params[{1, 1}].byIndex[0] = "BATT_VOLT";
+            paramSnapshot->params[{1, 1}].totalCount = 1;
+
+            window.applySnapshot(paramSnapshot);
+            QTest::qWait(30);
+
+            // Remove 1 channel to make room for parameter
+            plotter->removeChannelAt(5);
+            QCOMPARE(plotter->channelCount(), size_t(5));
+
+            // Select PARAM_VALUE (msgid 22) in tree
+            QTreeWidgetItem *paramTreeItem = nullptr;
+            auto *topDev = rxTree->topLevelItem(0);
+            if (topDev)
+            {
+                topDev->setExpanded(true);
+                for (int i = 0; i < topDev->childCount(); ++i)
+                {
+                    if (topDev->child(i)->data(0, Qt::UserRole).toUInt() == 22)
+                    {
+                        paramTreeItem = topDev->child(i);
+                        break;
+                    }
+                }
+            }
+            QVERIFY(paramTreeItem);
+            rxTree->setCurrentItem(paramTreeItem);
+            QTest::qWait(30);
+            QVERIFY(inspector->rowCount() > 0);
+            inspector->setCurrentCell(0, 2);
+            emit inspector->customContextMenuRequested(QPoint(-1, -1));
+            QTest::qWait(20);
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+            QVERIFY(plotter->hasChannel(1, 1, 22, "BATT_VOLT"));
+
+            // 13. Clear All Data
+            auto *clearBtn = plotter->clearButton();
+            QVERIFY(clearBtn);
+            clearBtn->click();
+            QTest::qWait(20);
+            for (const auto &ch : plotter->channels())
+            {
+                QCOMPARE(ch.buffer.size(), size_t(0));
+            }
+
+            // 14. Visibility Controls: plotToggleBtn and Close Button
+            // Toggle off via button
+            plotToggleBtn->click();
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
+            // Toggle back on
+            plotToggleBtn->click();
+            QVERIFY(plotter->isVisible());
+            QVERIFY(plotToggleBtn->isChecked());
+
+            // Close via plotter close button
+            auto *closeBtn = plotter->closeButton();
+            QVERIFY(closeBtn);
+            closeBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
+            // 15. Capture QA Visual Regression Artifacts
+            plotToggleBtn->click(); // Make visible for screenshot
+            QTest::qWait(30);
+            QDir().mkpath("build/qa");
+            QVERIFY(plotter->grab().save(QString("build/qa/plotter-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("build/qa/window-plotter-%1.png").arg(themeSuffix)));
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

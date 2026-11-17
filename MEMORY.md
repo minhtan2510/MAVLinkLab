@@ -194,6 +194,15 @@
     11. WriteQueue multi-step partial writes, head frame transitions, no-mutation consumption guarantee, and exact `16384` byte capacity limit.
     12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
 
+* **Real-time Telemetry Plotter & High-Performance Strip-Chart Canvas:**
+  * Zero external dependencies: Tự dựng toàn bộ strip chart canvas thời gian thực bằng vector `QPainter` antialiased native, không thêm QCustomPlot hay QtCharts.
+  * Bounded Ring Buffer (`Mav::PlotBuffer`): Kích thước cố định 2048 mẫu/kênh, cấp phát 1 lần (zero-allocation trong quá trình streaming dữ liệu), cung cấp hàm lấy dải giá trị `range(timeWindow)` và `samples(timeWindow)`.
+  * Trích xuất số an toàn từ MAVLink payload (`Mav::readFieldNumeric`): Hỗ trợ toàn bộ kiểu số nguyên (`uint8`..`uint64`, `int8`..`int64`) và số thực (`float`, `double`), lọc bỏ hoàn toàn chuỗi ký tự (`char[]`) và các giá trị non-finite (`NaN`, `Inf`).
+  * Giao diện tích hợp thông minh: Đặt trong `QSplitter` bên phải của `inspectorPane` (mặc định ẩn để tiết kiệm tài nguyên). Tự động kích hoạt khi người dùng chuột phải vào bất kỳ trường số nào trong `Decoded Fields` hoặc `Parameter Protocol View` và chọn "Plot this field". Hỗ trợ tối đa 6 kênh đồng thời với bảng màu palette tương phản cao.
+  * Tính năng nâng cao: Auto-scale Y trục tung (kèm chống lỗi chia 0 cho flatline), time window linh hoạt (10s, 30s, 60s, 120s), Pause/Freeze xem lại dữ liệu, Hairline Cursor hover kiểm tra giá trị tại điểm chuột, và nút Export CSV hỗ trợ phân tích ngoại tuyến.
+  * Theme Re-entrancy & Stylesheet: Tránh gọi `setStyleSheet()` cục bộ trong các widget con khi chuyển theme; quản lý tập trung CSS trong `dataStyle` và bảo vệ `applyTheme()` bằng re-entrancy guard `static bool applying = false;` để ngăn chặn đệ quy vô hạn khi Qt phát `ApplicationPaletteChange`.
+  * Floating-point & Test Context Menus: Khi kiểm tra giá trị số thực trích xuất từ single-precision MAVLink message (`float`), sử dụng `std::abs(val - target) < 1e-4` thay vì so sánh tuyệt đối để tránh sai số IEEE-754. Đối với context menu trong `QTableWidget`, kích hoạt qua `QPoint(-1, -1)` (keyboard simulation) kết hợp `setCurrentCell()` để định vị chính xác dòng được chọn mà không phụ thuộc vào pixel geometry của viewport.
+
 * **Application Icon & Visual Brand Identity Integration:**
   * Official Logo Identity: **Concept 3: Isometric Monogram M-L** (3D isometric block representing MAVLink GCS and laboratory workbench).
   * Asset Location: Embedded via Qt Resource System (`resources/resources.qrc` mapped to `:/icons/`).

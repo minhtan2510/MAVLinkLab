@@ -5,8 +5,10 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <optional>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace Mav
@@ -30,6 +32,16 @@ bool setField(Bytes &payload, const mavlink_field_info_t &field,
               const std::string &text, std::string &error);
 /** @brief Decode a field using official wire offsets; absent trailing bytes are zero. */
 std::string readField(const mavlink_message_t &message, const mavlink_field_info_t &field);
+/**
+ * @brief Decode a numeric field value as a double using official wire offsets.
+ * @param message Decoded MAVLink message frame.
+ * @param field Generated field metadata.
+ * @param arrayIndex Index within array fields (default 0).
+ * @return Numeric value as double, or std::nullopt if non-numeric, out-of-bounds, or invalid.
+ */
+std::optional<double> readFieldNumeric(const mavlink_message_t &message,
+                                       const mavlink_field_info_t &field,
+                                       size_t arrayIndex = 0);
 /** @brief Serialize an unsigned frame through the official MAVLink finalizer.
  * @warning Success indicates serialization only, not device delivery.
  */
@@ -86,6 +98,85 @@ struct ByteRate
      * @brief Clear all recorded samples and reset total bytes.
      */
     void clear();
+};
+
+/**
+ * @brief Individual timeseries telemetry sample for real-time plotting.
+ */
+struct PlotSample
+{
+    int64_t timeUs = 0;
+    double value = 0.0;
+};
+
+/**
+ * @brief Bounded ring buffer for real-time telemetry plotting with zero per-sample allocations.
+ */
+class PlotBuffer
+{
+public:
+    static constexpr size_t DefaultCapacity = 2048;
+
+    /**
+     * @brief Construct a ring buffer with specified maximum sample capacity.
+     * @param capacity Maximum number of samples retained.
+     */
+    explicit PlotBuffer(size_t capacity = DefaultCapacity);
+
+    /**
+     * @brief Push a new timestamped sample into the ring buffer, overwriting oldest when full.
+     * @param timeUs Monotonic timestamp in microseconds.
+     * @param value Numeric sample value (non-finite values are rejected).
+     */
+    void push(int64_t timeUs, double value);
+
+    /**
+     * @brief Clear all recorded samples and reset the buffer.
+     */
+    void clear();
+
+    /**
+     * @brief Return current number of stored samples.
+     * @return Sample count between 0 and capacity().
+     */
+    size_t size() const;
+
+    /**
+     * @brief Check whether the buffer contains no samples.
+     * @return True if empty.
+     */
+    bool empty() const;
+
+    /**
+     * @brief Return maximum capacity of the ring buffer.
+     * @return Allocated capacity.
+     */
+    size_t capacity() const;
+
+    /**
+     * @brief Return sample at logical chronological index (0 is oldest, size()-1 is newest).
+     * @param index Logical zero-based index.
+     * @return PlotSample at specified position.
+     */
+    PlotSample at(size_t index) const;
+
+    /**
+     * @brief Calculate minimum and maximum values across all stored samples.
+     * @return Pair of {minValue, maxValue}, or {0.0, 0.0} if empty.
+     */
+    std::pair<double, double> range() const;
+
+    /**
+     * @brief Return ordered copy of all samples from oldest to newest.
+     * @return Vector of PlotSample.
+     */
+    std::vector<PlotSample> samples() const;
+
+private:
+    std::vector<PlotSample> buffer_;
+    size_t head_ = 0;
+    size_t count_ = 0;
+    size_t capacity_ = DefaultCapacity;
 };
 
 /** @brief Decoded MAVLink parameter item. */
