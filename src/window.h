@@ -151,6 +151,7 @@ private:
     int connectingBaud = 0;
     bool paused = false;
     uint64_t nextKey = 1;
+    uint64_t pendingSelectionKey = 0;
     SnapshotPtr latest;
     QComboBox *portBox = nullptr;
     QComboBox *baudBox = nullptr;
@@ -185,6 +186,7 @@ private:
     uint32_t activeParamSysId = 0;
     uint8_t activeParamCompId = 0;
     QAction *editAction = nullptr;
+    QAction *duplicateAction = nullptr;
     QAction *removeAction = nullptr;
     QAction *onceAction = nullptr;
     QAction *startAction = nullptr;

@@ -2853,9 +2853,9 @@ static QIcon actionIcon(const QString &name, const QColor &color)
         painter.setBrush(color);
         painter.drawRoundedRect(QRectF(3.5, 3.5, 9.0, 9.0), 2.0, 2.0);
     }
-    else if (name == "deleteAll")
+    else if (name == "deleteAll" || name == "removeMessage")
     {
-        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setPen(QPen(color, 1.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         painter.setBrush(Qt::NoBrush);
 
         // Handle on top: rounded top corners resting on lid
@@ -2869,22 +2869,21 @@ static QIcon actionIcon(const QString &name, const QColor &color)
         painter.drawPath(handle);
 
         // Lid: rounded rectangle
-        painter.drawRoundedRect(QRectF(2.6, 3.4, 10.8, 2.2), 0.9, 0.9);
+        painter.drawRoundedRect(QRectF(2.6, 3.4, 10.8, 2.0), 0.9, 0.9);
 
         // Body: connects directly to lid bottom with rounded bottom corners
         QPainterPath body;
-        body.moveTo(3.8, 5.6);
+        body.moveTo(3.8, 5.4);
         body.lineTo(3.8, 12.2);
         body.quadTo(3.8, 13.8, 5.4, 13.8);
         body.lineTo(10.6, 13.8);
         body.quadTo(12.2, 13.8, 12.2, 12.2);
-        body.lineTo(12.2, 5.6);
+        body.lineTo(12.2, 5.4);
         painter.drawPath(body);
 
-        // Three vertical parallel ribs
-        painter.drawLine(QPointF(5.8, 7.4), QPointF(5.8, 11.8));
-        painter.drawLine(QPointF(8.0, 7.4), QPointF(8.0, 11.8));
-        painter.drawLine(QPointF(10.2, 7.4), QPointF(10.2, 11.8));
+        // Two vertical parallel ribs evenly spaced
+        painter.drawLine(QPointF(6.4, 7.2), QPointF(6.4, 11.8));
+        painter.drawLine(QPointF(9.6, 7.2), QPointF(9.6, 11.8));
     }
     else if (name == "editMessage")
     {
@@ -2894,13 +2893,17 @@ static QIcon actionIcon(const QString &name, const QColor &color)
         painter.drawPolygon(pencil);
         painter.drawLine(9, 4, 12, 7);
     }
-    else if (name == "removeMessage")
+    else if (name == "duplicateMessage")
     {
-        painter.drawLine(3, 4, 13, 4);
-        painter.drawLine(6, 2, 10, 2);
-        painter.drawRoundedRect(QRectF(4, 4, 8, 10), 1, 1);
-        painter.drawLine(7, 7, 7, 11);
-        painter.drawLine(10, 7, 10, 11);
+        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        QPainterPath backSheet;
+        backSheet.moveTo(5.5, 5.0);
+        backSheet.lineTo(5.5, 2.5);
+        backSheet.lineTo(13.0, 2.5);
+        backSheet.lineTo(13.0, 11.0);
+        backSheet.lineTo(10.5, 11.0);
+        painter.drawPath(backSheet);
+        painter.drawRoundedRect(QRectF(3.0, 5.0, 7.5, 8.5), 1.0, 1.0);
     }
     else if (name == "serialSettings")
     {
@@ -3564,7 +3567,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     stopAction = addTxAction("Stop", "stopTx");
     txMenu->addSeparator();
     editAction = addTxAction("Edit message…", "editMessage");
+    duplicateAction = addTxAction("Duplicate message", "duplicateMessage");
     removeAction = addTxAction("Remove message", "removeMessage");
+    txMenu->setDefaultAction(removeAction);
     txTable->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(txTable, &QWidget::customContextMenuRequested, this, [this](const QPoint &position)
     {
@@ -4114,6 +4119,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(editAction, &QAction::triggered, this, [this]()
     {
         editMessage(true);
+    });
+    connect(duplicateAction, &QAction::triggered, this, [this]()
+    {
+        const uint64_t currentKey = selectedTx();
+        if (currentKey == 0)
+        {
+            return;
+        }
+        const uint64_t newKey = nextKey++;
+        pendingSelectionKey = newKey;
+        QMetaObject::invokeMethod(worker, "duplicateEntry", Qt::QueuedConnection,
+                                  Q_ARG(quint64, currentKey), Q_ARG(quint64, newKey));
     });
     connect(removeAction, &QAction::triggered, this, [this]()
     {
@@ -5388,6 +5405,7 @@ void MainWindow::updateActions()
     txTable->setEnabled(!profileBusy);
     const bool selected = !profileBusy && selectedTx() != 0;
     editAction->setEnabled(selected);
+    duplicateAction->setEnabled(selected);
     removeAction->setEnabled(selected);
     onceAction->setEnabled(selected && connected);
     startAction->setEnabled(selected && connected);
@@ -6558,7 +6576,8 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     txSummary->setStats(int(latest->tx.size()), int(running),
                         latest->estimatedTxBps, latest->estimatedTxUtilization);
     setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
-    const uint64_t selected = selectedTx();
+    const uint64_t selected = pendingSelectionKey ? pendingSelectionKey : selectedTx();
+    pendingSelectionKey = 0;
     txTable->setRowCount(int(latest->tx.size()));
     for (size_t i = 0; i < latest->tx.size(); ++i)
     {
@@ -7192,7 +7211,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         {
             popup->setAttribute(Qt::WA_TranslucentBackground, true);
             QPainterPath outline;
-            outline.addRoundedRect(QRectF(popup->rect()), 6.0, 6.0);
+            outline.addRoundedRect(QRectF(popup->rect()), 8.0, 8.0);
             popup->setMask(QRegion(outline.toFillPolygon().toPolygon()));
         }
     }
@@ -7411,10 +7430,6 @@ void MainWindow::applyTheme()
         "QMenuBar::item { background:transparent; padding:4px 8px; border-radius:4px; outline:none; }"
         "QMenuBar::item:selected { background:%6; color:%3; }"
         "QMenuBar::item:pressed { background:%6; }"
-        "QMenu { background:%2; color:%3; border:1px solid %4; border-radius:6px; padding:4px; font-size:13px; outline:none; }"
-        "QMenu::item { padding:6px 24px 6px 12px; border-radius:4px; }"
-        "QMenu::item:selected { background:#4f46e5; color:white; }"
-        "QMenu::separator { height:1px; background:%4; margin:4px 6px; }"
         "QWidget { font-size:14px; } QLabel { color:%3; }"
         "QLabel#appMark { font-size:24px; font-weight:700; color:white; background:#4f46e5; border-radius:12px; }"
         "QLabel#heading { font-size:22px; font-weight:700; }"
@@ -7509,6 +7524,20 @@ void MainWindow::applyTheme()
         "QLabel#validationError, QLabel#profileError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
           dark ? "#fca5a5" : "#b91c1c", controlBorder, hintForeground);
+    const QString menuStyle = QString(
+        "QMenu { background:%1; color:%2; border:1px solid %3; border-radius:8px; padding:6px; font-size:13px; outline:none; }"
+        "QMenu::item { padding:6px 24px 6px 10px; border-radius:5px; }"
+        "QMenu::icon { padding-left:8px; }"
+        "QMenu::item:selected { background:#4f46e5; color:white; }"
+        "QMenu::item:default { color:%4; }"
+        "QMenu::item:default:selected { background:%5; color:%4; }"
+        "QMenu::item:disabled { color:%6; background:transparent; }"
+        "QMenu::item:disabled:selected { color:%6; background:transparent; }"
+        "QMenu::separator { height:1px; background:%3; margin:5px 6px; }"
+    ).arg(surface, foreground, border,
+          dark ? "#fca5a5" : "#b91c1c",
+          dark ? "#381e26" : "#fee2e2",
+          hintForeground);
     const QString connectionStyle = QString(
         "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
@@ -7565,8 +7594,8 @@ void MainWindow::applyTheme()
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
-    setStyleSheet(baseStyle + connectionStyle + selectionStyle + dataStyle);
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})
+    setStyleSheet(baseStyle + menuStyle + connectionStyle + selectionStyle + dataStyle);
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "duplicateMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)
@@ -7580,6 +7609,22 @@ void MainWindow::applyTheme()
         icon.addPixmap(actionIcon(name, QColor(muted)).pixmap(16, 16), QIcon::Disabled);
         control->setIcon(icon);
         control->setIconSize(QSize(16, 16));
+    }
+    const QColor disabledIconColor(dark ? "#526079" : "#94a3b8");
+    const QColor dangerColor(dark ? "#fca5a5" : "#b91c1c");
+    for (auto *action : {startAction, stopAction, onceAction, editAction, duplicateAction, removeAction})
+    {
+        if (action)
+        {
+            const QString name = action->objectName();
+            const QColor actionFg = (name == "removeMessage") ? dangerColor : foreground;
+            QIcon icon = actionIcon(name, actionFg);
+            icon.addPixmap(actionIcon(name, Qt::white).pixmap(32, 32), QIcon::Selected);
+            icon.addPixmap(actionIcon(name, Qt::white).pixmap(16, 16), QIcon::Selected);
+            icon.addPixmap(actionIcon(name, disabledIconColor).pixmap(32, 32), QIcon::Disabled);
+            icon.addPixmap(actionIcon(name, disabledIconColor).pixmap(16, 16), QIcon::Disabled);
+            action->setIcon(icon);
+        }
     }
     if (txSummary)
     {

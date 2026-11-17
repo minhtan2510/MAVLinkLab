@@ -230,6 +230,32 @@ void SerialWorker::removeEntry(quint64 key)
     }), entries.end());
 }
 
+void SerialWorker::duplicateEntry(quint64 existingKey, quint64 newKey)
+{
+    if (entries.size() >= 128)
+    {
+        fail("TX entry limit reached (128)");
+        return;
+    }
+    auto found = std::find_if(entries.begin(), entries.end(), [&](const auto &item)
+    {
+        return item.key == existingKey;
+    });
+    if (found == entries.end())
+    {
+        return;
+    }
+    Mav::TxEntry clone = *found;
+    clone.key = newKey;
+    clone.active = false;
+    clone.count = 0;
+    clone.deadline = 0;
+    clone.measured = {};
+    clone.error.clear();
+    entries.insert(found + 1, std::move(clone));
+    requestSnapshot();
+}
+
 void SerialWorker::setActive(quint64 key, bool active)
 {
     for (auto &entry : entries)

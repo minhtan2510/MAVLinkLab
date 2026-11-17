@@ -34,6 +34,10 @@
     * **Single run:** Activating an entry (`setActive(key, true)`) automatically stops any other running entry sharing the same `(sysid, compid, id)`.
     * **Run all:** `runAll()` starts only the first occurrence of each stream identity group and keeps duplicates stopped.
   * Managed via `WorkbenchCheckBox` in `SettingsDialog` (`Workspace & Session` card, `workspace/singleActiveStream`), persisted in `QSettings` and synced asynchronously to the worker thread.
+* **TX Message Duplication (`Duplicate message` Context Action):**
+  * Right-clicking any TX card offers `"Duplicate message"`, creating a silent 100% clone (`id`, `sysid`, `compid`, `version1`, `hz`, `payload`) placed immediately below the selected card (at index $i + 1$).
+  * The clone strictly starts in the `Stopped` state with zero counters (`count = 0`), preserving the active transmission state of the original card without triggering mutual exclusion stops.
+  * Focus and selection automatically transition to the newly duplicated card for rapid inline inspection and editing.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.

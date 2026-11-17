@@ -4411,6 +4411,93 @@ private slots:
         QCOMPARE(tx->item(1, 3)->text(), QString("5"));
         QCOMPARE(tx->item(1, 6)->text(), QString("Stopped"));
     }
+
+    /** @brief Verify duplicate message action in context menu inserts an identical stopped clone directly below. */
+    void duplicateTxMessageAction()
+    {
+        // 1. Test SerialWorker duplicateEntry slot directly
+        SerialWorker worker;
+        QSignalSpy snapshots(&worker, &SerialWorker::snapshotReady);
+        worker.initialize();
+
+        Mav::TxEntry e0;
+        e0.key = 10;
+        e0.id = 0;
+        e0.hz = 2.0;
+        e0.sysid = 1;
+        e0.compid = 1;
+        e0.payload.assign(mavlink_get_msg_entry(0)->max_msg_len, 0);
+
+        Mav::TxEntry e1;
+        e1.key = 20;
+        e1.id = 33;
+        e1.hz = 10.0;
+        e1.sysid = 1;
+        e1.compid = 1;
+        e1.payload.assign(mavlink_get_msg_entry(33)->max_msg_len, 0);
+
+        worker.saveEntry(e0);
+        worker.saveEntry(e1);
+
+        // Duplicate e0 (key 10) with key 11
+        worker.duplicateEntry(10, 11);
+        worker.requestSnapshot();
+        auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QCOMPARE(snapshot->tx.size(), 3);
+
+        // Index 0: Original [0] HEARTBEAT
+        QCOMPARE(snapshot->tx[0].entry.key, 10);
+        QCOMPARE(snapshot->tx[0].entry.id, 0);
+
+        // Index 1: Cloned [0] HEARTBEAT immediately after Index 0
+        QCOMPARE(snapshot->tx[1].entry.key, 11);
+        QCOMPARE(snapshot->tx[1].entry.id, 0);
+        QCOMPARE(snapshot->tx[1].entry.hz, 2.0);
+        QVERIFY(!snapshot->tx[1].entry.active);
+        QCOMPARE(snapshot->tx[1].entry.count, 0);
+
+        // Index 2: Shifted [33] GLOBAL_POSITION_INT
+        QCOMPARE(snapshot->tx[2].entry.key, 20);
+        QCOMPARE(snapshot->tx[2].entry.id, 33);
+
+        // 2. Test MainWindow UI action
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *duplicateAction = window.findChild<QAction *>("duplicateMessage");
+        QVERIFY(duplicateAction);
+        QCOMPARE(duplicateAction->text(), QString("Duplicate message"));
+        QVERIFY(!duplicateAction->icon().isNull());
+        QVERIFY(!duplicateAction->isEnabled());
+
+        // Apply snapshot to UI
+        window.applySnapshot(snapshot);
+        QCOMPARE(tx->rowCount(), 3);
+
+        // Row 0: Original [0] HEARTBEAT
+        QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(0, 3)->text(), QString("2"));
+
+        // Row 1: Cloned [0] HEARTBEAT inserted immediately below Row 0
+        QCOMPARE(tx->item(1, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(1, 3)->text(), QString("2"));
+        QCOMPARE(tx->item(1, 6)->text(), QString("Stopped"));
+
+        // Row 2: Shifted [33] GLOBAL_POSITION_INT
+        QCOMPARE(tx->item(2, 0)->text(), QString("33"));
+        QCOMPARE(tx->item(2, 3)->text(), QString("10"));
+
+        // Select Row 0 -> duplicateAction is enabled
+        tx->setCurrentCell(0, 1);
+        QVERIFY(duplicateAction->isEnabled());
+
+        // Clear selection -> duplicateAction is disabled
+        tx->clearSelection();
+        tx->setCurrentCell(-1, -1);
+        window.findChild<QLabel *>("panelTitle"); // Trigger deselection update
+        QTest::qWait(30);
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

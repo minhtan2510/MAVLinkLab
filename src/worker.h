@@ -105,6 +105,12 @@ public slots:
     void saveEntry(Mav::TxEntry entry);
     /** @brief Remove an entry and cancel pending output. */
     void removeEntry(quint64 key);
+    /**
+     * @brief Duplicate an existing entry immediately after its current position.
+     * @param existingKey Identifier of the entry to duplicate.
+     * @param newKey Identifier to assign to the cloned entry.
+     */
+    void duplicateEntry(quint64 existingKey, quint64 newKey);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
     /**
