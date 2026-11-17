@@ -1,113 +1,189 @@
-# Hướng dẫn cho coding agents
+# Guidelines and Knowledge Base for Coding Agents (AGENTS.md)
 
-## Ngôn ngữ và cách làm việc
+This document is the comprehensive behavioral guide and technical knowledge base for coding agents working on the **MAVLinkLab** project.
 
-- Trả lời và giải thích bằng **tiếng Việt**; giữ nguyên technical terms bằng English.
-- Code, identifiers, API names, keywords, code comments, Doxygen và UI text dùng **English**.
-- Chỉ hỏi khi thông tin còn thiếu ảnh hưởng đáng kể đến kết quả; nếu đủ thông tin thì tiến hành. Nêu rõ assumption khi cần.
-- Trong phase **analysis/review** được yêu cầu riêng, không chỉnh sửa file trước khi có yêu cầu implementation.
-- Khi chỉnh code, tóm tắt thay đổi trong 1–2 câu đầu. Báo kết quả, cách kiểm tra và giới hạn thực tế; không khẳng định đã kiểm chứng nếu chưa chạy.
-- Chỉ thay đổi trong scope được yêu cầu, giữ nguyên công việc sẵn có của user. Không commit/push/publish nếu chưa được yêu cầu.
-- **Bắt buộc đọc `MEMORY.md` ngay đầu phiên làm việc** trước khi phân tích hoặc thực hiện task để nắm vững các quyết định kiến trúc (ADR), conventions và gotchas đã được đúc kết. Cập nhật bài học mới vào `MEMORY.md` sau khi giải quyết các vấn đề quan trọng.
-- Hỏi trước khi xóa file có sẵn, thêm dependency ngoài stack đã chốt, cài package hệ thống hoặc thay đổi cấu hình OS. Không hỏi lại quyền đã được cấp trong session.
-- Không chỉnh sửa `.agents/`, `.codex/`, `.aws/`, global configuration hoặc truy xuất credentials cho công việc thông thường của project.
-- Với các tác vụ nhiều bước hoặc có độ phức tạp kỹ thuật (phân tích dialect MAVLink, can thiệp worker thread, refactor UI, kiểm thử tự động), **chủ động chia việc song song cho các Subagents chuyên trách** (Research, Developer, Review, QA) để phối hợp xử lý, rà soát chéo và tối ưu thời gian.
+---
 
-## Project và architecture
+## Part 1: Agent Guidelines & Workflow Rules
 
-**MAVLinkLab** là desktop serial workbench cho **Ubuntu/Linux**.
+### 1.1. Language & Communication Protocols
+- **Conversational Responses:** Reply and explain to the user in **Vietnamese**.
+- **Source Code & Documentation:** Code, identifiers, API names, keywords, code comments, Doxygen, UI text, and all project documentation (`README.md`, `MEMORY.md`, `docs/*.md`) must strictly use **English**.
+- **Clarification & Approval Gate (MANDATORY):**
+  - Before making any code or project changes requested in user prompts: Must ensure complete, unambiguous understanding of all requirements. If any point is unclear, **assumptions are strictly forbidden**; ask the user until 100% clarity is achieved.
+  - After understanding, **do NOT jump straight into implementation**. Instead, summarize your understanding of the user's requirements and outline the planned execution steps.
+  - **Proceed with implementation ONLY after receiving explicit user approval/confirmation.**
+- **Mandatory `MEMORY.md` Review:** Always read `MEMORY.md` at the very start of a session before analyzing or implementing tasks to master architectural decisions (ADRs), conventions, and known gotchas. Record new lessons learned into `MEMORY.md` after resolving significant issues.
+- In separate **analysis/review** phases, do not modify files prior to explicit implementation requests.
+- When modifying code, summarize changes in the first 1–2 sentences. Report execution results, verification methods, and realistic boundaries; never claim verification without actual test execution.
+- Constrain changes strictly to the requested scope, preserving existing user work. Do not commit/push/publish unless explicitly asked.
+- Ask for permission before deleting existing files, adding dependencies outside the agreed stack, installing system packages, or modifying OS configuration. Do not re-prompt for permissions already granted within the session.
+- Do not modify `.agents/`, `.codex/`, `.aws/`, global configuration, or access credentials.
+- For multi-step or technically complex tasks, **proactively distribute work across specialized Subagents** (Research, Developer, Review, QA) for parallel coordination, cross-checking, and time optimization.
 
-| Thành phần | Công nghệ / trách nhiệm |
-| --- | --- |
-| Language / build | C++17, CMake ≥3.21 |
-| GUI | Qt ≥6.2 Widgets |
-| UART | Qt SerialPort, asynchronous buffered I/O |
-| MAVLink | Official C library, git submodule `third_party/mavlink`, dialect `ardupilotmega` gồm `common` |
-| `src/core.*` | Codec/reflection adapter, parser, RX statistics, scheduler primitives, bounded write queue; không phụ thuộc Qt |
-| `src/worker.*` | Serial I/O, parser và TX scheduling trong worker thread |
-| `src/window.*` | GUI, payload editor, dashboards và theme |
-| `src/main.cpp` | Application entry point |
-| `tests/` | Core tests, PTY integration và Qt widget/render checks |
+### 1.2. Commit Message Standards
+- The subject line must be as concise as possible (format: `<type>(<scope>): <summary>`, $\le 50\text{--}72$ characters).
+- All detailed analysis, context, technical rationale, and specific lists of modifications must be placed in the commit **body** (separated from the subject line by a blank line), never crammed into the subject line.
 
-- Đọc `README.md`, `docs/DESIGN.md` và `docs/VERIFICATION.md` khi liên quan. Kiểm tra lại dependency/environment hiện tại; các đường dẫn Qt trong `/tmp` chỉ là môi trường kiểm chứng tạm thời.
-- Không đưa GUI/application policy vào codec/transport layer khi không có lý do rõ ràng.
-- Không thêm Python application runtime, UDP/TCP, firmware flashing, database hoặc chức năng khác ngoài yêu cầu hiện tại.
+---
 
-## Code style và Doxygen
+## Part 2: Code Style and Doxygen Standards
 
-- Dùng **BSD/Allman style**: opening brace nằm trên dòng riêng cho function, control statement, class/struct/enum và các block tương tự.
-- Một dòng trống giữa các function. Giữ naming/style nhất quán với module; không refactor style ngoài scope.
-- Với C++, dùng **camelCase** cho biến/function theo code hiện có; type/class dùng **PascalCase**, macro dùng **UPPER_SNAKE_CASE**.
-- Function mới hoặc sửa đáng kể phải có **Doxygen ngắn bằng English**: `@brief`, thêm `@param`, `@return`/`@retval` khi phù hợp, `@warning` cho side effects và `@note` khi cần.
-- Ưu tiên RAII, ownership rõ ràng, bounds checks và error handling. Không dùng `volatile` thay cho synchronization giữa threads.
+- **BSD/Allman Style:** The opening brace `{` must strictly reside on its own line for functions, control statements, structs, classes, enums, switch/case statements, and similar blocks.
+- **Vertical Spacing:** Exactly one blank line between functions.
+- **Naming Conventions:**
+  - Variables and functions: `camelCase`.
+  - Types, structs, classes, enums: `PascalCase`.
+  - Macros: `UPPER_SNAKE_CASE`.
+- **Doxygen Comments (English):**
+  - All new or significantly modified functions must include concise English Doxygen comments.
+  - Use `@brief`, `@param`, `@return`/`@retval` where appropriate, `@warning` for side effects, and `@note` when necessary.
+- **Source Safety:** Prioritize RAII, explicit ownership semantics, bounds checks, and robust error handling. Never use `volatile` as a substitute for inter-thread synchronization.
 
-## MAVLink, UART và concurrency
+---
 
-- Dùng official MAVLink library cho parsing, serialization và CRC. Không tự viết codec/CRC hoặc sửa generated headers trong submodule.
-- Giữ submodule ở commit xác định; chỉ cập nhật revision khi task yêu cầu.
-- Dùng metadata **wire offsets**, field types và array lengths thực tế; không giả định C struct layout. Không bịa units, enums hoặc API không có trong source.
-- Parser phải giữ state xuyên serial chunks, xử lý fragmented/multiple frames, noise và CRC errors; RX identity gồm **sysid + compid + msgid**.
-- Validate payload types, numeric/array bounds, MAVLink version và offered load trước TX.
-- Không tự động gửi message khi connect/reconnect. Disconnect phải dừng periodic TX và hủy pending output; dữ liệu đã gửi không thể thu hồi.
-- Giữ queue/buffer có giới hạn, xử lý partial writes/backpressure và dùng monotonic clock; không phát catch-up burst khi trễ deadline.
-- Tạo và sử dụng QSerialPort/timers đúng thread affinity. GUI chỉ cập nhật trên GUI thread; dùng queued commands và immutable snapshots khi trao đổi dữ liệu.
-- Kiểm tra return values/error states, lifetime, shutdown và race conditions. Không block GUI bằng serial I/O/parser hoặc chờ đồng bộ dài.
-- Không chủ động toggle DTR/RTS để reset thiết bị. Không tự thay permission, group membership hoặc cấu hình OS.
-- **DMA phụ thuộc hardware/kernel driver**; không thêm “Enable DMA” nếu không có API thực tế. Không suy ra DMA từ asynchronous I/O hoặc PTY.
-- Phân biệt queued/OS-written bytes với physical transmission và peer delivery. Không coi sequence gaps là packet loss chắc chắn, hoặc signed frames là authenticated nếu chưa verify signature.
+## Part 3: Architecture Overview and System Layering
 
-## UI/UX
+**MAVLinkLab** is a specialized desktop serial workbench on **Ubuntu/Linux** for MAVLink 1 & 2 protocol communication over serial UART.
 
-- Khi design/review/sửa GUI, áp dụng skill **ui-ux-pro-max** nếu có trong session; chọn guidance phù hợp Qt desktop, không áp đặt web/mobile stack.
-- Giữ **UART bar gọn**, Port/Baud/Connect/status dễ tìm; thông số ít dùng nằm trong **Settings**. Ưu tiên diện tích cho TX/RX dashboards.
-- Dùng semantic theme tokens, hierarchy rõ, keyboard navigation và status text; không truyền đạt trạng thái chỉ bằng màu.
-- Giữ selection, scroll position và field đang xem khi refresh. Giới hạn GUI refresh; Pause Display không dừng parser/counters.
-- Khi đồng bộ hai chiều giữa UI controls và `QSettings`:
-  - Dùng `QSignalBlocker` trong các hàm khôi phục (`restoreSettings`) để tránh phát tín hiệu ngược kích hoạt `saveSettings`.
-  - Luôn gọi `settings.sync()` sau khi cập nhật dữ liệu để đảm bảo cấu hình được ghi tức thì xuống đĩa, tránh sai lệch giữa các tiến trình/test case.
-- Với thay đổi UI, tự kiểm tra rendered consistency ở **Light/Dark**, hover, pressed, focus, enabled/disabled, dropdown popup rows, resize và theme changes trong cùng session. Sửa regression tái hiện được trước khi kết luận.
-- Phân biệt **offscreen render** với native desktop integration. Nếu không có môi trường render, báo rõ giới hạn.
-- Các form controls có indicator (như checkbox, combobox chevrons, spinbox arrows) phải kế thừa lớp chuyên dụng (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) và tự vẽ bằng `QPainter` vector antialiasing theme-aware; không dùng QSS màu khối đặc thô sơ làm mất biểu tượng checkmark/indicator.
-- Với `WorkbenchComboBox` editable, luôn đồng bộ căn lề trái với `QSpinBox` bằng cách đặt padding-left trực tiếp trên `QComboBox:editable` (`padding: 4px 28px 4px 7px;`), giữ child `QLineEdit` không padding (`padding: 0;`) và `line->setTextMargins(0, 0, 18, 0)` để tránh text bị đè lên chevron hoặc lệch lề (do Qt phớt lờ `padding-left` trên child `QLineEdit` của `QComboBox`).
-- Các tùy chọn tự động khôi phục dữ liệu phiên làm việc (như Restore TX messages) phải luôn có giá trị **mặc định là tắt (`false` / disabled)** để đảm bảo an toàn và giữ trạng thái ứng dụng sạch sẽ khi khởi động.
+| Component | Technology / Source Path | Primary Responsibility |
+| --- | --- | --- |
+| **Build & Language** | C++17, CMake $\ge 3.21$ | Standard compilation hierarchy separating `mavcore`, `mavdesktop`, and `mavlink-lab`. |
+| **Protocol Core** | [src/core.h](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/core.h), [src/core.cpp](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/core.cpp) | Codec, reflection, parser, rate estimators, telemetry sample ring buffer (`PlotBuffer`), bounded queue (`WriteQueue`). **Strictly zero Qt dependencies.** |
+| **Enum Lookup Tables** | [src/mavlink_enums.h](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/mavlink_enums.h), [src/mavlink_enums.cpp](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/mavlink_enums.cpp) | Autogenerated lookup tables mapping symbolic MAVLink enum identifiers, names, and descriptions from dialect XML definitions. |
+| **Worker Thread** | [src/worker.h](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/worker.h), [src/worker.cpp](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/worker.cpp) | Owns `QSerialPort`, 1 ms monotonic timer, TX pacing, asynchronous I/O, auto-reconnect, and immutable snapshot production. |
+| **GUI Thread** | [src/window.h](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/window.h), [src/window.cpp](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/window.cpp) | Qt 6 Widgets, UART toolbar, TX dashboard, RX tree hierarchy, Decoded Fields table, Parameter Protocol view, Telemetry Plotter canvas, and theme management. |
+| **Profile Codec** | [src/profile.h](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/profile.h), [src/profile.cpp](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/src/profile.cpp) | Serialization of portable configuration files (`.mavprofile`, CBOR schema 1) via Qt Core. |
+| **MAVLink Dialect** | `third_party/mavlink` | Official C library from Git submodule (dialect: `ardupilotmega`, incorporating `common`). |
+| **Automated Tests** | [tests/](file:///home/minhtan/Desktop/dev/Tool/MAVLinkLab/tests/) | 72 automated tests (Core unit tests, PTY virtual serial workbench, control line wrappers, profile tests, UI offscreen tests). |
 
-## Build và verification
+### Threading and Data Flow Diagram (Mermaid)
 
-**Build đầy đủ** cần Qt Widgets, SerialPort và Qt Test khi `BUILD_TESTING=ON`:
+```mermaid
+flowchart TD
+    subgraph GUI["GUI Thread (MainWindow)"]
+        UI[User Controls & Toolbar]
+        Inspector[Decoded Fields / Parameter View]
+        Plotter[TelemetryPlotWidget Canvas]
+        RefreshTimer[200 ms Refresh Timer]
+        SettingsMgr[QSettings Persistence]
+    end
+
+    subgraph Worker["Worker Thread (SerialWorker)"]
+        WorkerObj[SerialWorker QObject]
+        SerialPort[QSerialPort]
+        SchedTimer[1 ms Precise QTimer]
+        ReconnectTimer[1000 ms Reconnect Timer]
+        Queue[Mav::WriteQueue 16 KiB]
+    end
+
+    subgraph Core["Core Engine (No Qt)"]
+        Parser[Mav::Parser State Machine]
+        Receiver[Mav::Receiver & Parameter Store]
+        Scheduler[Mav::due Isochronous Pacing]
+        PlotBuf[Mav::PlotBuffer Ring Buffers]
+    end
+
+    subgraph Hardware["Linux Kernel & Hardware"]
+        TTYDriver[Linux TTY Driver / Modem Control Lines]
+        Device[/dev/ttyUSB*, /dev/ttyACM*, /dev/pts/*]
+    end
+
+    UI -->|Queued Invocation| WorkerObj
+    RefreshTimer -->|requestSnapshot| WorkerObj
+    WorkerObj -->|snapshotReady Shared Immutable Snapshot| UI
+    WorkerObj -->|stateChanged / failure| UI
+    Plotter -.->|Read Samples| PlotBuf
+
+    WorkerObj --> SerialPort
+    WorkerObj --> SchedTimer
+    WorkerObj --> Queue
+    WorkerObj --> Core
+
+    SerialPort <--> TTYDriver
+    TTYDriver <--> Device
+```
+
+---
+
+## Part 4: MAVLink Protocol, UART I/O, and Concurrency Invariants
+
+### 4.1. MAVLink Protocol & Metadata
+- **Official Library:** Use the official generated MAVLink headers for parsing, serialization, and CRC calculation. Never rewrite custom codecs/CRC or modify generated headers in `third_party/mavlink`.
+- **Wire Offsets:** Always utilize metadata wire offsets, actual field types, and array lengths; never assume C struct packing or memory layout. Never invent units, enums, or APIs absent from the source.
+- **Stream Identity:** An RX stream is uniquely identified by the 3-tuple: **`sysid + compid + msgid`**.
+- **Parameter Protocol:** Parameter frames arrive under stream `[22] PARAM_VALUE`. Casting integer parameter types (`UINT8`..`UINT32`, `INT8`..`INT32`) to/from 32-bit floats must strictly use standard union type-punning via `mavlink_param_union_t` to prevent IEEE-754 precision loss or NaN corruption.
+
+### 4.2. UART I/O & Thread Affinity
+- **Thread Confinement:** Allocate and manipulate `QSerialPort` and timers exclusively inside the Worker thread. The GUI thread **must never** execute direct serial I/O or access file descriptors.
+- **Safe Communication:** Exchange data between GUI and Worker strictly through Qt queued method invocations and immutable shared snapshots (`std::shared_ptr<const Snapshot>`).
+- **No Automatic Transmission on Connect:** Link activation (Connect/Reconnect) **must never automatically transmit any frame or HEARTBEAT** without explicit user action.
+- **Clean Disconnect:** Disconnecting must immediately halt all periodic transmissions, discard pending queues, and purge both kernel and Qt serial buffers before closing the device node.
+- **Pacing & Anti-Drift Scheduling:** Pacing uses a monotonic microsecond clock (`QElapsedTimer`). `Mav::due()` advances deadlines isochronously (`deadline += interval`) to preserve exact transmission rates and eliminate phase drift from OS scheduling jitter. Anti-burst thresholds (`max(20ms, 2 * interval)`) prevent frame clustering following system pauses or sleep.
+- **Bounded Write Queue:** The transmission queue `WriteQueue` is hard-limited to **16,384 bytes**. Queue overflows or write errors immediately transition the affected stream to `Stopped` and emit failure alerts.
+- **Linux Modem Control Lines:** Deassert both DTR and RTS simultaneously on connection by default (`ioctl(TIOCMBIC)` followed by confirmation via `TIOCMGET`) to protect embedded targets from unintended hardware resets (controlled via the Auto-reset toggle).
+- **Hardware Boundary:** The application relies on asynchronous `QSerialPort`. DMA capabilities depend strictly on hardware kernel drivers; never infer DMA support from PTYs or asynchronous I/O.
+
+---
+
+## Part 5: UI/UX & Desktop Interaction Standards
+
+- **Design Token & Ergonomics:**
+  - Modern Minimalist Dashboard (Swiss Style): clearly partitioned areas, ample breathing room, and visual hierarchy established through subtle contrast rather than garish colors.
+  - Semantic theme tokens providing full native support for both **Light** and **Dark** themes.
+  - Transmit information through explicit text labels and clear iconography; never convey state purely through color alone.
+- **Custom Vector Form Controls:**
+  - Form controls with state indicators (`WorkbenchCheckBox`, `WorkbenchComboBox`, `WorkbenchSpinBox`) and batch action buttons (`runAll`, `stopAll`, `deleteAll`) are rendered using vector `QPainter` antialiasing; never use crude solid-color QSS masks that obscure indicator icons.
+  - For editable `WorkbenchComboBox`, align left margins with `QSpinBox` by applying padding directly to `QComboBox:editable` (`padding: 4px 28px 4px 7px;`), keeping child `QLineEdit` padding at zero (`padding: 0;`), and setting `setTextMargins(0, 0, 18, 0)`.
+  - Override search field Clear buttons (`rxFilter`, `paramFilter`, `catalogSearch`) with smooth vector `✕` paths, and disable OS IME (`Qt::WA_InputMethodEnabled = false`) on technical inputs to avoid keystroke buffering.
+- **Two-Way Synchronization with QSettings:**
+  - Decouple settings into 3 isolated scopes: `Preferences` (general settings), `Layout` (window size, splitter positions), and `Workspace` (configured TX messages).
+  - Use `QSignalBlocker` during settings restoration (`restoreSettings`) to prevent widget signals from triggering premature saves.
+  - Always call `settings.sync()` immediately after writing settings.
+  - Workspace restoration (`workspace/restoreTx`) must always be **disabled by default (`false`)** for safety; restored messages must strictly start in the **Stopped** (`active = false`) state.
+- **Telemetry Real-Time Plotter:**
+  - Native strip-chart plotter built with antialiased vector `QPainter`, zero external dependencies (no QCustomPlot or QtCharts).
+  - Fixed circular ring buffer of 2048 samples/channel (`Mav::PlotBuffer`), allocated once with zero runtime heap allocations during streaming.
+
+---
+
+## Part 6: Build, Verification, and Testing Procedures
+
+### 6.1. Mandatory Full Build Rule
+- After any code modification, **always execute a full build (`cmake --build build -j` or `./cli.sh build all`)** to guarantee the main application binary (`build/mavlink-lab`) is updated alongside test executables.
+- Never compile isolated test targets alone before concluding verification.
+
+### 6.2. Official Build & Test Commands
 
 ```bash
+# Update submodule and Full Build
 git submodule update --init --recursive
 cmake -S . -B build
 cmake --build build -j
+
+# Run all 72 automated tests via CTest
 ctest --test-dir build --output-on-failure
-./build/mavlink-lab
-```
 
-**Core-only** khi không có Qt:
+# Run via CLI helper
+./cli.sh test
+./cli.sh run
 
-```bash
+# Core-only Build (No Qt required)
 cmake -S . -B build-core -DBUILD_GUI=OFF
 cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
-- Nếu Qt không nằm trong system prefix, dùng `CMAKE_PREFIX_PATH` phù hợp. Không trộn Qt major/minor versions; không hardcode đường dẫn `/tmp` vào source/build configuration được commit.
-- Khi chạy `ctest` cho desktop tests trong môi trường có Qt nằm ngoài system prefix (như `/tmp/mavlink-qt-prefix`), cần thiết lập `QT_PLUGIN_PATH` và `LD_LIBRARY_PATH` tương ứng với cấu hình trong `CMakeCache.txt` (tương tự `run.sh`) để nạp đúng plugin `offscreen`.
-- Chạy checks phù hợp với thay đổi. Test logic mới/sửa bằng các trường hợp có ý nghĩa, gồm invalid input, bounds và failure paths; tránh tests chỉ lặp lại implementation.
-- Tự kiểm tra syntax/types, API usage, initialization/lifetime, buffer bounds, state machine, concurrency và error handling. Cân nhắc sanitizers/static analysis khi có nguy cơ tương ứng.
-- Báo riêng **build**, **automated tests**, **rendered GUI**, **PTY**, **physical UART** và **DMA**. Test fixture không phải bằng chứng hardware.
-- Qt desktop tests tự chọn offscreen platform qua CTest và tạo ảnh tại `build/qa/`. Không đưa build artifacts hoặc `.codegraph/` vào Git.
-- **Không xóa hoặc cleanup thư mục `qa/` và `build/qa/`** sau khi chạy test; giữ nguyên các ảnh chụp kiểm thử offscreen để người dùng có thể trực tiếp thanh tra giao diện và theo dõi visual regression.
-- Cập nhật documentation liên quan khi behavior/workflow thay đổi.
-- **Quy tắc ghi commit message:** Tiêu đề (subject line) phải ngắn gọn, súc tích nhất có thể (dạng `<type>(<scope>): <summary>`, ≤ 50–72 ký tự). Toàn bộ nội dung phân tích chi tiết, bối cảnh và các thay đổi cụ thể phải ghi vào phần **body** của commit (cách tiêu đề 1 dòng trống), không viết dồn vào tiêu đề.
+### 6.3. Preserve QA Test Artifacts
+- **Never delete or clean up `qa/` or `build/qa/` directories** after running test suites; offscreen visual regression screenshots must be retained for human inspection.
 
 <!-- CODEGRAPH_START -->
-## CodeGraph
+## Part 7: CodeGraph Usage Guide
 
-Trong repository có `.codegraph/`, dùng **CodeGraph trước `rg`/đọc source** khi cần hiểu hoặc định vị code:
+In repositories indexed by CodeGraph (containing a `.codegraph/` root directory), use **CodeGraph before running `rg` or reading raw source** to locate and understand symbols:
 
-- Ưu tiên MCP `codegraph_explore` nếu có, hoặc CLI `codegraph explore "<file, symbol hoặc câu hỏi>"`.
-- Dùng `codegraph node <file-or-symbol>` cho source cụ thể; thu hẹp query nếu kết quả bị cắt.
-- Nếu CodeGraph không có thông tin cần thiết, dùng `rg` và đọc source trực tiếp. Không tạo index ở repository chưa được user cho phép.
-- Sau khi sửa source, chạy `codegraph sync` và kiểm tra `codegraph status`.
+- Prioritize MCP `codegraph_explore` if available, or CLI `codegraph explore "<file, symbol, or question>"`.
+- Use `codegraph node <file-or-symbol>` for targeted source inspection; narrow the query if results are truncated.
+- If CodeGraph lacks specific details, fall back to `rg` and direct file inspection. Do not create an index in repositories unauthorized by the user.
+- After modifying source code, run `codegraph sync` and verify with `codegraph status`.
 <!-- CODEGRAPH_END -->

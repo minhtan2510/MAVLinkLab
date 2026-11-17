@@ -1,116 +1,311 @@
-# Troubleshooting
+# Troubleshooting Guide
 
-**Phạm vi:** Ubuntu/Linux desktop application hiện tại. Các nguyên nhân bên dưới là điều kiện được source/tests hỗ trợ; lỗi device thực tế cần kiểm tra theo status-bar reason, không suy ra từ UI đơn lẻ.
+**Audience:** Developers, test engineers, and firmware integrators diagnosing build, connection, protocol, or runtime issues in MAVLinkLab.
 
-## Không configure/build được
+All diagnostic procedures and solutions documented here are supported by repository source code, build scripts, and automated test suites.
 
-| Triệu chứng | Chẩn đoán | Cách xử lý |
-| --- | --- | --- |
-| `Initialize MAVLink: git submodule update --init --recursive` | CMake không thấy `third_party/mavlink/ardupilotmega/mavlink.h` | Khởi tạo submodule theo command dưới |
-| Không tìm thấy Qt6, Widgets, SerialPort hoặc Test | So dependency với [CMakeLists.txt](../CMakeLists.txt); Test chỉ cần khi `BUILD_TESTING=ON` | Dùng Qt ≥6.2 đầy đủ, đúng version; cung cấp `CMAKE_PREFIX_PATH`. Nếu chỉ cần core, dùng `BUILD_GUI=OFF` |
-| Core-only vẫn lỗi MAVLink | Core vẫn dùng official generated headers | Khởi tạo submodule; core-only chỉ bỏ Qt |
+---
 
-```bash
-git submodule update --init --recursive
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/gcc_64
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-```
+## 1. CMake Configuration or Build Failure
 
-Đường dẫn Qt trên là placeholder, thay bằng installation thực tế. Không trộn Qt library/plugin từ các versions khác nhau. Dependency packages và core-only commands có trong [README](../README.md); availability của package phụ thuộc Ubuntu release. Không cần cài Qt nếu chỉ chạy core-only tests.
+### Problem
+CMake fails during configuration or compilation.
 
-## Launcher không mở ứng dụng hoặc dùng build cũ
+### Symptoms
+- CMake error: `Initialize MAVLink: git submodule update --init --recursive`.
+- CMake error: `Could NOT find Qt6 (missing: Widgets SerialPort)` or `missing: Test`.
+- Compiler errors referencing missing MAVLink headers.
 
-**Triệu chứng:** `Application not found`, `Configured Qt installation is missing`, `Qt runtime not found`, hoặc cửa sổ không phản ánh source mới.
+### Possible Causes
+- The `third_party/mavlink` Git submodule has not been cloned or initialized.
+- Qt 6 development libraries (`qt6-base-dev`, `libqt6serialport6-dev`) are not installed in system paths.
+- Building tests with `BUILD_TESTING=ON` when Qt6 Test is not available.
 
-**Chẩn đoán:** [cli.sh](../cli.sh) chạy executable `mavlink-lab` trong `build/` hoặc `MAVLINK_BUILD_DIR`; nếu executable chưa có, nó sẽ build trước khi chạy. Qt path lấy từ `Qt6Core_DIR:PATH` trong CMake cache. Temporary prefix bị xóa khiến build đã link không còn runtime.
+### Diagnosis
+1. Check if `third_party/mavlink/ardupilotmega/mavlink.h` exists.
+2. Check your Qt 6 installation version and prefix:
+   ```bash
+   qmake6 -query QT_INSTALL_PREFIX || qmake -query QT_INSTALL_PREFIX
+   ```
+3. Check if local dependencies exist in `.deps/usr`.
 
-**Xử lý:** configure/build lại với Qt đang tồn tại, đóng rồi mở lại instance để dùng executable mới. Chọn build khác bằng:
+### Solution
+1. **Initialize the MAVLink submodule:**
+   ```bash
+   git submodule update --init --recursive
+   ```
+2. **If Qt 6 is installed via system packages:**
+   ```bash
+   sudo apt-get install -y qt6-base-dev libqt6serialport6-dev
+   cmake -S . -B build
+   cmake --build build -j
+   ```
+3. **If Qt 6 is in a custom directory:**
+   Specify `CMAKE_PREFIX_PATH`:
+   ```bash
+   cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/gcc_64
+   cmake --build build -j
+   ```
+4. **If building without Qt (Core-only):**
+   ```bash
+   cmake -S . -B build-core -DBUILD_GUI=OFF
+   cmake --build build-core -j
+   ctest --test-dir build-core --output-on-failure
+   ```
+5. **If using `./cli.sh` on Ubuntu without root access:**
+   Run `./cli.sh build all`, which automatically downloads required packages into `.deps/usr` using `apt-get download` and `dpkg-deb -x`.
 
-```bash
-MAVLINK_BUILD_DIR=build-debug ./cli.sh run
-./cli.sh help
-```
+### Notes
+Do not mix Qt major/minor versions between build time and runtime.
 
-`build-debug` phải chứa build GUI hoàn chỉnh trước khi chạy. Relative build directory được tính từ project root, không từ terminal working directory. `run --two` chỉ mở hai process độc lập; không tạo UART pair hay connect tự động.
+---
 
-**Platform plugin/display:** CTest đặt offscreen platform để chạy không cần desktop. Chạy GUI bình thường cần desktop session và Qt platform plugins phù hợp. Nếu chạy executable trực tiếp thiếu library/plugin paths, dùng launcher với CMake cache đúng installation. Offscreen test pass không xác nhận native desktop integration.
+## 2. Launcher or Execution Failure
 
-## Không connect được serial port
+### Problem
+`./cli.sh run` fails to launch or runs an outdated binary.
 
-**Triệu chứng:** state Error hoặc status-bar reason sau Connect.
+### Symptoms
+- Terminal output: `Application not found`, `Configured Qt installation is missing`, or `Qt runtime not found`.
+- Application starts but changes made to source files are not visible.
 
-1. Xác nhận device path trong **Serial port**; custom PTY/device path có thể nhập trực tiếp.
-2. Nếu path không còn tồn tại, refresh danh sách rồi chọn lại; Refresh giữ path đã nhập, không xác nhận path còn hợp lệ.
-3. Dựa trên reason của QSerialPort để kiểm tra device ownership, permission hoặc process khác đang sử dụng port. Đây là possible causes, không phải kết luận cho mọi open failure.
-4. Chọn baud/framing/flow được driver và peer hỗ trợ. GUI chấp nhận một baud integer không có nghĩa hardware hỗ trợ baud đó.
+### Possible Causes
+- The application binary was not built after modifying code.
+- Custom Qt installation path or temporary directory was removed.
+- Missing `LD_LIBRARY_PATH` or `QT_PLUGIN_PATH` when running the binary directly outside `cli.sh`.
 
-Application không đổi permissions/group membership, không tự reconnect và không bảo đảm control lines không đổi khi driver open/close. Không chạy hai instances trên cùng một physical serial endpoint để giả lập TX/RX pair; mỗi instance cần endpoint tương ứng của kết nối thử nghiệm.
+### Diagnosis
+1. Check executable timestamp against source code:
+   ```bash
+   ls -l build/mavlink-lab src/window.cpp
+   ```
+2. Verify Qt dynamic linker dependencies:
+   ```bash
+   ldd build/mavlink-lab | grep -i qt
+   ```
 
-## Connect thành công nhưng TX không chạy
+### Solution
+1. Execute a full rebuild:
+   ```bash
+   cmake --build build -j
+   ```
+2. Use `./cli.sh run` to automatically set up the runtime environment (`QT_PLUGIN_PATH` and `LD_LIBRARY_PATH`) derived from `CMakeCache.txt` or `.deps/usr`.
 
-**Behavior có chủ đích:** Connect/reconnect không gửi message, không tự HEARTBEAT. Saved/edited entry luôn stopped.
+---
 
-**Chẩn đoán và xử lý:**
+## 3. Serial Port Connection Failure
 
-1. Add message, chọn card, kiểm tra sender/payload/protocol.
-2. Dùng **Send once** để gửi một frame hoặc **Start** để bật periodic.
-3. Nếu báo `Port closed or offered load exceeds link capacity`, kiểm tra connected state, giảm rate hoặc số entries đang running; chỉ tăng baud khi peer/driver cùng hỗ trợ.
-4. MAVLink 1 không cho IDs >255; chuyển protocol sang MAVLink 2 cho các messages đó.
+### Problem
+Clicking **Connect** results in an immediate `Error` state or a popup alert dialog.
 
-Payload timestamps/counters không tự cập nhật. Cần chỉnh payload hoặc bổ sung application logic nếu muốn dữ liệu động; scheduler hiện chỉ lặp payload đã lưu.
+### Symptoms
+- Modal alert dialog: `Connection Error: Failed to open serial port: ...`.
+- Toolbar status badge remains `Disconnected`.
 
-## TX dừng, Pending tăng hoặc peer không nhận đủ
+### Possible Causes
+- Current Linux user lacks read/write permissions for `/dev/ttyUSB*` or `/dev/ttyACM*`.
+- The port is locked by another running process (e.g. `minicom`, `screen`, `ModemManager`, or another instance).
+- An invalid or non-numeric baud rate was entered.
+- Linux modem control line deassertion failed on physical hardware.
 
-**Triệu chứng:** `TX queue full or serialization failed; periodic TX stopped`, entry Error/Stopped, hoặc TX Hz thấp hơn target.
+### Diagnosis
+1. Check device permissions:
+   ```bash
+   ls -l /dev/ttyUSB0 /dev/ttyACM0
+   ```
+2. Check for active processes holding the device:
+   ```bash
+   lsof /dev/ttyUSB0
+   fuser /dev/ttyUSB0
+   ```
+3. Check `dmesg` output for USB disconnect or driver errors:
+   ```bash
+   dmesg | tail -n 20
+   ```
 
-**Possible causes:** output path bị chậm/stall, flow control giữ truyền, offered load thực tế không theo kịp, hoặc serialization thất bại. Unread PTY peer gây backpressure đã có automated test.
+### Solution
+1. **Grant serial permissions:**
+   Add your Linux user to the `dialout` or `uucp` group:
+   ```bash
+   sudo usermod -a -G dialout $USER
+   ```
+   Log out and log back in for changes to take effect.
+2. **Stop conflicting services:**
+   Stop `ModemManager` if it probes the serial port on connection:
+   ```bash
+   sudo systemctl stop ModemManager
+   ```
+3. **Check Baud Rate:**
+   Ensure the baud rate input contains a positive integer (e.g. `115200`, `921600`). Non-numeric inputs are rejected immediately.
+4. **Toggle DTR/RTS deassertion:**
+   If a custom USB bridge rejects modem line `ioctl` calls, open **Tool → Settings… → Serial Management** and uncheck **Deassert DTR/RTS on connect**.
 
-**Chẩn đoán:** xem entry error, Pending, configured framing/flow và peer có đọc dữ liệu không. `Pending` chỉ gồm application + Qt queues, không đo toàn bộ kernel/hardware buffer. Capacity check là conservative estimate; không loại trừ flow-control stall hay event-loop delay.
+---
 
-**Xử lý:** giải quyết downstream stall hoặc giảm load, rồi Start lại entry. Disconnect/reconnect sẽ clear pending output và giữ TX stopped. Stop/Edit/Remove một entry cũng hủy **shared output queue**, có thể ảnh hưởng pending frames của entry khác. Bytes đã truyền không thu hồi được; frame truyền dở có thể bị cắt.
+## 4. Connected Successfully but TX Does Not Transmit
 
-**Không dùng count làm delivery ACK:** frame count/TX Hz đo hoàn tất handing-off vào Qt; bytesWritten không chứng minh peer nhận đúng. Cần RX ở peer hoặc thiết bị đo để xác nhận truyền thực tế.
+### Problem
+The serial port connects, but no MAVLink messages are received by the peer.
 
-## RX trống, CRC errors tăng hoặc decoded values không đúng
+### Symptoms
+- Status badge shows `Connected`.
+- TX Card shows `Stopped` or `Frames: 0`.
+- No frames received on target flight controller or peer tool.
 
-1. Kiểm tra peer thực sự gửi MAVLink; Connect không yêu cầu peer tự stream.
-2. Đồng bộ baud, parity, stop bits và flow control. Với binary MAVLink dùng 8 data bits; cấu hình khác có thể làm mất high bits. Software XON/XOFF có thể can thiệp binary bytes nếu peer không cấu hình phù hợp.
-3. Kiểm tra filter và **Pause display**; Resume để nhận presentation mới. Parser/counters vẫn chạy trong Pause.
-4. Kiểm tra sender system/component và message ID. Mỗi tuple là stream riêng; không gộp message cùng ID từ nhiều components.
-5. Đối chiếu dialect compile là `ardupilotmega`. Unknown IDs không được đảm bảo CRC-validated/decoded; CRC errors không đủ để kết luận lỗi điện hoặc packet loss.
+### Possible Causes
+- **Designed Invariant:** Connecting or reconnecting **never** transmits frames automatically, including `HEARTBEAT`.
+- The TX entry is in `Stopped` state (`active = false`).
+- Newly created or restored messages always start in `Stopped` state for safety.
 
-**Rate/age:** rate là event count trong trailing một giây; 0 Hz giữa hai messages rate thấp là bình thường. Stale nghĩa age >2 seconds. GUI cập nhật tối đa khoảng 5 Hz.
+### Diagnosis
+1. Check the inline state badge on the TX card (`Running` vs `Stopped`).
+2. Verify target System ID and Component ID match peer expectations.
+3. Check TX Card `Actual:` metric to see if frames are actively being dispatched.
 
-**Clear:** xóa RX storage và parser state, gồm fragmented frame chưa hoàn chỉnh, cùng RX/TX byte accumulators. Không xóa TX entries/counts. Nếu RX overflow tăng, đã vượt 2048 stream identities; Clear giải phóng identities nhưng incoming traffic có thể lấp đầy lại.
+### Solution
+1. Click the play button (`▶`) on the target TX card, or click **Run all** in the TX Dashboard header.
+2. Use context menu **Send once** to send an individual frame immediately.
+3. To test with virtual PTY serial ports, use `socat` to create a loopback pair:
+   ```bash
+   socat -d -d pty,raw,echo=0 pty,raw,echo=0
+   ```
 
-## Payload editor từ chối giá trị
+---
 
-**Triệu chứng:** inline error theo field name hoặc `MAVLink 1 supports message IDs 0–255 only`.
+## 5. TX Stops, Pending Bytes Accumulate, or Queue Full
 
-| Input | Constraint |
-| --- | --- |
-| Integer | Decimal, đúng signedness và range của type |
-| Float/double | Finite; không chấp nhận NaN/Infinity hoặc overflow |
-| Numeric array | Đúng số phần tử, comma-separated; không trailing comma |
-| Char array | UTF-8 text theo **byte limit**, không phải số ký tự |
-| HEARTBEAT `mavlink_version` | Read-only 3; không phải selector wire version |
+### Problem
+A running TX message stops unexpectedly, or the status bar shows high `Pending` bytes.
 
-Units/enum descriptions không có trong adapter; field values không được tự chuyển unit. Missing extension bytes decode thành zero. MAVLink 1 bỏ extension fields khi serialize; chọn MAVLink 2 nếu cần chúng.
+### Symptoms
+- TX Card status changes to `Error` with message: `"TX queue full or serialization failed; periodic TX stopped"`.
+- Status bar `Pending:` counter grows continuously.
 
-## Signed frame, DMA và kiểm chứng
+### Possible Causes
+- Downstream serial device or receiver is stalled or not reading from the serial port.
+- Hardware flow control (RTS/CTS) is enabled while CTS is deasserted by the peer.
+- Aggregate offered load across all active TX entries exceeds the physical baud rate capacity.
+- The internal `WriteQueue` limit (16,384 bytes) has been exceeded.
 
-Signed-frame tooltip không phải authentication result: project không cấu hình signing keys/verification. Không có nút DMA vì QSerialPort asynchronous I/O không chứng minh driver dùng DMA; muốn xác nhận cần hardware/kernel evidence riêng.
+### Diagnosis
+1. Check `Pending:` in the debug status bar.
+2. Check UART Flow Control in UART Settings popup.
+3. Compare aggregate planned load (`~X B/s`) against baud rate capacity.
 
-Chạy test suites được repository cung cấp:
+### Solution
+1. If using hardware flow control without CTS wiring, switch Flow Control to **None**.
+2. Reduce the transmission frequency (`Rate (Hz)`) or stop non-essential messages.
+3. Resolve receiver stalls on the peer device.
+4. Once the link clears, click the play button (`▶`) on the stopped card to resume transmission.
 
-```bash
-ctest --test-dir build --output-on-failure
-cmake -S . -B build-core -DBUILD_GUI=OFF
-cmake --build build-core -j
-ctest --test-dir build-core --output-on-failure
-```
+---
 
-Core tests kiểm tra codec/validation/parser/rate/queue; desktop tests kiểm tra PTY/backpressure/widgets và tạo screenshots trong `build/qa/`. Qt runtime ngoài system prefix cần đúng environment như [VERIFICATION.md](VERIFICATION.md). Các warnings offscreen về raise/keyboard grabs/size hints không đại diện cho native desktop behavior; vẫn kiểm tra exit status và failed assertions.
+## 6. RX List Empty, CRC Errors Incrementing, or Corrupted Data
 
-Không có physical-UART/DMA test, deployment packaging, persistence hoặc automated CI workflow trong tracked project hiện tại. Xem [architecture](ARCHITECTURE.md), [API contracts](API.md) và [verification evidence](VERIFICATION.md) trước khi mở rộng transport hay diễn giải metrics.
+### Problem
+Incoming serial data produces no decoded messages, or CRC errors rapidly increment.
+
+### Symptoms
+- RX Dashboard shows no streams or missing messages.
+- Status bar `CRC:` error count increments with every received frame.
+- Decoded fields display corrupted or default values.
+
+### Possible Causes
+- Baud rate, parity, or stop bits mismatch between MAVLinkLab and the transmitting device.
+- Software flow control (XON/XOFF) is corrupting binary bytes `0x11` or `0x13`.
+- Dialect mismatch: The remote node is transmitting messages not defined in `ardupilotmega` / `common`.
+- **Pause Display** is enabled in the RX Dashboard.
+
+### Diagnosis
+1. Check UART framing parameters (ensure **8 Data bits**, **None parity**, **1 Stop bit** for standard MAVLink).
+2. Check if **Pause Display** is checked. When paused, incoming frames continue parsing, but UI updates are suspended.
+3. Inspect `CRC:` errors in the debug status bar.
+
+### Solution
+1. Synchronize baud rate and framing settings with the transmitting node.
+2. Ensure Flow Control is set to **None** or **Hardware RTS/CTS** (never use Software XON/XOFF for binary protocols).
+3. Click **Resume display** if paused.
+4. If using a custom dialect, recompile with the required dialect XML definitions.
+
+---
+
+## 7. Payload Editor Rejects Input
+
+### Problem
+Entering a parameter value in the message editor shows an inline error or cannot be saved.
+
+### Symptoms
+- Red inline validation text below the field.
+- Save changes button is disabled or highlights error fields.
+- Error: `MAVLink 1 supports message IDs 0–255 only`.
+
+### Possible Causes
+- Integer value exceeds minimum or maximum range of the MAVLink type (e.g. entering `300` for a `uint8_t`).
+- Floating-point field contains `NaN`, `Infinity`, or non-numeric characters.
+- Numeric array input has incorrect number of elements or trailing commas.
+- Character string exceeds the fixed byte buffer length.
+- Message ID exceeds 255 while protocol version is set to MAVLink 1.
+
+### Diagnosis
+1. Read the inline validation message below the highlighted field.
+2. Check the message ID and selected Protocol version (v1 vs v2).
+
+### Solution
+1. Enter values within the valid type boundaries:
+   - `uint8_t`: 0 to 255
+   - `int8_t`: -128 to 127
+   - `uint16_t`: 0 to 65535
+   - `int16_t`: -32768 to 32767
+   - `float` / `double`: Valid finite decimal numbers (scientific notation like `1.5e-3` is supported).
+2. For numeric arrays, supply exactly the required number of comma-separated values (e.g. `0, 0, 0, 0`).
+3. For MAVLink 1, switch to MAVLink 2 if the message ID is greater than 255.
+
+---
+
+## 8. Parameter Protocol Loading Incomplete
+
+### Problem
+Parameter View shows partial parameters (`PARAMETERS (45 / 420)`).
+
+### Symptoms
+- Parameter list stops populating before total count is reached.
+- Loading indicator remains active.
+
+### Possible Causes
+- Remote target dropped parameter packets due to wireless loss or buffer overflow.
+- Target component does not implement standard MAVLink Parameter Protocol (`PARAM_REQUEST_LIST`).
+
+### Diagnosis
+1. Check if RX message `PARAM_VALUE` (msgid 22) is still arriving.
+2. Check for CRC errors or dropped packets on the serial link.
+
+### Solution
+1. Click **Refresh** in the Parameter View header to re-request the full parameter list (`PARAM_REQUEST_LIST`).
+2. Double-click any parameter to edit and send `PARAM_SET` directly.
+
+---
+
+## 9. Telemetry Plotter Waveform Not Displaying
+
+### Problem
+Right-clicking a field and choosing "Plot this field" does not draw a waveform.
+
+### Symptoms
+- Strip-chart canvas is blank or flatlined at zero.
+- Plot panel is collapsed.
+
+### Possible Causes
+- The selected field is non-numeric (e.g. character array or string).
+- Received field values are non-finite (`NaN` or `Inf`).
+- The incoming message stream has stopped arriving.
+- Telemetry plot is paused (**Pause** button active).
+
+### Diagnosis
+1. Verify the field type in the Decoded Fields table (`float`, `uint16_t`, etc.).
+2. Check the inline freshness status dot of the parent message in the RX tree (ensure it is Green/Active).
+3. Check if the **Pause** button on the plotter toolbar is toggled.
+
+### Solution
+1. Only select numeric scalar or array fields for plotting.
+2. Ensure the remote device is actively transmitting the target message.
+3. Click **Resume** if the plot canvas is paused.
