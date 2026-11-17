@@ -402,11 +402,15 @@ private slots:
         QTRY_VERIFY(inspector->rowCount() > 0);
         auto *filter = window.findChild<QLineEdit *>("rxFilter");
         QVERIFY(filter);
+        QVERIFY(filter->isClearButtonEnabled());
+        auto *rxClearBtn = filter->findChild<QToolButton *>();
+        QVERIFY(rxClearBtn && !rxClearBtn->icon().isNull());
         filter->setText("no_such_message");
         auto *rxEmpty = rx->viewport()->findChild<QLabel *>("emptyState");
         QVERIFY(!rxEmpty);
         QVERIFY(rx->topLevelItem(0)->isHidden());
-        filter->clear();
+        QTest::mouseClick(rxClearBtn, Qt::LeftButton);
+        QVERIFY(filter->text().isEmpty());
         QVERIFY(!rx->topLevelItem(0)->isHidden());
         QCOMPARE(rx->currentItem(), message);
         theme->setCurrentIndex(1);

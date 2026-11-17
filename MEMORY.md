@@ -59,6 +59,10 @@
 * **Commit Message Conventions:**
   * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
   * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
+* **Clarification & Approval Gate Workflow:**
+  * Before making any code or project changes requested in user prompts: Must ensure complete and unambiguous understanding of all requirements. Assumptions are strictly forbidden; if any point is unclear, actively ask the user until 100% clarity is achieved.
+  * Once requirements are understood, **do NOT jump straight into implementation**. Instead, summarize the understood requirements and outline the planned execution steps.
+  * Proceed with implementation **only after receiving explicit user approval/confirmation**.
 
 ---
 
@@ -104,6 +108,10 @@
 * **IME Bypass for Technical Search and Code Inputs:**
   * Technical inputs and filter fields (`CatalogSearch` used for `rxFilter`, catalog message search, parameter catalog filter; `paramFilter`; `inputEdit` parameter value editor) explicitly set `setAttribute(Qt::WA_InputMethodEnabled, false)` and `setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText)`.
   * This bypasses OS-level IME composition (e.g. Vietnamese IBus/Fcitx Telex/VNI pre-edit buffers), ensuring instantaneous single-character key dispatch and immediate `textChanged` emission without requiring trailing space or underscore keys.
+* **Search Clear Button Vector '✕' Override:**
+  * When `setClearButtonEnabled(true)` is used, Qt attempts to resolve system icons (`SP_LineEditClearButton` / `edit-clear`). On newer OS releases (such as Ubuntu 26.04) or customized desktop icon themes, the system theme may map `edit-clear` to a broom/sweep icon.
+  * `CatalogSearch` and search input filters (`rxFilter`, `paramFilter`) explicitly override the embedded `QToolButton` icon with a dedicated vector `✕` (`clearButtonIcon`) featuring smooth antialiasing, balanced 7x7 px geometry (`(4.5, 4.5)` to `(11.5, 11.5)`), and theme-aware colors for both normal and hover states (`#7e899f` / `#8992a6` normal, `#0f172a` / `#f1f5f9` active), guaranteed across both Light and Dark themes.
+
 * **QLineEdit Placeholder Text & QSS Palette Override:**
   * In Qt6, QSS `color` on `QLineEdit` automatically resets `QPalette::PlaceholderText` to the primary text color during widget polish and show events, causing placeholder text to render at full foreground brightness instead of muted.
   * `WorkbenchLineEdit` intercepts `showEvent()` and `changeEvent()` (`PaletteChange`, `ApplicationPaletteChange`, `StyleChange`) and explicitly clears resolve masks (`colors.setResolveMask(0)`) to preserve the theme-aware dimmed placeholder color (`#606d88` in Dark, `#8893a7` in Light).
@@ -195,13 +203,15 @@
     12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
 
 * **Real-time Telemetry Plotter & High-Performance Strip-Chart Canvas:**
-  * Zero external dependencies: Tự dựng toàn bộ strip chart canvas thời gian thực bằng vector `QPainter` antialiased native, không thêm QCustomPlot hay QtCharts.
-  * Bounded Ring Buffer (`Mav::PlotBuffer`): Kích thước cố định 2048 mẫu/kênh, cấp phát 1 lần (zero-allocation trong quá trình streaming dữ liệu), cung cấp hàm lấy dải giá trị `range(timeWindow)` và `samples(timeWindow)`.
-  * Trích xuất số an toàn từ MAVLink payload (`Mav::readFieldNumeric`): Hỗ trợ toàn bộ kiểu số nguyên (`uint8`..`uint64`, `int8`..`int64`) và số thực (`float`, `double`), lọc bỏ hoàn toàn chuỗi ký tự (`char[]`) và các giá trị non-finite (`NaN`, `Inf`).
-  * Giao diện tích hợp thông minh: Đặt trong `QSplitter` bên phải của `inspectorPane` (mặc định ẩn để tiết kiệm tài nguyên). Tự động kích hoạt khi người dùng chuột phải vào bất kỳ trường số nào trong `Decoded Fields` hoặc `Parameter Protocol View` và chọn "Plot this field". Hỗ trợ tối đa 6 kênh đồng thời với bảng màu palette tương phản cao.
-  * Tính năng nâng cao: Auto-scale Y trục tung (kèm chống lỗi chia 0 cho flatline), time window linh hoạt (10s, 30s, 60s, 120s), Pause/Freeze xem lại dữ liệu, Hairline Cursor hover kiểm tra giá trị tại điểm chuột, và nút Export CSV hỗ trợ phân tích ngoại tuyến.
-  * Theme Re-entrancy & Stylesheet: Tránh gọi `setStyleSheet()` cục bộ trong các widget con khi chuyển theme; quản lý tập trung CSS trong `dataStyle` và bảo vệ `applyTheme()` bằng re-entrancy guard `static bool applying = false;` để ngăn chặn đệ quy vô hạn khi Qt phát `ApplicationPaletteChange`.
-  * Floating-point & Test Context Menus: Khi kiểm tra giá trị số thực trích xuất từ single-precision MAVLink message (`float`), sử dụng `std::abs(val - target) < 1e-4` thay vì so sánh tuyệt đối để tránh sai số IEEE-754. Đối với context menu trong `QTableWidget`, kích hoạt qua `QPoint(-1, -1)` (keyboard simulation) kết hợp `setCurrentCell()` để định vị chính xác dòng được chọn mà không phụ thuộc vào pixel geometry của viewport.
+  * Zero external dependencies: Built a native real-time strip-chart canvas using antialiased vector `QPainter`, eliminating third-party dependencies such as QCustomPlot or QtCharts.
+  * Bounded Ring Buffer (`Mav::PlotBuffer`): Fixed capacity of 2048 samples/channel, preallocated once (zero runtime allocations during telemetry streaming), providing query methods `range()` and `samples()`.
+  * Safe numeric field extraction (`Mav::readFieldNumeric`): Supports all primitive integer types (`uint8`..`uint64`, `int8`..`int64`) and floating-point types (`float`, `double`), strictly filtering out character strings (`char[]`) and non-finite values (`NaN`, `Inf`).
+  * Intelligent UI integration: Positioned within a `QSplitter` on the right side of `inspectorPane` (hidden by default to conserve resources). Automatically activated when right-clicking any numeric field in `Decoded Fields` or `Parameter Protocol View` and choosing "Plot this field". Supports up to 6 simultaneous channels with high-contrast palette colors.
+  * Advanced controls: Dynamic Y-axis auto-scaling (with divide-by-zero protection for flatlines), configurable time windows (10s, 30s, 60s, 120s), Pause/Freeze to inspect historical values, Hairline Cursor hover to inspect timestamped values, and CSV export for offline analysis.
+  * Theme Re-entrancy & Stylesheet: Avoid invoking `setStyleSheet()` locally on child widgets during theme transitions; manage CSS centrally in `dataStyle` and protect `applyTheme()` with a re-entrancy guard `static bool applying = false;` to prevent infinite recursion when Qt emits `ApplicationPaletteChange`.
+  * Floating-point & Test Context Menus: When verifying floating-point values extracted from single-precision MAVLink messages (`float`), use `std::abs(val - target) < 1e-4` rather than exact equality to prevent IEEE-754 rounding discrepancies. For context menus in `QTableWidget`, trigger via `QPoint(-1, -1)` (keyboard simulation) combined with `setCurrentCell()` to target the selected row accurately without depending on viewport pixel coordinates.
+* **Unified Documentation Language Standard:**
+  * All documentation files across the project (`README.md`, `AGENTS.md`, `MEMORY.md`, and all documents under `docs/`) must strictly and consistently be written in **English** (with operational agent guidelines provided in `AGENTS.md`). Direct assistant conversational explanations remain in Vietnamese per user preference.
 
 * **Application Icon & Visual Brand Identity Integration:**
   * Official Logo Identity: **Concept 3: Isometric Monogram M-L** (3D isometric block representing MAVLink GCS and laboratory workbench).

@@ -35,6 +35,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
+#include <QToolButton>
 #include <QStyleOptionSpinBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -2052,11 +2053,40 @@ public:
     }
 };
 
+/**
+ * @brief Render a crisp vector 'x' icon for search field clear buttons.
+ * @param dark Whether dark theme palette is active.
+ * @return Theme-aware QIcon with normal and active hover states.
+ */
+static QIcon clearButtonIcon(bool dark)
+{
+    const QColor normalColor = dark ? QColor("#8992a6") : QColor("#7e899f");
+    const QColor activeColor = dark ? QColor("#f1f5f9") : QColor("#0f172a");
+
+    auto makePixmap = [](const QColor &color) -> QPixmap
+    {
+        QPixmap pixmap(32, 32);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(2, 2);
+        painter.setPen(QPen(color, 1.45, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawLine(QPointF(4.5, 4.5), QPointF(11.5, 11.5));
+        painter.drawLine(QPointF(11.5, 4.5), QPointF(4.5, 11.5));
+        return pixmap;
+    };
+
+    QIcon icon;
+    icon.addPixmap(makePixmap(normalColor), QIcon::Normal);
+    icon.addPixmap(makePixmap(activeColor), QIcon::Active);
+    return icon;
+}
+
 /** @brief Draw a theme-aware search glyph while retaining native clear and keyboard actions. */
 class CatalogSearch : public QLineEdit
 {
 public:
-    /** @brief Reserve space for the search glyph and enable the standard clear action. */
+    /** @brief Reserve space for the search glyph and enable the standard clear action with vector 'x' icon. */
     explicit CatalogSearch(QWidget *parent = nullptr) : QLineEdit(parent)
     {
         setTextMargins(22, 0, 0, 0);
@@ -2064,10 +2094,22 @@ public:
         setAttribute(Qt::WA_InputMethodEnabled, false);
         setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText);
         updatePlaceholderColor();
+        updateClearButtonIcon();
+    }
+
+    /** @brief Apply custom vector 'x' icon to the embedded clear button. */
+    void updateClearButtonIcon()
+    {
+        auto *clearBtn = findChild<QToolButton *>();
+        if (clearBtn)
+        {
+            const bool dark = palette().color(QPalette::Window).lightness() < 128;
+            clearBtn->setIcon(clearButtonIcon(dark));
+        }
     }
 
 protected:
-    /** @brief Keep search hints subdued when the application theme changes. */
+    /** @brief Keep search hints and clear button subdued when the application theme changes. */
     void changeEvent(QEvent *event) override
     {
         QLineEdit::changeEvent(event);
@@ -2075,6 +2117,7 @@ protected:
             event->type() == QEvent::StyleChange)
         {
             updatePlaceholderColor();
+            updateClearButtonIcon();
         }
     }
 
@@ -3799,6 +3842,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     paramFilter->setFixedWidth(160);
     paramFilter->setFixedHeight(26);
     paramFilter->setClearButtonEnabled(true);
+    if (auto *clearBtn = paramFilter->findChild<QToolButton *>())
+    {
+        clearBtn->setIcon(clearButtonIcon(palette().color(QPalette::Window).lightness() < 128));
+    }
     paramFilter->setAttribute(Qt::WA_InputMethodEnabled, false);
     paramFilter->setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText);
     paramFilter->hide();
@@ -7533,6 +7580,20 @@ void MainWindow::applyTheme()
     if (rxThroughput && connected)
     {
         updateRxThroughputStyle(lastRxUtil);
+    }
+    if (rxFilter)
+    {
+        if (auto *clearBtn = rxFilter->findChild<QToolButton *>())
+        {
+            clearBtn->setIcon(clearButtonIcon(dark));
+        }
+    }
+    if (paramFilter)
+    {
+        if (auto *clearBtn = paramFilter->findChild<QToolButton *>())
+        {
+            clearBtn->setIcon(clearButtonIcon(dark));
+        }
     }
     applying = false;
 }

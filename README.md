@@ -4,27 +4,120 @@
 
 # MAVLinkLab
 
-**Send, receive and inspect MAVLink messages over serial UART.**
+**Rugged serial MAVLink workbench for Ubuntu/Linux.**
 
-A desktop workbench for **Ubuntu/Linux**, built with C++17 and Qt 6. Supports **MAVLink 1 & 2** using the official MAVLink C library and the **ardupilotmega** dialect, including **common**.
+MAVLinkLab is a high-performance desktop workbench built with C++17 and Qt 6 for testing, inspecting, and simulating **MAVLink 1 & 2** communication over serial UART. It links against the official MAVLink C library using the **ardupilotmega** dialect (including **common**).
 
-Previously named MAVLinkSimulator. Existing preferences, layouts and optional TX workspaces remain compatible through the legacy `MAVLinkSimulator` settings namespace.
+Previously named MAVLinkSimulator. Existing configurations, layouts, and workspace TX message lists remain fully compatible via the legacy `MAVLinkSimulator` QSettings namespace.
 
-## What you can do
+---
 
-| Area | Features |
+## Overview
+
+MAVLinkLab provides a robust tool for firmware engineers, roboticists, and flight software developers to interact directly with MAVLink-enabled flight controllers, gimbals, companion computers, and custom embedded nodes over physical or virtual serial links.
+
+Key design principles:
+- **No Automatic Transmission on Connect:** Link activation never sends unprompted frames or heartbeats.
+- **Strict Thread Affinity:** Serial I/O, frame parsing, and periodic scheduling are confined to a dedicated background worker thread; the GUI thread remains responsive under heavy traffic.
+- **Zero-Allocation Core Engine:** Telemetry parsing, sliding-window rate tracking, and real-time waveform plotting operate without dynamic heap reallocations during streaming.
+- **Defensive Hardware Protection:** Linux modem control lines (DTR/RTS) are deasserted by default on connection to prevent unintended target resets.
+
+---
+
+## Features
+
+| Capability | Description |
 | --- | --- |
-| **Serial** | Configurable port, baud rate, framing and flow control; optional auto-reconnect |
-| **TX Dashboard** | Search messages, edit payloads, send once or periodically at 1–1000 Hz |
-| **RX Dashboard** | Browse streams grouped by System/Component, view rates and counts, inspect decoded fields |
-| **Profiles** | Import/export portable CBOR TX profiles (`.mavprofile`), Replace or Append |
-| **Workspace** | System/Light/Dark themes, saved layout and optional TX message restoration |
+| **Serial Management** | Configurable device path, baud rate, data bits, parity, stop bits, and flow control. Features clean plugged-device enumeration, auto-reconnect, and modem control-line deassertion. |
+| **TX Dashboard** | Message search catalog, interactive payload editor, batch actions (Run all, Stop all, Delete all), and isochronous stream scheduling from 0.1 to 1000 Hz. |
+| **RX Dashboard** | 2-level grouped tree (`System · Component → Leaf Message`), inline freshness status dots, real-time message rates (Hz), frame counters, and throughput monitoring. |
+| **Decoded Fields & Inspector** | Live inspection of primitive types, 64-bit integers, IEEE-754 floats, and character arrays with right-click "Copy value" and transient visual confirmation. |
+| **Parameter Protocol** | Dual-mode inspector for `PARAM_VALUE` (msgid 22). Aggregates parameters per component, provides real-time search, type-safe editing, and `PARAM_SET` (msgid 23) transmission. |
+| **Real-time Telemetry Plotter** | Built-in rolling strip-chart canvas using native antialiased `QPainter` vectors. Supports up to 6 simultaneous channels, auto-scaling Y-axis, time windows (10s–120s), inspection cursor, and CSV export. |
+| **Throughput & Load Estimation** | Pre-flight link load estimation (`~X B/s (Y%)`) based on physical UART framing overhead (e.g. 10 bits/byte for 8N1). Real-time RX/TX byte rate tracking via 1.0s monotonic sliding windows. |
+| **Portable TX Profiles** | Export and import portable CBOR configuration files (`.mavprofile`) with Replace and Append modes, validated against a 1 MiB schema limit. |
+| **Workspace & Themes** | Cohesive Light and Dark themes, customizable debug status bar, adjustable splitters, and persistent window geometry. |
 
-## Build & run
+---
 
-**Requirements:** C++17 compiler, CMake ≥3.21 and Qt ≥6.2 with **Widgets**, **SerialPort** and **Test** development components. Qt Test is needed when `BUILD_TESTING=ON` (default).
+## Requirements
 
-From the project root:
+- **Operating System:** Ubuntu / Linux (x86_64).
+- **Compiler:** C++17 capable compiler (GCC ≥ 9, Clang ≥ 10).
+- **Build System:** CMake ≥ 3.21.
+- **Framework:** Qt ≥ 6.2 with `Widgets`, `SerialPort`, and `Test` (when building tests).
+- **Submodules:** Official MAVLink C headers (`third_party/mavlink`).
+- **Python (Optional):** Python 3 for regenerating enum lookups from XML definitions.
+
+---
+
+## Hardware
+
+- **Supported Transports:** Any Linux TTY serial device, including:
+  - Standard onboard UARTs (`/dev/ttyS*`).
+  - USB-to-UART bridge converters (FTDI, CP210x, CH340, PL2303 via `/dev/ttyUSB*`).
+  - USB CDC-ACM virtual serial ports (STM32 VCP, Pixhawk, Arduino via `/dev/ttyACM*`).
+  - Virtual pseudo-terminals (`/dev/pts/*` PTY pairs created via `socat`).
+- **Physical Framing:** 5 to 8 data bits, None/Even/Odd/Mark/Space parity, 1, 1.5, or 2 stop bits, and None/Hardware (RTS/CTS)/Software (XON/XOFF) flow control.
+
+---
+
+## Software Dependencies
+
+All primary dependencies are resolved via system packages or git submodules:
+
+| Dependency | Location / Package | Purpose |
+| --- | --- | --- |
+| **MAVLink C Library** | `third_party/mavlink` (Git submodule) | Protocol definitions, wire serialization, CRC calculation |
+| **Qt6 Widgets** | `qt6-base-dev` | Desktop user interface and dialogs |
+| **Qt6 SerialPort** | `libqt6serialport6-dev` | Asynchronous non-blocking serial device I/O |
+| **Qt6 Test** | `qt6-base-dev` | Unit and integration testing harnesses |
+| **Local Dependencies** | `.deps/usr` (Auto-extracted) | Local userspace dependency prefix when root access is unavailable |
+
+---
+
+## Project Structure
+
+```text
+MAVLinkLab/
+├── CMakeLists.txt          # CMake build definitions (mavcore, mavdesktop, mavlink-lab, tests)
+├── README.md               # Project overview and quick start guide
+├── AGENTS.md               # Coding agent instructions and technical knowledge base
+├── MEMORY.md               # Project memory, ADRs, conventions, and gotchas
+├── cli.sh                  # Interactive command-line workbench helper
+├── requirement.txt         # APT packages required for local userspace extraction
+├── docs/                   # Developer documentation
+│   ├── ARCHITECTURE.md     # System architecture, threading, and ownership models
+│   ├── API.md              # Public C++ interfaces and data structures
+│   ├── TROUBLESHOOTING.md  # Common build, connection, and runtime troubleshooting
+│   ├── DESIGN.md           # Desktop UI design tokens, layout, and ergonomics
+│   ├── PROFILES.md         # CBOR TX profile schema specification
+│   ├── VERIFICATION.md     # Test verification evidence and QA procedures
+│   └── PROPOSAL_ADVANCED_FEATURES.md # Advanced feature roadmap and proposals
+├── src/                    # Source code
+│   ├── core.h, core.cpp    # Core codec, metadata, parser, rate estimators, bounded queue (No Qt)
+│   ├── mavlink_enums.h, cpp# Generated MAVLink enum lookup tables
+│   ├── worker.h, worker.cpp# SerialWorker background thread (QSerialPort, scheduling, I/O)
+│   ├── window.h, window.cpp# MainWindow GUI, dashboards, payload editor, plot canvas, themes
+│   ├── profile.h, profile.cpp# CBOR serialization for .mavprofile files
+│   ├── version.h           # Semantic version parsing and update checking
+│   └── main.cpp            # Application entry point
+├── tests/                  # Automated test suites
+│   ├── core_tests.cpp      # Pure C++ unit tests for codec, parser, rates, and ring buffer
+│   ├── desktop_tests.cpp   # GUI, PTY serial, and offscreen widget validation
+│   ├── control_lines_tests.cpp # Linux modem control lines and ioctl wrapping tests
+│   ├── profile_tests.cpp   # Profile CBOR codec unit tests
+│   ├── profile_worker_tests.cpp # Worker profile import/export tests
+│   └── profile_ui_tests.cpp# Profile dialog and UI flow tests
+├── resources/              # Vector icons, desktop launcher, and Qt resources (.qrc)
+└── tools/                  # Code generation utilities (generate_mavlink_enums.py)
+```
+
+---
+
+## Build
+
+### Full Build (GUI & Tests)
 
 ```bash
 git submodule update --init --recursive
@@ -33,54 +126,18 @@ cmake --build build -j
 ./build/mavlink-lab
 ```
 
-If Qt is installed outside the system prefix, configure with its installation path:
+### Custom Qt Installation Prefix
+
+If Qt 6 is installed outside the standard system path:
 
 ```bash
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/gcc_64
+cmake --build build -j
 ```
 
-Replace the example path with your Qt installation. Use matching Qt libraries and plugins; a custom installation may also require `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH` at runtime.
+### Core-Only Build (No Qt Required)
 
-## Quick start
-
-Run `./cli.sh` for the interactive workbench menu. Each menu remembers its last highlighted option after commands and when returning from a submenu, for the current CLI session.
-
-1. **Connect:** select a serial port from the dropdown and choose a baud rate, then click **Connect**. Port does not accept typed paths and has no startup focus or placeholder. Use the UART settings icon for framing and flow control. On startup or Refresh, unavailable previous ports are discarded; Port is empty when no ports are available.
-2. **Create a message:** click **Add message**, search by ID or name, set sender IDs, protocol, rate and payload. **Add & start** immediately starts periodic TX when connected; messages added offline stay stopped.
-3. **Control TX:** use a card's start/stop button or right-click for **Send once**, **Start/Stop**, **Edit message…** and **Remove message**. Batch controls run, stop or delete all entries.
-4. **Inspect RX:** select a message under its System/Component group to view decoded fields. Search filters streams; **Pause display** freezes the view while parsing and counters continue. Right-click a field to **Copy value**.
-5. **Customize:** open **Tool → Settings…** for theme, MAVLink defaults, serial options and workspace restoration.
-
-## TX profiles
-
-1. Choose **File → Export Profile…** to save all current TX message definitions to a **`.mavprofile`** file.
-2. Choose **File → Import Profile…**, select the file with **Browse…** (or enter its path), then click **Import**.
-3. **Append** is unchecked every time the dialog opens: import replaces all TX messages and cancels their pending output. Check **Append** to retain current messages and append the file contents, including duplicates.
-
-Imported messages preserve order, IDs, sender identity, MAVLink version, rate and exact payload bytes. They always start **Stopped** with zero counters. Append preserves existing messages' running state and counters. Profiles exclude connection settings, RX data and runtime state, and work independently of startup restoration preferences.
-
-The entire file is validated before changes are applied; malformed/incompatible files or imports exceeding **128 total messages** leave the current TX list unchanged. Empty profiles are valid; importing one with Append off clears the list. Export writes atomically. See [Profile format](docs/PROFILES.md) for the CBOR schema and compatibility limits.
-
-## Important behavior
-
-- **Connect/reconnect sends nothing automatically**, including HEARTBEAT. Saving an edited message stops it. Payload timestamps and counters stay fixed until edited.
-- **Disconnect stops TX and clears pending output.** Stop/Edit/Remove also discard the shared pending output queue, which can affect other messages' pending frames. Bytes already sent cannot be recalled.
-- **TX restoration is off by default.** When enabled, messages return in the Stopped state. Layout and preferences are saved separately.
-- **TX counts are not delivery acknowledgements.** Rates use a trailing one-second event window; scheduling is best effort, with link-capacity checks and bounded queues.
-- **DTR/RTS deassertion is on by default.** Hardware RTS/CTS leaves RTS driver-controlled. This cannot guarantee that opening a device never produces a reset pulse.
-- **Signed frames are not authenticated.** Physical UART behavior and DMA require separate hardware verification.
-
-## Tests
-
-Run the core, PTY serial integration and Qt offscreen checks:
-
-```bash
-ctest --test-dir build --output-on-failure
-```
-
-For a custom Qt installation, set its matching library/plugin paths before running CTest. Offscreen screenshots are kept in **`build/qa/`**; PTY and offscreen results do not verify physical UART or native desktop integration.
-
-**Core-only build** — no Qt required:
+To build and verify the protocol codec, parser, and ring buffers on headless servers without Qt:
 
 ```bash
 cmake -S . -B build-core -DBUILD_GUI=OFF
@@ -88,12 +145,126 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
+---
+
+## Configuration
+
+Settings are organized cleanly in **Tool → Settings…** and persisted in `~/.config/MAVLinkSimulator/`:
+
+- **Appearance:** Select System, Light, or Dark theme tokens.
+- **MAVLink Defaults:** Default System ID (default: 1), Component ID (default: 1), and wire protocol version (MAVLink 1 vs 2).
+- **Serial Management:** Auto-reconnect toggle (reconnects every 1000 ms on unexpected link drop) and Deassert DTR/RTS on connect.
+- **Workspace & Session:** Optional restoration of configured TX messages on startup (disabled by default for safety). Reset Layout restores default window dimensions and splitters.
+- **Debug Status Bar:** Toggle metrics visibility and customize throughput display units (`B/s`, `KB/s`, `MB/s`).
+
+---
+
+## Usage
+
+You can launch the interactive workbench helper `./cli.sh` or run the binary directly:
+
+1. **Connect:** Select a detected serial port from the dropdown, choose the baud rate, and click **Connect**. Click the sliders icon to adjust data bits, parity, stop bits, or flow control.
+2. **Add a Message:** Click **+ Add message** in the TX Dashboard. Search by message ID or name, configure sender IDs, target rate (Hz), and fill in payload fields. Click **Add & start** to transmit immediately if connected, or **Add message** to keep it stopped.
+3. **Control Transmission:** Click the inline play/stop button on any message card to toggle periodic transmission. Right-click for context actions: **Send once**, **Start/Stop**, **Edit message…**, or **Remove message**. Use batch action buttons (`Run all`, `Stop all`, `Delete all`) beneath the header.
+4. **Inspect Received Messages:** Browse streams in the RX Dashboard grouped by `System · Component`. Click any message to view live decoded values in the **Decoded Fields** table.
+5. **Inspect Parameters:** Selecting `[22] PARAM_VALUE` switches the inspector to **Parameter Protocol View**, showing parameter names, types, values, and indices. Double-click any row to edit and send `PARAM_SET`.
+6. **Real-time Plotting:** Right-click any numeric field in the inspector and select **Plot this field** to activate the real-time strip-chart canvas.
+7. **Profiles:** Save your active TX configuration via **File → Export Profile…**, or load a profile via **File → Import Profile…**.
+
+---
+
+## Code Examples
+
+### In-Memory MAVLink Encoding and Parsing
+
+The core library (`src/core.*`) operates independently of Qt:
+
+```cpp
+#include "core.h"
+#include <iostream>
+
+int main()
+{
+    // Retrieve official metadata for HEARTBEAT
+    const auto *metadata = mavlink_get_msg_entry(MAVLINK_MSG_ID_HEARTBEAT);
+    if (!metadata)
+    {
+        return 1;
+    }
+
+    // Allocate zero-initialized payload buffer
+    Mav::Bytes payload(metadata->max_msg_len, 0);
+
+    // Set fields using generated metadata and wire offsets
+    std::string error;
+    const auto *customModeField = mavlink_get_field_info(metadata, "custom_mode");
+    if (customModeField)
+    {
+        Mav::setField(payload, *customModeField, "0", error);
+    }
+
+    // Serialize MAVLink 2 frame
+    mavlink_status_t status{};
+    Mav::Bytes frame = Mav::encode(MAVLINK_MSG_ID_HEARTBEAT, 1, 1, false, payload, status);
+
+    // Parse received wire bytes
+    Mav::Parser parser;
+    std::vector<mavlink_message_t> decoded = parser.feed(frame);
+
+    if (!decoded.empty())
+    {
+        std::cout << "Successfully decoded message ID: " << decoded[0].msgid
+                  << " from SysID: " << int(decoded[0].sysid) << "\n";
+    }
+
+    return 0;
+}
+```
+
+---
+
+## API Overview
+
+- **`Mav` Namespace (`src/core.h`):**
+  - Metadata & Reflection: `catalog()`, `typeName()`, `typeSize()`, `setField()`, `readField()`, `readFieldNumeric()`.
+  - Wire Codec: `encode()`, `frameSize()`.
+  - Rate Tracking & Scheduling: `Rate`, `ByteRate`, `PlotBuffer`, `validTx()`, `fitsLink()`, `due()`.
+  - Bandwidth Estimation: `estimateEntryThroughput()`, `estimateTxThroughput()`, `formatByteRate()`.
+  - Bounded Output Queue: `WriteQueue` (capped at 16,384 bytes).
+- **`SerialWorker` Class (`src/worker.h`):**
+  - Manages `QSerialPort` and 1 ms scheduling timers strictly in a background `QThread`.
+  - Public slots: `openPort()`, `closePort()`, `saveEntry()`, `removeEntry()`, `setActive()`, `setRate()`, `sendOnce()`, `runAll()`, `stopAll()`, `deleteAll()`, `importProfile()`, `exportProfile()`, `requestSnapshot()`.
+  - Signals: `stateChanged()`, `failure()`, `snapshotReady()`.
+- **`Profile` Namespace (`src/profile.h`):**
+  - `encode()` and `decode()` CBOR schema 1 profiles (`.mavprofile`).
+
+---
+
 ## Documentation
 
-| Guide | Contents |
-| --- | --- |
-| [Architecture](docs/ARCHITECTURE.md) | Core, worker, GUI and threading boundaries |
-| [API reference](docs/API.md) | Codec, parser, scheduling and queue contracts |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Build, serial connection and payload issues |
-| [UI design](docs/DESIGN.md) | Layout, controls and themes |
-| [Verification](docs/VERIFICATION.md) | Recorded checks and validation limits |
+Comprehensive developer-facing guides are available under `docs/`:
+
+- [System Architecture](docs/ARCHITECTURE.md) - Threading model, ownership boundaries, and runtime data flows.
+- [API Reference](docs/API.md) - Detailed public interfaces, error contracts, and parameters.
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Diagnostic steps for build, connection, TX, and RX issues.
+- [UI/UX Design](docs/DESIGN.md) - Desktop layout, token typography, and ergonomic principles.
+- [TX Profile Format](docs/PROFILES.md) - CBOR schema specification and validation rules.
+- [Verification Evidence](docs/VERIFICATION.md) - Test suites, offscreen rendering, and verification constraints.
+
+---
+
+## Testing
+
+Run all 72 automated tests (unit tests, PTY virtual serial checks, and offscreen widget rendering):
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+Or run via the workbench CLI:
+
+```bash
+./cli.sh test
+```
+
+Offscreen test artifacts and visual regression screenshots are automatically saved to `build/qa/` and `qa/`.
