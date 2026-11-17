@@ -277,6 +277,63 @@ std::string readField(const mavlink_message_t &message, const mavlink_field_info
     return output.str();
 }
 
+std::optional<double> readFieldNumeric(const mavlink_message_t &message, const mavlink_field_info_t &field, size_t arrayIndex)
+{
+    const size_t width = typeSize(field.type);
+    const size_t length = field.array_length ? field.array_length : 1;
+    if (!width || field.wire_offset + width * length > MAVLINK_MAX_PAYLOAD_LEN || arrayIndex >= length)
+    {
+        return std::nullopt;
+    }
+    if (field.type == MAVLINK_TYPE_CHAR)
+    {
+        return std::nullopt;
+    }
+    const auto *data = reinterpret_cast<const uint8_t *>(_MAV_PAYLOAD(&message));
+    uint64_t bits = 0;
+    for (size_t j = 0; j < width; ++j)
+    {
+        const size_t position = field.wire_offset + arrayIndex * width + j;
+        if (position < message.len)
+        {
+            bits |= uint64_t(data[position]) << (8 * j);
+        }
+    }
+    if (field.type == MAVLINK_TYPE_FLOAT)
+    {
+        const uint32_t raw = uint32_t(bits);
+        float value = 0.0f;
+        std::memcpy(&value, &raw, sizeof(value));
+        if (!std::isfinite(value))
+        {
+            return std::nullopt;
+        }
+        return double(value);
+    }
+    if (field.type == MAVLINK_TYPE_DOUBLE)
+    {
+        double value = 0.0;
+        std::memcpy(&value, &bits, sizeof(value));
+        if (!std::isfinite(value))
+        {
+            return std::nullopt;
+        }
+        return value;
+    }
+    if (field.type == MAVLINK_TYPE_INT8_T || field.type == MAVLINK_TYPE_INT16_T ||
+        field.type == MAVLINK_TYPE_INT32_T || field.type == MAVLINK_TYPE_INT64_T)
+    {
+        if (width < 8 && (bits & (uint64_t(1) << (width * 8 - 1))))
+        {
+            bits |= (~uint64_t(0)) << (width * 8);
+        }
+        int64_t value = 0;
+        std::memcpy(&value, &bits, sizeof(value));
+        return double(value);
+    }
+    return double(bits);
+}
+
 Bytes encode(uint32_t id, uint8_t sysid, uint8_t compid, bool version1,
              const Bytes &payload, mavlink_status_t &status)
 {
@@ -372,6 +429,97 @@ void ByteRate::clear()
 {
     samples.clear();
     totalBytes = 0;
+}
+
+PlotBuffer::PlotBuffer(size_t capacity)
+    : capacity_(capacity > 0 ? capacity : DefaultCapacity)
+{
+    buffer_.resize(capacity_);
+}
+
+void PlotBuffer::push(int64_t timeUs, double value)
+{
+    if (!std::isfinite(value) || capacity_ == 0)
+    {
+        return;
+    }
+    const size_t writeIndex = (head_ + count_) % capacity_;
+    buffer_[writeIndex] = PlotSample{timeUs, value};
+    if (count_ < capacity_)
+    {
+        ++count_;
+    }
+    else
+    {
+        head_ = (head_ + 1) % capacity_;
+    }
+}
+
+void PlotBuffer::clear()
+{
+    head_ = 0;
+    count_ = 0;
+}
+
+size_t PlotBuffer::size() const
+{
+    return count_;
+}
+
+bool PlotBuffer::empty() const
+{
+    return count_ == 0;
+}
+
+size_t PlotBuffer::capacity() const
+{
+    return capacity_;
+}
+
+PlotSample PlotBuffer::at(size_t index) const
+{
+    if (index >= count_)
+    {
+        return PlotSample{};
+    }
+    const size_t actualIndex = (head_ + index) % capacity_;
+    return buffer_[actualIndex];
+}
+
+std::pair<double, double> PlotBuffer::range() const
+{
+    if (count_ == 0)
+    {
+        return {0.0, 0.0};
+    }
+    double minVal = buffer_[head_].value;
+    double maxVal = buffer_[head_].value;
+    for (size_t i = 1; i < count_; ++i)
+    {
+        const size_t idx = (head_ + i) % capacity_;
+        const double v = buffer_[idx].value;
+        if (v < minVal)
+        {
+            minVal = v;
+        }
+        if (v > maxVal)
+        {
+            maxVal = v;
+        }
+    }
+    return {minVal, maxVal};
+}
+
+std::vector<PlotSample> PlotBuffer::samples() const
+{
+    std::vector<PlotSample> result;
+    result.reserve(count_);
+    for (size_t i = 0; i < count_; ++i)
+    {
+        const size_t idx = (head_ + i) % capacity_;
+        result.push_back(buffer_[idx]);
+    }
+    return result;
 }
 
 std::string paramTypeName(uint8_t type)

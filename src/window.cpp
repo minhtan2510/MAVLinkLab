@@ -3649,6 +3649,39 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         const int row = editParamAction->property("targetRow").toInt();
         editParameter(row);
     });
+    plotFieldAction = valueMenu->addAction("Plot this field");
+    plotFieldAction->setObjectName("plotFieldAction");
+    connect(plotFieldAction, &QAction::triggered, this, [this]()
+    {
+        const int row = plotFieldAction->property("targetRow").toInt();
+        if (row < 0 || row >= inspector->rowCount())
+        {
+            return;
+        }
+        if (isParamView)
+        {
+            const QString paramName = inspector->item(row, 0)->text();
+            togglePlotField(activeParamSysId, activeParamCompId, 22, paramName, paramName);
+        }
+        else
+        {
+            auto *item = rxTree->currentItem();
+            if (!item || !item->parent())
+            {
+                return;
+            }
+            const uint32_t msgid = item->data(0, Qt::UserRole).toUInt();
+            const uint32_t sysid = item->parent()->data(0, Qt::UserRole).toUInt();
+            const uint8_t compid = uint8_t(item->parent()->data(0, Qt::UserRole + 1).toUInt());
+            const auto *info = mavlink_get_message_info_by_id(msgid);
+            if (info && row < int(info->num_fields))
+            {
+                const QString fieldName = QString::fromLatin1(info->fields[row].name);
+                const QString label = QString("%1.%2").arg(messageName(msgid), fieldName);
+                togglePlotField(sysid, compid, msgid, fieldName, label);
+            }
+        }
+    });
     connect(inspector, &QWidget::customContextMenuRequested, this, [this, valueMenu, copyValue, editParamAction](const QPoint &position)
     {
         const bool keyboard = position.x() < 0 || position.y() < 0;
@@ -3662,6 +3695,36 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         copyValue->setProperty("targetRow", row);
         editParamAction->setVisible(isParamView);
         editParamAction->setProperty("targetRow", row);
+
+        bool isPlottable = false;
+        bool isPlotted = false;
+        if (isParamView)
+        {
+            isPlottable = true;
+            const QString paramName = inspector->item(row, 0)->text();
+            isPlotted = telemetryPlotter && telemetryPlotter->hasChannel(activeParamSysId, activeParamCompId, 22, paramName);
+        }
+        else
+        {
+            auto *treeItem = rxTree->currentItem();
+            if (treeItem && treeItem->parent())
+            {
+                const uint32_t msgid = treeItem->data(0, Qt::UserRole).toUInt();
+                const uint32_t sysid = treeItem->parent()->data(0, Qt::UserRole).toUInt();
+                const uint8_t compid = uint8_t(treeItem->parent()->data(0, Qt::UserRole + 1).toUInt());
+                const auto *info = mavlink_get_message_info_by_id(msgid);
+                if (info && row < int(info->num_fields))
+                {
+                    isPlottable = (info->fields[row].type != MAVLINK_TYPE_CHAR);
+                    const QString fieldName = QString::fromLatin1(info->fields[row].name);
+                    isPlotted = telemetryPlotter && telemetryPlotter->hasChannel(sysid, compid, msgid, fieldName);
+                }
+            }
+        }
+        plotFieldAction->setVisible(isPlottable);
+        plotFieldAction->setProperty("targetRow", row);
+        plotFieldAction->setText(isPlotted ? "Unplot this field" : "Plot this field");
+
         const QPoint anchor = keyboard ? inspector->visualItemRect(value).center() : position;
         valueMenu->popup(inspector->viewport()->mapToGlobal(anchor));
     });
@@ -3753,8 +3816,66 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     pausedLabel->hide();
     headerLayout->addWidget(pausedLabel);
 
+    plotToggleBtn = new QPushButton("Plotter");
+    plotToggleBtn->setObjectName("plotToggleBtn");
+    plotToggleBtn->setCheckable(true);
+    plotToggleBtn->setChecked(false);
+    plotToggleBtn->setFixedHeight(24);
+    plotToggleBtn->setToolTip("Toggle real-time telemetry plotter");
+    headerLayout->addWidget(plotToggleBtn);
+
+    inspectorContentSplitter = new QSplitter(Qt::Horizontal);
+    inspectorContentSplitter->setObjectName("inspectorContentSplitter");
+    inspectorContentSplitter->setHandleWidth(8);
+    inspectorContentSplitter->setChildrenCollapsible(false);
+
+    inspectorContentSplitter->addWidget(inspector);
+
+    telemetryPlotter = new TelemetryPlotWidget(this);
+    telemetryPlotter->setObjectName("telemetryPlotter");
+    telemetryPlotter->hide();
+    inspectorContentSplitter->addWidget(telemetryPlotter);
+
     inspectorLayout->addWidget(inspectorHeader);
-    inspectorLayout->addWidget(inspector, 1);
+    inspectorLayout->addWidget(inspectorContentSplitter, 1);
+
+    connect(plotToggleBtn, &QPushButton::toggled, this, [this](bool checked)
+    {
+        if (checked)
+        {
+            telemetryPlotter->show();
+            inspectorContentSplitter->setSizes({350, 550});
+        }
+        else
+        {
+            telemetryPlotter->hide();
+        }
+    });
+
+    telemetryPlotter->onClosed = [this]()
+    {
+        telemetryPlotter->hide();
+        if (plotToggleBtn)
+        {
+            plotToggleBtn->setChecked(false);
+        }
+    };
+
+    telemetryPlotter->onChannelsChanged = [this]()
+    {
+        if (plotToggleBtn)
+        {
+            const size_t count = telemetryPlotter->channelCount();
+            if (count > 0)
+            {
+                plotToggleBtn->setText(QString("Plotter (%1)").arg(count));
+            }
+            else
+            {
+                plotToggleBtn->setText("Plotter");
+            }
+        }
+    };
     rxSplit->addWidget(inspectorPane);
     rxSplit->setSizes({300, 300});
     rxLayout->addWidget(rxSplit, 1);
@@ -4116,6 +4237,10 @@ void MainWindow::resetLayout()
         inspector->setColumnWidth(0, 190);
         inspector->setColumnWidth(1, 105);
         inspector->hideColumn(3);
+    }
+    if (inspectorContentSplitter)
+    {
+        inspectorContentSplitter->setSizes({350, 550});
     }
     if (lastError)
     {
@@ -6443,7 +6568,113 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         filterRx();
         updateInspector();
     }
+    if (telemetryPlotter && telemetryPlotter->channelCount() > 0 && !paused && latest)
+    {
+        const int64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+
+        for (auto &channel : telemetryPlotter->channels())
+        {
+            if (channel.msgid == 22)
+            {
+                const auto devKey = std::make_pair(channel.sysid, channel.compid);
+                const auto it = latest->params.find(devKey);
+                if (it != latest->params.end())
+                {
+                    const auto paramIt = it->second.byId.find(channel.fieldName.toStdString());
+                    if (paramIt != it->second.byId.end())
+                    {
+                        const auto &p = paramIt->second;
+                        double val = 0.0;
+                        if (p.type == MAV_PARAM_TYPE_REAL32 || p.type == MAV_PARAM_TYPE_REAL64)
+                        {
+                            val = double(p.value);
+                        }
+                        else
+                        {
+                            mavlink_param_union_t u;
+                            u.param_float = p.value;
+                            val = double(u.param_int32);
+                        }
+                        channel.buffer.push(nowUs, val);
+                        channel.latestValue = val;
+                        channel.hasValue = true;
+                    }
+                }
+            }
+            else
+            {
+                for (const auto &rxView : latest->rx)
+                {
+                    const auto &msg = rxView.message;
+                    if (msg.sysid == channel.sysid && msg.compid == channel.compid && msg.msgid == channel.msgid)
+                    {
+                        const auto *info = mavlink_get_message_info_by_id(channel.msgid);
+                        if (info)
+                        {
+                            for (unsigned i = 0; i < info->num_fields; ++i)
+                            {
+                                if (channel.fieldName == QString::fromLatin1(info->fields[i].name))
+                                {
+                                    const auto valOpt = Mav::readFieldNumeric(msg, info->fields[i]);
+                                    if (valOpt.has_value())
+                                    {
+                                        channel.buffer.push(nowUs, *valOpt);
+                                        channel.latestValue = *valOpt;
+                                        channel.hasValue = true;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        telemetryPlotter->updateCanvas();
+    }
     updateActions();
+}
+
+TelemetryPlotWidget *MainWindow::plotterWidget() const
+{
+    return telemetryPlotter;
+}
+
+void MainWindow::togglePlotField(uint32_t sysid, uint8_t compid, uint32_t msgid, const QString &fieldName, const QString &label)
+{
+    if (!telemetryPlotter)
+    {
+        return;
+    }
+    if (telemetryPlotter->hasChannel(sysid, compid, msgid, fieldName))
+    {
+        telemetryPlotter->removeChannel(sysid, compid, msgid, fieldName);
+        if (telemetryPlotter->channelCount() == 0)
+        {
+            telemetryPlotter->hide();
+            if (plotToggleBtn)
+            {
+                plotToggleBtn->setChecked(false);
+            }
+        }
+    }
+    else
+    {
+        if (telemetryPlotter->addChannel(sysid, compid, msgid, fieldName, label))
+        {
+            telemetryPlotter->show();
+            if (inspectorContentSplitter)
+            {
+                inspectorContentSplitter->setSizes({350, 550});
+            }
+            if (plotToggleBtn)
+            {
+                plotToggleBtn->setChecked(true);
+            }
+        }
+    }
 }
 
 void MainWindow::setTxSummaryMode(int mode)
@@ -7035,6 +7266,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::applyTheme()
 {
+    static bool applying = false;
+    if (applying)
+    {
+        return;
+    }
+    applying = true;
+
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
     qApp->setProperty("darkTheme", dark);
@@ -7050,6 +7288,10 @@ void MainWindow::applyTheme()
     if (inspector)
     {
         inspector->setProperty("darkTheme", dark);
+    }
+    if (telemetryPlotter)
+    {
+        telemetryPlotter->setDarkTheme(dark);
     }
     for (auto *box : {restoreTxBox, autoReconnectBox, deassertControlLinesBox, showDebugBarBox})
     {
@@ -7235,6 +7477,18 @@ void MainWindow::applyTheme()
         "QTreeWidget#rxTree::item:selected:focus { outline:none; border:none; }"
         "QHeaderView::section { background:%6; color:%4; border-bottom:1px solid %2; border-right:1px solid %5; padding:4px 10px; }"
         "QSplitter#rxSplit::handle { background:transparent; border:0; }"
+        "QSplitter#inspectorContentSplitter::handle { background:%2; margin:0; }"
+        "QFrame#telemetryPlotter { background:%1; border:0; }"
+        "QFrame#plotterHeader { background:%3; border-bottom:1px solid %2; }"
+        "QLabel#plotterTitle { color:%4; font-size:12px; font-weight:600; }"
+        "QPushButton#plotToggleBtn { background:%3; color:%4; border:1px solid %2; border-radius:4px; font-size:11px; padding:0 8px; }"
+        "QPushButton#plotToggleBtn:checked { background:#4f46e5; color:#ffffff; border-color:#4338ca; }"
+        "QPushButton#plotAutoScaleBtn,QPushButton#plotPauseBtn,QPushButton#plotClearBtn,QPushButton#plotExportBtn,QPushButton#plotCloseBtn {"
+        "  background:%3; color:%4; border:1px solid %2; border-radius:3px; padding:2px 7px; font-size:11px; }"
+        "QPushButton#plotAutoScaleBtn:checked,QPushButton#plotPauseBtn:checked {"
+        "  background:#4f46e5; color:#ffffff; border-color:#4338ca; }"
+        "QPushButton#plotCloseBtn { padding:0; }"
+        "QComboBox#plotTimeRange { background:%1; color:%4; border:1px solid %2; border-radius:3px; font-size:11px; padding:0 4px; }"
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
@@ -7280,4 +7534,5 @@ void MainWindow::applyTheme()
     {
         updateRxThroughputStyle(lastRxUtil);
     }
+    applying = false;
 }
