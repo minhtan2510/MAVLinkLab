@@ -4208,6 +4208,23 @@ private slots:
             QVERIFY(!plotter->isVisible());
             QVERIFY(!plotToggleBtn->isChecked());
 
+            // Test Pop-out and Dock buttons
+            plotToggleBtn->click();
+            QTest::qWait(20);
+            QVERIFY(plotter->isVisible());
+            auto *popoutBtn = plotter->popoutButton();
+            QVERIFY(popoutBtn);
+            popoutBtn->click();
+            QTest::qWait(20);
+            QVERIFY(plotter->isFloating());
+            popoutBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isFloating());
+            closeBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
             // 15. Capture QA Visual Regression Artifacts
             plotToggleBtn->click(); // Make visible for screenshot
             QTest::qWait(30);

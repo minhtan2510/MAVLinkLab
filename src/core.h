@@ -167,6 +167,13 @@ public:
     std::pair<double, double> range() const;
 
     /**
+     * @brief Calculate minimum and maximum values across samples recorded at or after startUs.
+     * @param startUs Monotonic microsecond timestamp cutoff.
+     * @return Pair of {minValue, maxValue}, or std::nullopt if buffer is empty or no samples match.
+     */
+    std::optional<std::pair<double, double>> rangeSince(int64_t startUs) const;
+
+    /**
      * @brief Return ordered copy of all samples from oldest to newest.
      * @return Vector of PlotSample.
      */

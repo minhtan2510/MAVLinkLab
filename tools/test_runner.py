@@ -298,7 +298,7 @@ class VisualTestRunner:
 def main():
     parser = argparse.ArgumentParser(description="MAVLinkLab Visual Test Runner")
     parser.add_argument("--build-dir", default="build", help="Path to build directory")
-    parser.add_argument("--suite", choices=["all", "core", "desktop", "profile", "control-lines"], default="all")
+    parser.add_argument("--suite", choices=["all", "core", "desktop", "profile", "control-lines", "plotter"], default="all")
     parser.add_argument("--filter", default="", help="Filter specific desktop test function")
     parser.add_argument("--no-color", action="store_true", help="Disable colored output")
     args = parser.parse_args()
@@ -324,6 +324,8 @@ def main():
         suites_to_run.append(("Profile UI Actions & Dialogs", "profile-ui-tests", ["-v1"], True))
     if args.suite in ("all", "control-lines"):
         suites_to_run.append(("Modem Control Lines Tests", "control-lines-tests", ["-v1"], True))
+    if args.suite in ("all", "plotter"):
+        suites_to_run.append(("Real-Time Telemetry Plotter Tests (7 tests)", "plotter-tests", ["-v1"], True))
 
     total_steps = len(suites_to_run)
     for idx, (name, binary_name, extra_args, is_qttest) in enumerate(suites_to_run, 1):
