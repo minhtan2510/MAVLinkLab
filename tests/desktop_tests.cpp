@@ -193,6 +193,8 @@ private slots:
         for (quint64 key : {1, 2})
         {
             entry.key = key;
+            entry.id = uint32_t(key - 1);
+            entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
             worker.saveEntry(entry);
         }
         worker.runAll();
@@ -215,6 +217,8 @@ private slots:
         for (quint64 key : {1, 2})
         {
             entry.key = key;
+            entry.id = uint32_t(key - 1);
+            entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
             worker.saveEntry(entry);
         }
         worker.runAll();
@@ -4232,6 +4236,180 @@ private slots:
             QVERIFY(plotter->grab().save(QString("build/qa/plotter-%1.png").arg(themeSuffix)));
             QVERIFY(window.grab().save(QString("build/qa/window-plotter-%1.png").arg(themeSuffix)));
         }
+    }
+
+    /** @brief Enforce mutual exclusion for duplicate TX stream identities and test preference toggle. */
+    void singleActiveStreamEnforcement()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+        SerialWorker worker;
+        QSignalSpy snapshots(&worker, &SerialWorker::snapshotReady);
+        worker.initialize();
+
+        PortConfig config;
+        config.port = pty.name;
+        config.baud = 115200;
+        worker.openPort(config);
+        QTest::qWait(50);
+
+        // 1. Create two entries sharing identical stream identity: SysID 1, CompID 1, MsgID 0 (HEARTBEAT)
+        Mav::TxEntry entry1;
+        entry1.key = 1;
+        entry1.sysid = 1;
+        entry1.compid = 1;
+        entry1.id = 0;
+        entry1.hz = 2.0;
+        entry1.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+        worker.saveEntry(entry1);
+
+        Mav::TxEntry entry2;
+        entry2.key = 2;
+        entry2.sysid = 1;
+        entry2.compid = 1;
+        entry2.id = 0;
+        entry2.hz = 5.0;
+        entry2.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+        worker.saveEntry(entry2);
+
+        // Also create a 3rd entry with a distinct stream identity: SysID 1, CompID 1, MsgID 30 (ATTITUDE)
+        Mav::TxEntry entry3;
+        entry3.key = 3;
+        entry3.sysid = 1;
+        entry3.compid = 1;
+        entry3.id = 30;
+        entry3.hz = 10.0;
+        entry3.payload.resize(mavlink_get_msg_entry(30)->max_msg_len);
+        worker.saveEntry(entry3);
+
+        // 2. Activate entry 1
+        worker.setActive(1, true);
+        worker.requestSnapshot();
+        auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(!snapshot->tx[1].entry.active);
+
+        // 3. Activate entry 2 -> entry 1 should automatically be stopped
+        worker.setActive(2, true);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(!snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+
+        // Activating entry 3 (distinct stream) must not stop entry 2
+        worker.setActive(3, true);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(!snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+
+        // 4. Test runAll(): only the first entry of the duplicate group (entry 1) runs, entry 2 stays stopped, entry 3 runs
+        worker.stopAll();
+        worker.runAll();
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(!snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+
+        // 5. Disable singleActiveStream
+        worker.setSingleActiveStream(false);
+        worker.stopAll();
+        worker.runAll();
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+        worker.closePort();
+
+        // 6. Test UI Settings Checkbox and persistence
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+        auto *singleActiveBox = window.findChild<QCheckBox *>("singleActiveStream");
+        QVERIFY(singleActiveBox);
+        QVERIFY(singleActiveBox->isChecked());
+
+        // Toggle checkbox and verify QSettings persistence
+        singleActiveBox->setChecked(false);
+        QTest::qWait(20);
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        QCOMPARE(settings.value("workspace/singleActiveStream").toBool(), false);
+
+        // Restore to default
+        singleActiveBox->setChecked(true);
+        QTest::qWait(20);
+        QCOMPARE(settings.value("workspace/singleActiveStream").toBool(), true);
+
+        // 7. Test adding duplicate message while connected:
+        // Original running message continues running at Row 0; new duplicate appears at Row 1 (bottom) as Stopped.
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
+        window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
+        window.findChild<QPushButton *>("connect")->click();
+        QTRY_COMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Disconnect"));
+
+        // Add first message (HEARTBEAT, 1 Hz)
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            catalog->setCurrentRow(0);
+            dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Add second duplicate message (HEARTBEAT, 5 Hz)
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            catalog->setCurrentRow(0);
+            dialog->findChild<QDoubleSpinBox *>()->setValue(5.0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 2);
+
+        // Row 0: Original message continues running at 1 Hz
+        QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(0, 3)->text(), QString("1"));
+        QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Row 1: New duplicate message appears at bottom as Stopped at 5 Hz
+        QCOMPARE(tx->item(1, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(1, 3)->text(), QString("5"));
+        QCOMPARE(tx->item(1, 6)->text(), QString("Stopped"));
     }
 };
 

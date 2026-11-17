@@ -28,6 +28,12 @@
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
   * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
+* **TX Stream Mutual Exclusion (Single Active Stream per 3-Tuple):**
+  * An outgoing MAVLink stream is uniquely identified by `sysid + compid + msgid`. Multiple TX cards sharing this identity can be configured as presets, but running them simultaneously causes rate multiplication, bandwidth waste, and receiver state jitter.
+  * `SerialWorker` enforces mutual exclusion when `singleActiveStream` is enabled (default: `true`):
+    * **Single run:** Activating an entry (`setActive(key, true)`) automatically stops any other running entry sharing the same `(sysid, compid, id)`.
+    * **Run all:** `runAll()` starts only the first occurrence of each stream identity group and keeps duplicates stopped.
+  * Managed via `WorkbenchCheckBox` in `SettingsDialog` (`Workspace & Session` card, `workspace/singleActiveStream`), persisted in `QSettings` and synced asynchronously to the worker thread.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.

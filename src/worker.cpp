@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstring>
 #include <limits>
+#include <set>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -172,6 +173,11 @@ void SerialWorker::setDeassertControlLines(bool enabled)
     config.deassertControlLines = enabled;
 }
 
+void SerialWorker::setSingleActiveStream(bool enabled)
+{
+    singleActiveStream = enabled;
+}
+
 void SerialWorker::setAutoReconnect(bool enabled)
 {
     config.autoReconnect = enabled;
@@ -250,6 +256,20 @@ void SerialWorker::setActive(quint64 key, bool active)
         entry.error.clear();
         entry.active = true;
         entry.deadline = clock.nsecsElapsed() / 1000;
+        if (singleActiveStream)
+        {
+            for (auto &other : entries)
+            {
+                if (other.key != key && other.active &&
+                    other.sysid == entry.sysid &&
+                    other.compid == entry.compid &&
+                    other.id == entry.id)
+                {
+                    other.active = false;
+                    other.error.clear();
+                }
+            }
+        }
         requestSnapshot();
         return;
     }
@@ -366,8 +386,20 @@ void SerialWorker::runAll()
         requestSnapshot();
         return;
     }
+    std::set<std::tuple<uint8_t, uint8_t, uint32_t>> seen;
     for (auto &entry : entries)
     {
+        if (singleActiveStream)
+        {
+            const auto streamKey = std::make_tuple(entry.sysid, entry.compid, entry.id);
+            if (seen.find(streamKey) != seen.end())
+            {
+                entry.active = false;
+                entry.error.clear();
+                continue;
+            }
+            seen.insert(streamKey);
+        }
         entry.active = true;
         entry.error.clear();
         entry.deadline = clock.nsecsElapsed() / 1000;

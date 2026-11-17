@@ -165,6 +165,7 @@ private:
     QCheckBox *autoReconnectBox = nullptr;
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
+    QCheckBox *singleActiveStreamBox = nullptr;
     QCheckBox *showDebugBarBox = nullptr;
     QComboBox *statsRateUnitBox = nullptr;
     QLabel *statsRateUnitLabel = nullptr;

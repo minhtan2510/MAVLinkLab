@@ -146,6 +146,11 @@ public slots:
     void setAutoReconnect(bool enabled);
     /** @brief Set control-line policy for the next open without changing an active link. */
     void setDeassertControlLines(bool enabled);
+    /**
+     * @brief Configure mutual exclusion policy to prevent duplicate active TX streams.
+     * @param enabled True to stop conflicting active messages sharing the same (sysid, compid, msgid).
+     */
+    void setSingleActiveStream(bool enabled);
 signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);
@@ -196,4 +201,5 @@ private:
     int64_t lastReport = 0;
     bool closing = false;
     bool reconnecting = false;
+    bool singleActiveStream = true;
 };

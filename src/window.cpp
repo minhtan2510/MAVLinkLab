@@ -3150,6 +3150,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     restoreTxBox->setAccessibleName("Restore TX messages on startup");
     restoreGroup->addWidget(restoreTxBox);
 
+    singleActiveStreamBox = new WorkbenchCheckBox("Prevent duplicate active TX streams", workspaceCard);
+    singleActiveStreamBox->setObjectName("singleActiveStream");
+    singleActiveStreamBox->setChecked(true);
+    singleActiveStreamBox->setAccessibleName("Prevent duplicate active TX streams");
+    singleActiveStreamBox->setToolTip("Ensure only one message per (SysID, CompID, MsgID) stream transmits at a time");
+    restoreGroup->addWidget(singleActiveStreamBox);
+
     workspaceLayout->addLayout(restoreGroup);
 
     auto *resetRow = new QHBoxLayout;
@@ -4205,6 +4212,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     {
         saveSettings();
     });
+    connect(singleActiveStreamBox, &QCheckBox::toggled, this, [this](bool enabled)
+    {
+        if (worker)
+        {
+            QMetaObject::invokeMethod(worker, "setSingleActiveStream", Qt::QueuedConnection,
+                                      Q_ARG(bool, enabled));
+        }
+        saveSettings();
+    });
     connect(deassertControlLinesBox, &QCheckBox::toggled, this, [this](bool enabled)
     {
         saveSettings();
@@ -4366,6 +4382,10 @@ void MainWindow::restoreDefaultSettings()
     {
         restoreTxBox->setChecked(false);
     }
+    if (singleActiveStreamBox)
+    {
+        singleActiveStreamBox->setChecked(true);
+    }
     if (deassertControlLinesBox)
     {
         deassertControlLinesBox->setChecked(true);
@@ -4491,6 +4511,17 @@ void MainWindow::restoreSettings()
         const QSignalBlocker blocker(restoreTxBox);
         restoreTxBox->setChecked(restoreTx);
     }
+    const bool singleActiveStream = settings.value("workspace/singleActiveStream", true).toBool();
+    if (singleActiveStreamBox)
+    {
+        const QSignalBlocker blocker(singleActiveStreamBox);
+        singleActiveStreamBox->setChecked(singleActiveStream);
+    }
+    if (worker && singleActiveStreamBox)
+    {
+        QMetaObject::invokeMethod(worker, "setSingleActiveStream", Qt::QueuedConnection,
+                                  Q_ARG(bool, singleActiveStreamBox->isChecked()));
+    }
     const bool showDebugBar = settings.value("ui/showDebugBar", true).toBool();
     if (showDebugBarBox)
     {
@@ -4597,6 +4628,10 @@ void MainWindow::saveSettings()
     if (restoreTxBox)
     {
         settings.setValue("workspace/restoreTx", restoreTxBox->isChecked());
+    }
+    if (singleActiveStreamBox)
+    {
+        settings.setValue("workspace/singleActiveStream", singleActiveStreamBox->isChecked());
     }
     if (deassertControlLinesBox)
     {
@@ -6487,8 +6522,27 @@ void MainWindow::editMessage(bool edit)
         QMetaObject::invokeMethod(worker, "saveEntry", Qt::QueuedConnection, Q_ARG(Mav::TxEntry, entry));
         if (!edit && connected)
         {
-            QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
-                                      Q_ARG(quint64, entry.key), Q_ARG(bool, true));
+            const bool enforceSingle = !singleActiveStreamBox || singleActiveStreamBox->isChecked();
+            bool hasActiveDuplicate = false;
+            if (enforceSingle && latest)
+            {
+                for (const auto &item : latest->tx)
+                {
+                    if (item.entry.active &&
+                        item.entry.sysid == entry.sysid &&
+                        item.entry.compid == entry.compid &&
+                        item.entry.id == entry.id)
+                    {
+                        hasActiveDuplicate = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasActiveDuplicate)
+            {
+                QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
+                                          Q_ARG(quint64, entry.key), Q_ARG(bool, true));
+            }
         }
     }
 }
@@ -7312,7 +7366,7 @@ void MainWindow::applyTheme()
     {
         telemetryPlotter->setDarkTheme(dark);
     }
-    for (auto *box : {restoreTxBox, autoReconnectBox, deassertControlLinesBox, showDebugBarBox})
+    for (auto *box : {restoreTxBox, singleActiveStreamBox, autoReconnectBox, deassertControlLinesBox, showDebugBarBox})
     {
         if (box)
         {
