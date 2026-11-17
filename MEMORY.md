@@ -261,7 +261,8 @@
   LD_LIBRARY_PATH=/tmp/mavlink-qt-prefix/usr/lib/x86_64-linux-gnu \
   ctest --test-dir build --output-on-failure
   ```
-* **CodeGraph Synchronization:**
+* **CodeGraph & Knowledge Graph Synchronization:**
   ```bash
   codegraph sync && codegraph status
+  $(cat graphify-out/.graphify_python) -m graphify.cli --update
   ```

@@ -187,3 +187,22 @@ In repositories indexed by CodeGraph (containing a `.codegraph/` root directory)
 - If CodeGraph lacks specific details, fall back to `rg` and direct file inspection. Do not create an index in repositories unauthorized by the user.
 - After modifying source code, run `codegraph sync` and verify with `codegraph status`.
 <!-- CODEGRAPH_END -->
+
+---
+
+## Part 8: Graphify Knowledge Graph & Architecture Queries
+
+When `graphify-out/graph.json` exists in the repository, coding agents must leverage the persistent knowledge graph for architectural reasoning, cross-module context, and invariant validation:
+
+- **Architecture and Concept Queries:** For inquiries regarding system architecture, cross-thread data flows (GUI vs. Worker), module coupling, or rationale documented in ADRs, query the graph first before running wide grep or loading full files into context:
+  ```bash
+  $(cat graphify-out/.graphify_python) -m graphify.cli query "<question>"
+  $(cat graphify-out/.graphify_python) -m graphify.cli path "<source>" "<target>"
+  $(cat graphify-out/.graphify_python) -m graphify.cli explain "<concept_or_node>"
+  ```
+- **Incremental Synchronization:** After substantial codebase modifications or architectural refactoring, run an incremental update to maintain knowledge graph accuracy:
+  ```bash
+  $(cat graphify-out/.graphify_python) -m graphify.cli --update
+  ```
+- **Preserve Knowledge Graph Artifacts:** Do not delete or clobber `graphify-out/` outputs (`graph.json`, `graph.html`, `GRAPH_REPORT.md`).
+
