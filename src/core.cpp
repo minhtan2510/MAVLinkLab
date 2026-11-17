@@ -510,6 +510,39 @@ std::pair<double, double> PlotBuffer::range() const
     return {minVal, maxVal};
 }
 
+std::optional<std::pair<double, double>> PlotBuffer::rangeSince(int64_t startUs) const
+{
+    if (count_ == 0)
+    {
+        return std::nullopt;
+    }
+    double minVal = std::numeric_limits<double>::infinity();
+    double maxVal = -std::numeric_limits<double>::infinity();
+    bool found = false;
+    for (size_t i = 0; i < count_; ++i)
+    {
+        const size_t idx = (head_ + i) % capacity_;
+        if (buffer_[idx].timeUs >= startUs)
+        {
+            const double v = buffer_[idx].value;
+            if (v < minVal)
+            {
+                minVal = v;
+            }
+            if (v > maxVal)
+            {
+                maxVal = v;
+            }
+            found = true;
+        }
+    }
+    if (!found)
+    {
+        return std::nullopt;
+    }
+    return std::make_pair(minVal, maxVal);
+}
+
 std::vector<PlotSample> PlotBuffer::samples() const
 {
     std::vector<PlotSample> result;

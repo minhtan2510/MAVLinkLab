@@ -6617,69 +6617,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     }
     if (telemetryPlotter && telemetryPlotter->channelCount() > 0 && !paused && latest)
     {
-        const int64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-
-        for (auto &channel : telemetryPlotter->channels())
-        {
-            if (channel.msgid == 22)
-            {
-                const auto devKey = std::make_pair(channel.sysid, channel.compid);
-                const auto it = latest->params.find(devKey);
-                if (it != latest->params.end())
-                {
-                    const auto paramIt = it->second.byId.find(channel.fieldName.toStdString());
-                    if (paramIt != it->second.byId.end())
-                    {
-                        const auto &p = paramIt->second;
-                        double val = 0.0;
-                        if (p.type == MAV_PARAM_TYPE_REAL32 || p.type == MAV_PARAM_TYPE_REAL64)
-                        {
-                            val = double(p.value);
-                        }
-                        else
-                        {
-                            mavlink_param_union_t u;
-                            u.param_float = p.value;
-                            val = double(u.param_int32);
-                        }
-                        channel.buffer.push(nowUs, val);
-                        channel.latestValue = val;
-                        channel.hasValue = true;
-                    }
-                }
-            }
-            else
-            {
-                for (const auto &rxView : latest->rx)
-                {
-                    const auto &msg = rxView.message;
-                    if (msg.sysid == channel.sysid && msg.compid == channel.compid && msg.msgid == channel.msgid)
-                    {
-                        const auto *info = mavlink_get_message_info_by_id(channel.msgid);
-                        if (info)
-                        {
-                            for (unsigned i = 0; i < info->num_fields; ++i)
-                            {
-                                if (channel.fieldName == QString::fromLatin1(info->fields[i].name))
-                                {
-                                    const auto valOpt = Mav::readFieldNumeric(msg, info->fields[i]);
-                                    if (valOpt.has_value())
-                                    {
-                                        channel.buffer.push(nowUs, *valOpt);
-                                        channel.latestValue = *valOpt;
-                                        channel.hasValue = true;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-        telemetryPlotter->updateCanvas();
+        telemetryPlotter->processSnapshot(*latest);
     }
     updateActions();
 }

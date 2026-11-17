@@ -953,6 +953,20 @@ void testPlotBufferAndNumericReflection()
         check(buffer.size() == 0, "Buffer cleared to size 0");
         check(buffer.empty(), "Buffer is empty after clear");
         check(buffer.range() == std::make_pair(0.0, 0.0), "Cleared range is {0, 0}");
+        check(!buffer.rangeSince(1000).has_value(), "Cleared buffer rangeSince is nullopt");
+
+        // rangeSince() time-bounded testing
+        buffer.push(1000, 10.0);
+        buffer.push(2000, 50.0);
+        buffer.push(3000, -20.0);
+        buffer.push(4000, 30.0);
+        buffer.push(5000, 5.0);
+
+        check(!buffer.rangeSince(6000).has_value(), "rangeSince beyond newest is nullopt");
+        check(buffer.rangeSince(0) == std::make_pair(-20.0, 50.0), "rangeSince from 0 matches full range");
+        check(buffer.rangeSince(3000) == std::make_pair(-20.0, 30.0), "rangeSince from 3000 excludes 10 and 50");
+        check(buffer.rangeSince(4000) == std::make_pair(5.0, 30.0), "rangeSince from 4000 covers only {30, 5}");
+        check(buffer.rangeSince(5000) == std::make_pair(5.0, 5.0), "rangeSince for newest sample is {5, 5}");
     }
 
     std::cout << "PASS: [13/13] Timeseries PlotBuffer ring-buffering and numeric field reflection\n";
