@@ -104,6 +104,10 @@
 * **IME Bypass for Technical Search and Code Inputs:**
   * Technical inputs and filter fields (`CatalogSearch` used for `rxFilter`, catalog message search, parameter catalog filter; `paramFilter`; `inputEdit` parameter value editor) explicitly set `setAttribute(Qt::WA_InputMethodEnabled, false)` and `setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText)`.
   * This bypasses OS-level IME composition (e.g. Vietnamese IBus/Fcitx Telex/VNI pre-edit buffers), ensuring instantaneous single-character key dispatch and immediate `textChanged` emission without requiring trailing space or underscore keys.
+* **Search Clear Button Vector '✕' Override:**
+  * When `setClearButtonEnabled(true)` is used, Qt attempts to resolve system icons (`SP_LineEditClearButton` / `edit-clear`). On newer OS releases (such as Ubuntu 26.04) or customized desktop icon themes, the system theme may map `edit-clear` to a broom/sweep icon.
+  * `CatalogSearch` and search input filters (`rxFilter`, `paramFilter`) explicitly override the embedded `QToolButton` icon with a dedicated vector `✕` (`clearButtonIcon`) featuring smooth antialiasing, balanced 7x7 px geometry (`(4.5, 4.5)` to `(11.5, 11.5)`), and theme-aware colors for both normal and hover states (`#7e899f` / `#8992a6` normal, `#0f172a` / `#f1f5f9` active), guaranteed across both Light and Dark themes.
+
 * **QLineEdit Placeholder Text & QSS Palette Override:**
   * In Qt6, QSS `color` on `QLineEdit` automatically resets `QPalette::PlaceholderText` to the primary text color during widget polish and show events, causing placeholder text to render at full foreground brightness instead of muted.
   * `WorkbenchLineEdit` intercepts `showEvent()` and `changeEvent()` (`PaletteChange`, `ApplicationPaletteChange`, `StyleChange`) and explicitly clears resolve masks (`colors.setResolveMask(0)`) to preserve the theme-aware dimmed placeholder color (`#606d88` in Dark, `#8893a7` in Light).
