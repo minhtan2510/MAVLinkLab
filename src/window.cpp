@@ -7308,6 +7308,28 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 }
             }
         }
+        else if (event->type() == QEvent::MouseButtonDblClick)
+        {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton)
+            {
+                const QModelIndex index = txTable->indexAt(mouseEvent->pos());
+                if (index.isValid() && index.column() == 1)
+                {
+                    const QRect rect = txTable->visualRect(index);
+                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+                    const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
+                                                          txTable->item(index.row(), 1)->text(),
+                                                          txTable->item(index.row(), 3)->text(),
+                                                          txTable->font());
+                    if (badge.contains(mouseEvent->pos()) || ratePill.contains(mouseEvent->pos()))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
         else if (event->type() == QEvent::MouseMove)
         {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);

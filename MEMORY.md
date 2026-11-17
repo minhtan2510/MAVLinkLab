@@ -117,6 +117,11 @@
   * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
 * **TX Card Deselection on Clicking Elsewhere:**
   * Only classify mouse presses delivered to `QWidget` receivers. Application event filters also see the popup's `QWindow` event before widget delivery; treating that non-widget receiver as an outside click clears the TX selection and disables context-menu actions before activation.
+* **TX Card Double-Click Exclusion for Running/Stopped Badge & Rate Pill:**
+  * Double-clicking a TX message card in `txTable` opens `editMessage(true)` by default.
+  * To prevent accidental modal dialog popups when rapidly clicking or double-clicking interactive buttons on the card, `MainWindow::eventFilter` intercepts `QEvent::MouseButtonDblClick` on `txTable->viewport()`:
+    * If cursor coordinates reside within the status badge (`card.right() - 88` to `card.right() - 8`) or the frequency rate pill (`txRatePillRect`), `eventFilter` swallows the double-click event (`return true`), preventing `cellDoubleClicked` from firing.
+    * Multiple rapid clicks or double-clicks on the status badge smoothly toggle transmission state via `MouseButtonRelease` without interruption, both when connected and disconnected.
 * **IME Bypass for Technical Search and Code Inputs:**
   * Technical inputs and filter fields (`CatalogSearch` used for `rxFilter`, catalog message search, parameter catalog filter; `paramFilter`; `inputEdit` parameter value editor) explicitly set `setAttribute(Qt::WA_InputMethodEnabled, false)` and `setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText)`.
   * This bypasses OS-level IME composition (e.g. Vietnamese IBus/Fcitx Telex/VNI pre-edit buffers), ensuring instantaneous single-character key dispatch and immediate `textChanged` emission without requiring trailing space or underscore keys.

@@ -3266,6 +3266,21 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(tx->item(0, 6)->text(), QString("Stopped"));
 
+        // Double click on status badge when DISCONNECTED -> should NOT open edit dialog
+        bool dialogOpenedOnDisconnectedBadge = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnDisconnectedBadge]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                dialogOpenedOnDisconnectedBadge = true;
+                dialog->reject();
+            }
+        });
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTest::qWait(100);
+        QVERIFY(!dialogOpenedOnDisconnectedBadge);
+
         // Connect serial port via PTY
         portBox->setEditable(true);
         portBox->setCurrentText(pty.name);
@@ -3279,17 +3294,43 @@ private slots:
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
 
-        // 3. Double click on card row opens Edit dialog
-        QTimer::singleShot(50, [&window]()
+        // Double click on status badge when CONNECTED -> toggle without opening Edit dialog
+        bool dialogOpenedOnBadge = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnBadge]()
         {
             auto *dialog = window.findChild<QDialog *>("messageDialog");
             if (dialog)
             {
+                dialogOpenedOnBadge = true;
                 dialog->reject();
             }
         });
-        emit tx->cellDoubleClicked(0, 1);
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
         QTest::qWait(100);
+        QVERIFY(!dialogOpenedOnBadge);
+
+        // Single click toggles to Running
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Single click toggles back to Stopped
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+
+        // 3. Double click on card body opens Edit dialog
+        bool dialogOpenedOnCard = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnCard]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                dialogOpenedOnCard = true;
+                dialog->reject();
+            }
+        });
+        const QPoint cardBodyPoint(card0Rect.left() + 20, card0Rect.center().y());
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, cardBodyPoint);
+        QTRY_VERIFY(dialogOpenedOnCard);
 
         // 4. Test removeAction on selected message
         tx->selectRow(0);
