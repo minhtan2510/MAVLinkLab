@@ -427,6 +427,20 @@ static QString mavlinkEnumHint(uint32_t msgid, const QString &field, const QStri
     return {};
 }
 
+/**
+ * @brief Configure a popup menu with frameless window flags and translucent background for clean rounded corners.
+ * @param menu The popup menu widget to configure.
+ */
+static void configureTranslucentMenu(QMenu *menu)
+{
+    if (!menu)
+    {
+        return;
+    }
+    menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint);
+    menu->setAttribute(Qt::WA_TranslucentBackground, true);
+}
+
 class WorkbenchComboBox;
 
 /**
@@ -512,6 +526,7 @@ public:
             }
             if (QWidget *container = view()->window())
             {
+                container->setWindowFlags(container->windowFlags() | Qt::FramelessWindowHint);
                 container->setAttribute(Qt::WA_TranslucentBackground, true);
             }
         }
@@ -605,10 +620,9 @@ public:
         QComboBox::showPopup();
         if (QWidget *container = view() ? view()->window() : nullptr)
         {
+            container->setWindowFlags(container->windowFlags() | Qt::FramelessWindowHint);
             container->setAttribute(Qt::WA_TranslucentBackground, true);
-            QPainterPath outline;
-            outline.addRoundedRect(QRectF(container->rect()), 8.0, 8.0);
-            container->setMask(QRegion(outline.toFillPolygon().toPolygon()));
+            container->clearMask();
         }
         update();
     }
@@ -3299,7 +3313,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     aboutAction->setObjectName("actionAbout");
     for (auto *menu : {fileMenu, viewMenu, toolMenu, helpMenu})
     {
-        menu->setAttribute(Qt::WA_TranslucentBackground, true);
+        configureTranslucentMenu(menu);
         menu->installEventFilter(this);
     }
     auto *uart = new QFrame;
@@ -3400,7 +3414,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     uartLayout->addLayout(uartRow);
     auto *serialMenu = new QMenu(this);
     serialMenu->setObjectName("serialMenu");
-    serialMenu->setAttribute(Qt::WA_TranslucentBackground);
+    configureTranslucentMenu(serialMenu);
     serialMenu->installEventFilter(this);
     auto *advanced = new QFrame;
     advanced->setObjectName("serialAdvanced");
@@ -3554,7 +3568,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addWidget(txTable, 1);
     txMenu = new QMenu(txTable);
     txMenu->setObjectName("txMessageMenu");
-    txMenu->setAttribute(Qt::WA_TranslucentBackground, true);
+    configureTranslucentMenu(txMenu);
     txMenu->installEventFilter(this);
     const auto addTxAction = [this](const QString &text, const char *name)
     {
@@ -3668,7 +3682,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     inspector->setContextMenuPolicy(Qt::CustomContextMenu);
     auto *valueMenu = new QMenu(inspector);
     valueMenu->setObjectName("inspectorMenu");
-    valueMenu->setAttribute(Qt::WA_TranslucentBackground, true);
+    configureTranslucentMenu(valueMenu);
     valueMenu->installEventFilter(this);
     auto *copyValue = valueMenu->addAction("Copy value");
     copyValue->setObjectName("copyInspectorValue");
@@ -5058,6 +5072,8 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
     auto *menu = new QMenu(this);
     menu->setObjectName("quickRateMenu");
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    configureTranslucentMenu(menu);
+    menu->installEventFilter(this);
     const std::vector<double> presets = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0};
     for (double hz : presets)
     {
@@ -7205,12 +7221,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
     if (auto *popup = qobject_cast<QMenu *>(watched))
     {
-        if (event->type() == QEvent::Resize || event->type() == QEvent::Show)
+        if (event->type() == QEvent::ShowToParent || event->type() == QEvent::Show || event->type() == QEvent::Resize)
         {
-            popup->setAttribute(Qt::WA_TranslucentBackground, true);
-            QPainterPath outline;
-            outline.addRoundedRect(QRectF(popup->rect()), 8.0, 8.0);
-            popup->setMask(QRegion(outline.toFillPolygon().toPolygon()));
+            configureTranslucentMenu(popup);
+            popup->clearMask();
         }
     }
     if (watched == qApp && event->type() == QEvent::ApplicationPaletteChange &&

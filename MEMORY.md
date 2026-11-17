@@ -95,7 +95,9 @@
   * `MainWindow` maintains a 200ms `refresh` timer triggering `worker->requestSnapshot()`. In unit tests injecting synthetic snapshots directly via `window.applySnapshot(snapshot)`, call `window.stopRefreshTimer()` to prevent worker's empty periodic snapshots from overwriting test state.
   * Conversely, in integration tests relying on worker thread events (e.g. TX queue additions, PTY real transmission), keep the refresh timer active so worker snapshots flow naturally to the GUI.
 * **Linux X11 Popups & Rounded Window Masks:**
-  * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
+  * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11/Wayland unless configured with `setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint)` and `setAttribute(Qt::WA_TranslucentBackground, true)` prior to show/popup.
+  * Avoid applying 1-bit raster masks via `setMask(roundedRect)` on translucent popups: XShape 1-bit polygon masks lack antialiasing, and integer polygon quantization errors leave dark/black pixel artifacts at the sharp outer vertices outside the stylesheet's antialiased curved border.
+  * Proper architecture: configure `FramelessWindowHint` + `WA_TranslucentBackground` upfront and invoke `clearMask()`, allowing the compositor to render the stylesheet's `border-radius` with true 32-bit ARGB alpha blending and zero corner artifacts.
 * **Editable ComboBox Text Clipping, Alignment & Inner Padding:**
   * Child `QLineEdit` inside editable `QComboBox` inherits generic `QLineEdit:focus` styling; avoid QSS `outline` which ignores border-radius, and explicitly clear child line-edit borders/outlines (`QComboBox QLineEdit { border: none; outline: none; }`).
   * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
