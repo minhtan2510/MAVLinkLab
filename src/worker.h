@@ -111,6 +111,12 @@ public slots:
      * @param newKey Identifier to assign to the cloned entry.
      */
     void duplicateEntry(quint64 existingKey, quint64 newKey);
+    /**
+     * @brief Move an existing entry from one position index to another.
+     * @param fromIndex Source index of the entry to move.
+     * @param toIndex Destination index where the entry should be placed.
+     */
+    void moveEntry(int fromIndex, int toIndex);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
     /**

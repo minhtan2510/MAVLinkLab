@@ -256,6 +256,20 @@ void SerialWorker::duplicateEntry(quint64 existingKey, quint64 newKey)
     requestSnapshot();
 }
 
+void SerialWorker::moveEntry(int fromIndex, int toIndex)
+{
+    if (fromIndex < 0 || fromIndex >= int(entries.size()) ||
+        toIndex < 0 || toIndex >= int(entries.size()) ||
+        fromIndex == toIndex)
+    {
+        return;
+    }
+    Mav::TxEntry item = std::move(entries[fromIndex]);
+    entries.erase(entries.begin() + fromIndex);
+    entries.insert(entries.begin() + toIndex, std::move(item));
+    requestSnapshot();
+}
+
 void SerialWorker::setActive(quint64 key, bool active)
 {
     for (auto &entry : entries)

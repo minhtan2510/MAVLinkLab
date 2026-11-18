@@ -1854,6 +1854,60 @@ static QStringList txTitleLines(const QString &text, const QFont &font, int widt
     return lines;
 }
 
+/**
+ * @brief Calculate the bounding rectangle of the drag handle on a TX card.
+ * @param card Visual bounding rectangle of the card.
+ * @return Bounding rectangle for mouse hit-testing and grip drawing.
+ */
+static QRect txDragHandleRect(const QRect &card)
+{
+    return QRect(card.left() + 4, card.top() + 6, 14, card.height() - 12);
+}
+
+/**
+ * @brief Map a visual row index to its corresponding source data row during drag-and-drop.
+ * @param visualRow The visual row being rendered.
+ * @param sourceRow The original row of the card currently being dragged.
+ * @param targetRow The current target drop row index where placeholder should appear.
+ * @return The source row index to read data from, or -1 if this visual row is the placeholder slot.
+ */
+static int txVisualToSourceRow(int visualRow, int sourceRow, int targetRow)
+{
+    if (sourceRow < 0 || targetRow < 0)
+    {
+        return visualRow;
+    }
+    if (visualRow == targetRow)
+    {
+        return -1;
+    }
+    if (sourceRow < targetRow)
+    {
+        if (visualRow < sourceRow)
+        {
+            return visualRow;
+        }
+        if (visualRow < targetRow)
+        {
+            return visualRow + 1;
+        }
+        return visualRow;
+    }
+    else if (sourceRow > targetRow)
+    {
+        if (visualRow < targetRow)
+        {
+            return visualRow;
+        }
+        if (visualRow <= sourceRow)
+        {
+            return visualRow - 1;
+        }
+        return visualRow;
+    }
+    return visualRow;
+}
+
 /** @brief Calculate the clickable target-rate pill rectangle on a TX card. */
 static QRect txRatePillRect(const QRect &card, const QString &idStr, const QString &nameStr, const QString &hzStr, const QFont &baseFont)
 {
@@ -1904,23 +1958,57 @@ public:
     /** @brief Paint state-specific cards with a compact target-rate badge and distinct actions. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
-        const auto value = [&index](int column)
-        {
-            return index.sibling(index.row(), column).data().toString();
-        };
         const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
-        const bool selected = option.state & QStyle::State_Selected;
-        const bool hovered = option.state & QStyle::State_MouseOver;
+        const QColor panelBg(dark ? "#1b2333" : "#ffffff");
+        const bool isDragging = option.widget ? option.widget->property("isDragging").toBool() : false;
+        const int dragSource = option.widget ? option.widget->property("dragSourceRow").toInt() : -1;
+        const int dragTarget = option.widget ? option.widget->property("dragTargetRow").toInt() : -1;
+        const int sourceRow = isDragging ? txVisualToSourceRow(index.row(), dragSource, dragTarget) : index.row();
+
+        if (sourceRow == -1)
+        {
+            painter->save();
+            painter->fillRect(option.rect, panelBg);
+            painter->setRenderHint(QPainter::Antialiasing);
+            const QRect card = option.rect.adjusted(1, 5, -2, -5);
+            const QColor placeholderBorder(dark ? "#60a5fa" : "#3b82f6");
+            const QColor placeholderBg(dark ? "#172338" : "#f0f6ff");
+            painter->setPen(QPen(placeholderBorder, 1.0, Qt::SolidLine));
+            painter->setBrush(placeholderBg);
+            painter->drawRoundedRect(card, 8, 8);
+            painter->restore();
+            return;
+        }
+
+        const auto value = [&index, sourceRow](int column)
+        {
+            return index.sibling(sourceRow, column).data().toString();
+        };
+        const bool selected = (option.state & QStyle::State_Selected) && !isDragging;
+        const bool hovered = (option.state & QStyle::State_MouseOver) && !isDragging;
         const QString text = value(6);
         const bool running = text == "Running";
         const bool error = text != "Stopped" && !running;
         const QColor foreground(dark ? "#edf0fa" : "#20263b");
         const QColor muted(dark ? "#aab4cd" : "#626c84");
-        const QColor panelBg(dark ? "#1b2333" : "#ffffff");
         painter->save();
         painter->fillRect(option.rect, panelBg);
         painter->setRenderHint(QPainter::Antialiasing);
-        const QRect card = option.rect.adjusted(1, 5, -2, -5);
+
+        const double animOffset = (isDragging && option.widget) ? option.widget->property("dragAnimOffset").toDouble() : 0.0;
+        const int animFrom = (isDragging && option.widget) ? option.widget->property("dragAnimFrom").toInt() : -1;
+        const int animTo = (isDragging && option.widget) ? option.widget->property("dragAnimTo").toInt() : -1;
+        int animDy = 0;
+        if (isDragging && std::abs(animOffset) > 0.01 && animFrom >= 0 && animTo >= 0)
+        {
+            const int minRow = std::min(animFrom, animTo);
+            const int maxRow = std::max(animFrom, animTo);
+            if (index.row() >= minRow && index.row() <= maxRow)
+            {
+                animDy = int(std::round(animOffset));
+            }
+        }
+        const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
         QColor surface = panelBg;
@@ -2940,6 +3028,306 @@ static QIcon actionIcon(const QString &name, const QColor &color)
     return QIcon(pixmap);
 }
 
+/**
+ * @brief Dynamic drop-target card replacing the Delete All button during dragging,
+ * offering animated expansion (28px -> 150px), dashed dropzone aesthetic, smooth
+ * color lerping on hover, and smooth collapse on drop/cancel.
+ */
+class TrashDropCard : public QWidget
+{
+public:
+    /**
+     * @brief Construct the drop-target card with initial collapsed geometry and timer.
+     * @param parent Owning parent widget.
+     */
+    explicit TrashDropCard(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setObjectName("trashDropCard");
+        setAttribute(Qt::WA_Hover, true);
+        setFixedHeight(28);
+        setMinimumWidth(28);
+        setMaximumWidth(240);
+        resize(28, 28);
+        m_animTimer = new QTimer(this);
+        connect(m_animTimer, &QTimer::timeout, this, [this]()
+        {
+            onAnimStep();
+        });
+    }
+
+    /**
+     * @brief Start animated width expansion from the origin position.
+     * @param originPos Base coordinates of the delete button to expand from.
+     */
+    void startExpand(const QPoint &originPos)
+    {
+        m_basePos = originPos;
+        m_expanding = true;
+        m_collapsing = false;
+        m_hovered = false;
+        m_hoverProgress = 0.0;
+        m_expandProgress = 0.0;
+        m_currentWidth = 28;
+        m_onCollapseFinished = nullptr;
+        m_expandTimer.restart();
+        setGeometry(m_basePos.x(), m_basePos.y(), 28, 28);
+        show();
+        raise();
+        if (!m_animTimer->isActive())
+        {
+            m_animTimer->start(16);
+        }
+        update();
+    }
+
+    /**
+     * @brief Start animated width collapse back to 28px and invoke completion callback.
+     * @param onFinished Optional callback invoked after collapse completes and widget hides.
+     */
+    void startCollapse(std::function<void()> onFinished = nullptr)
+    {
+        m_onCollapseFinished = std::move(onFinished);
+        m_expanding = false;
+        m_collapsing = true;
+        m_hovered = false;
+        m_collapseStartWidth = width();
+        m_collapseTimer.restart();
+        if (!m_animTimer->isActive())
+        {
+            m_animTimer->start(16);
+        }
+        update();
+    }
+
+    /**
+     * @brief Set hover state to trigger smooth danger color and glow transition.
+     * @param hovered True if mouse cursor is currently over the trash zone.
+     */
+    void setHovered(bool hovered)
+    {
+        if (m_hovered != hovered)
+        {
+            m_hovered = hovered;
+            if (!m_animTimer->isActive())
+            {
+                m_animTimer->start(16);
+            }
+        }
+    }
+
+    /**
+     * @brief Query whether the card is currently hovered.
+     * @return True if hovered.
+     */
+    bool isHovered() const
+    {
+        return m_hovered;
+    }
+
+    /**
+     * @brief Query the full expanded target width.
+     * @return Full target width in pixels (190px).
+     */
+    int fullWidth() const
+    {
+        return 190;
+    }
+
+    /**
+     * @brief Query current expansion progress (0.0 to 1.0).
+     * @return Current progress value.
+     */
+    double expandProgress() const
+    {
+        return m_expandProgress;
+    }
+
+    /**
+     * @brief Query current hover transition progress (0.0 to 1.0).
+     * @return Current hover progress value.
+     */
+    double hoverProgress() const
+    {
+        return m_hoverProgress;
+    }
+
+protected:
+    /**
+     * @brief Render the drop card with thin solid border, smooth color lerp, glow, and clipped text.
+     * @param event Paint event parameters.
+     */
+    void paintEvent(QPaintEvent *) override
+    {
+        const bool dark = qApp->property("darkTheme").toBool();
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        auto lerpColor = [](const QColor &c1, const QColor &c2, double t) -> QColor
+        {
+            t = std::clamp(t, 0.0, 1.0);
+            return QColor::fromRgbF(
+                c1.redF() + (c2.redF() - c1.redF()) * t,
+                c1.greenF() + (c2.greenF() - c1.greenF()) * t,
+                c1.blueF() + (c2.blueF() - c1.blueF()) * t,
+                c1.alphaF() + (c2.alphaF() - c1.alphaF()) * t);
+        };
+
+        const QColor idleBg = dark ? QColor("#2d151c") : QColor("#fef2f2");
+        const QColor hoverBg = dark ? QColor("#521c28") : QColor("#fee2e2");
+
+        const QColor idleBorder = dark ? QColor("#8c3041") : QColor("#fca5a5");
+        const QColor hoverBorder = dark ? QColor("#fb7185") : QColor("#dc2626");
+
+        const QColor idleFg = dark ? QColor("#f87171") : QColor("#dc2626");
+        const QColor hoverFg = dark ? QColor("#fda4af") : QColor("#b91c1c");
+
+        const QColor bg = lerpColor(idleBg, hoverBg, m_hoverProgress);
+        const QColor border = lerpColor(idleBorder, hoverBorder, m_hoverProgress);
+        const QColor fg = lerpColor(idleFg, hoverFg, m_hoverProgress);
+
+        // 1. Soft red glow on hover
+        if (m_hoverProgress > 0.02)
+        {
+            QPainterPath glowPath;
+            glowPath.addRoundedRect(QRectF(rect()).adjusted(-1.5, -1.5, 1.5, 1.5), 7, 7);
+            const QColor glowColor = dark ? QColor(251, 113, 133, int(45 * m_hoverProgress))
+                                          : QColor(220, 38, 38, int(35 * m_hoverProgress));
+            painter.fillPath(glowPath, glowColor);
+        }
+
+        // 2. Card background and thin solid border (1.0px -> 1.5px on hover)
+        const QRect cardRect = rect().adjusted(1, 1, -1, -1);
+        QPen pen(border, 1.0 + 0.5 * m_hoverProgress, Qt::SolidLine);
+
+        painter.setPen(pen);
+        painter.setBrush(bg);
+        painter.drawRoundedRect(cardRect, 6, 6);
+
+        // 3. Trash icon
+        const QIcon icon = actionIcon("deleteAll", fg);
+        const int iconY = (height() - 16) / 2;
+        painter.drawPixmap(6, iconY, icon.pixmap(16, 16));
+
+        // 4. Smooth text fade-in clipped to expanding card width
+        if (width() > 36)
+        {
+            const double textAlpha = std::clamp((m_expandProgress - 0.15) / 0.85, 0.0, 1.0);
+            if (textAlpha > 0.01)
+            {
+                painter.save();
+                painter.setOpacity(textAlpha);
+                QFont font = this->font();
+                font.setPixelSize(11);
+                font.setWeight(m_hoverProgress > 0.5 ? QFont::DemiBold : QFont::Medium);
+                painter.setFont(font);
+                painter.setPen(fg);
+                painter.drawText(QRect(28, 0, width() - 32, height()),
+                                 Qt::AlignVCenter | Qt::AlignLeft, "Drop here to delete");
+                painter.restore();
+            }
+        }
+    }
+
+private:
+    /**
+     * @brief Advance width expansion/collapse and hover color interpolation.
+     */
+    void onAnimStep()
+    {
+        bool needContinue = false;
+
+        if (m_expanding)
+        {
+            const qint64 elapsed = m_expandTimer.elapsed();
+            const double duration = 220.0;
+            const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            m_expandProgress = ease;
+            m_currentWidth = int(28 + (190 - 28) * ease);
+            setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
+
+            if (t >= 1.0)
+            {
+                m_expanding = false;
+                m_expandProgress = 1.0;
+                m_currentWidth = 190;
+                setGeometry(m_basePos.x(), m_basePos.y(), 190, 28);
+            }
+            else
+            {
+                needContinue = true;
+            }
+        }
+        else if (m_collapsing)
+        {
+            const qint64 elapsed = m_collapseTimer.elapsed();
+            const double duration = 180.0;
+            const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            m_expandProgress = 1.0 - ease;
+            m_currentWidth = int(m_collapseStartWidth + (28 - m_collapseStartWidth) * ease);
+            setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
+
+            if (t >= 1.0)
+            {
+                m_collapsing = false;
+                m_expandProgress = 0.0;
+                m_currentWidth = 28;
+                setGeometry(m_basePos.x(), m_basePos.y(), 28, 28);
+                hide();
+                if (m_onCollapseFinished)
+                {
+                    auto cb = m_onCollapseFinished;
+                    m_onCollapseFinished = nullptr;
+                    cb();
+                }
+            }
+            else
+            {
+                needContinue = true;
+            }
+        }
+
+        const double targetHover = m_hovered ? 1.0 : 0.0;
+        if (std::abs(m_hoverProgress - targetHover) > 0.01)
+        {
+            m_hoverProgress += (targetHover - m_hoverProgress) * 0.22;
+            if (std::abs(m_hoverProgress - targetHover) <= 0.01)
+            {
+                m_hoverProgress = targetHover;
+            }
+            else
+            {
+                needContinue = true;
+            }
+        }
+        else
+        {
+            m_hoverProgress = targetHover;
+        }
+
+        update();
+
+        if (!needContinue)
+        {
+            m_animTimer->stop();
+        }
+    }
+
+    QPoint m_basePos;
+    int m_currentWidth = 28;
+    int m_collapseStartWidth = 190;
+    double m_expandProgress = 0.0;
+    double m_hoverProgress = 0.0;
+    bool m_hovered = false;
+    bool m_expanding = false;
+    bool m_collapsing = false;
+    QTimer *m_animTimer = nullptr;
+    QElapsedTimer m_expandTimer;
+    QElapsedTimer m_collapseTimer;
+    std::function<void()> m_onCollapseFinished;
+};
+
 /** @brief Update a cell without destroying selection or replacing its item. */
 static void cell(QTableWidget *widget, int row, int column, const QString &text)
 {
@@ -3545,6 +3933,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txHeading->addWidget(addButton, 1, 3, Qt::AlignRight | Qt::AlignVCenter);
 
     txLayout->addLayout(txHeading);
+
+    trashDropCard = new TrashDropCard(txGroup);
+    trashDropCard->hide();
     auto *txDivider = new QFrame;
     txDivider->setObjectName("txDivider");
     txDivider->setFixedHeight(1);
@@ -3564,6 +3955,60 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txTable->setMouseTracking(true);
     txTable->viewport()->setMouseTracking(true);
     txTable->viewport()->installEventFilter(this);
+    txTable->installEventFilter(this);
+    dragAutoScrollTimer = new QTimer(this);
+    connect(dragAutoScrollTimer, &QTimer::timeout, this, [this]()
+    {
+        if (!isDraggingTx || !txTable)
+        {
+            if (dragAutoScrollTimer)
+            {
+                dragAutoScrollTimer->stop();
+            }
+            return;
+        }
+        auto *scrollBar = txTable->verticalScrollBar();
+        if (!scrollBar)
+        {
+            return;
+        }
+        const int prev = scrollBar->value();
+        scrollBar->setValue(prev + dragAutoScrollSpeed * 15);
+        if (scrollBar->value() != prev)
+        {
+            updateTxDrag(lastDragGlobalPos, lastDragVpPos);
+        }
+    });
+    dragAnimTimer = new QTimer(this);
+    connect(dragAnimTimer, &QTimer::timeout, this, [this]()
+    {
+        if (!isDraggingTx || !txTable)
+        {
+            if (dragAnimTimer)
+            {
+                dragAnimTimer->stop();
+            }
+            return;
+        }
+        double offset = txTable->property("dragAnimOffset").toDouble();
+        if (std::abs(offset) > 0.5)
+        {
+            offset *= 0.55;
+            if (std::abs(offset) <= 0.5)
+            {
+                offset = 0.0;
+                dragAnimTimer->stop();
+            }
+            txTable->setProperty("dragAnimOffset", offset);
+            txTable->viewport()->update();
+        }
+        else
+        {
+            txTable->setProperty("dragAnimOffset", 0.0);
+            dragAnimTimer->stop();
+            txTable->viewport()->update();
+        }
+    });
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
     txMenu = new QMenu(txTable);
@@ -5206,6 +5651,475 @@ void MainWindow::showCopiedFeedback(int row)
     copyFeedbackTimer->start(800);
 }
 
+/**
+ * @brief Start interactive drag operation for a TX message card.
+ * @param row Index of the row being dragged.
+ * @param globalPos Initial mouse position in global coordinates.
+ */
+void MainWindow::startTxDrag(int row, const QPoint &globalPos)
+{
+    if (!txTable || row < 0 || row >= txTable->rowCount())
+    {
+        return;
+    }
+    const QModelIndex idx = txTable->model()->index(row, 1);
+    const QRect cellRect = txTable->visualRect(idx);
+    const QRect cardRect = cellRect.adjusted(1, 5, -2, -5);
+
+    // Grab the fully-rendered card content BEFORE setting dragging state
+    txTable->setProperty("isDragging", false);
+    QPixmap grabPix = txTable->viewport()->grab(cardRect);
+
+    isDraggingTx = true;
+    dragSourceRow = row;
+    dragTargetRow = row;
+    lastDragGlobalPos = globalPos;
+    isHoveringTrash = false;
+
+    if (dragDeleteShrinkTimer && dragDeleteShrinkTimer->isActive())
+    {
+        dragDeleteShrinkTimer->stop();
+    }
+    pendingDeleteKey = 0;
+
+    if (trashDropCard && deleteAllButton)
+    {
+        QWidget *parent = deleteAllButton->parentWidget();
+        const QPoint pos = parent ? deleteAllButton->mapTo(parent, QPoint(0, 0)) : deleteAllButton->pos();
+        trashDropCard->setParent(parent);
+        trashDropCard->startExpand(pos);
+        deleteAllButton->hide();
+    }
+
+    txTable->setProperty("isDragging", true);
+    txTable->setProperty("dragSourceRow", dragSourceRow);
+    txTable->setProperty("dragTargetRow", dragTargetRow);
+
+    const int shadowMargin = 16;
+    const QSize ghostSize(cardRect.width() + shadowMargin * 2, cardRect.height() + shadowMargin * 2);
+    dragGhostNormal = QPixmap(ghostSize);
+    dragGhostNormal.fill(Qt::transparent);
+    {
+        QPainter p(&dragGhostNormal);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // 1. Soft multi-layer elevation shadow (blur radius ~14px, offset Y+6px)
+        const QRect shadowBase(shadowMargin, shadowMargin + 6, cardRect.width(), cardRect.height());
+        for (int step = shadowMargin; step >= 2; step -= 2)
+        {
+            const int alpha = int(18.0 * (1.0 - double(step) / shadowMargin));
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, alpha));
+            p.drawRoundedRect(shadowBase.adjusted(-step, -step, step, step), 8 + step, 8 + step);
+        }
+
+        // 2. Draw card with rounded clip to keep corners transparent
+        p.save();
+        QPainterPath clipPath;
+        clipPath.addRoundedRect(QRectF(shadowMargin, shadowMargin, cardRect.width(), cardRect.height()), 8, 8);
+        p.setClipPath(clipPath);
+        p.setOpacity(0.96);
+        p.drawPixmap(shadowMargin, shadowMargin, grabPix);
+        p.restore();
+
+        // 3. Crisp accent border highlight (Modern 3D lift)
+        const bool dark = txTable->property("darkTheme").toBool();
+        p.setOpacity(1.0);
+        p.setPen(QPen(QColor(dark ? "#818cf8" : "#4f46e5"), 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRect(shadowMargin, shadowMargin, cardRect.width(), cardRect.height()), 8, 8);
+    }
+
+    dragGhostDanger = QPixmap(ghostSize);
+    dragGhostDanger.fill(Qt::transparent);
+    {
+        QPainter p(&dragGhostDanger);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // 1. Soft shadow with warm red danger glow
+        const QRect shadowBase(shadowMargin, shadowMargin + 6, cardRect.width(), cardRect.height());
+        for (int step = shadowMargin; step >= 2; step -= 2)
+        {
+            const int alpha = int(18.0 * (1.0 - double(step) / shadowMargin));
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(180, 20, 40, alpha));
+            p.drawRoundedRect(shadowBase.adjusted(-step, -step, step, step), 8 + step, 8 + step);
+        }
+
+        // 2. Draw card with rounded clip, subtle optical soft-blur, and milky frosted glass overlay (~51% opacity)
+        const bool dark = txTable->property("darkTheme").toBool();
+        const QRectF cardTargetRect(shadowMargin, shadowMargin, cardRect.width(), cardRect.height());
+
+        // Subtle optical soft-blur (~1.4x factor) softens text and icon edges while preserving letterform legibility
+        QImage softenedImg = grabPix.toImage();
+        if (!softenedImg.isNull() && softenedImg.width() > 16 && softenedImg.height() > 16)
+        {
+            const int softW = std::max(16, int(softenedImg.width() * 0.70));
+            const int softH = std::max(16, int(softenedImg.height() * 0.70));
+            softenedImg = softenedImg.scaled(softW, softH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                     .scaled(cardRect.width(), cardRect.height(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        }
+        const QPixmap softenedPix = QPixmap::fromImage(softenedImg);
+
+        p.save();
+        QPainterPath clipPath;
+        clipPath.addRoundedRect(cardTargetRect, 8, 8);
+        p.setClipPath(clipPath);
+
+        // Draw subtly softened card content with balanced opacity (88%)
+        p.setOpacity(0.88);
+        p.drawPixmap(shadowMargin, shadowMargin, softenedPix);
+
+        // Overlay dense milky frosted glass haze (~51% opacity: alpha 130-135/255) for a cloudy translucent look
+        p.setOpacity(1.0);
+        p.setPen(Qt::NoPen);
+        const QColor frostedMask = dark ? QColor(56, 28, 34, 135)     // Dark dense smoky red frosted haze
+                                        : QColor(255, 245, 245, 130); // Light milky frosted haze
+        p.setBrush(frostedMask);
+        p.drawRoundedRect(cardTargetRect, 8, 8);
+        p.restore();
+
+        // 3. Crisp danger red border (thin 1.2px)
+        p.setOpacity(0.85);
+        p.setPen(QPen(QColor("#ef4444"), 1.2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRect(shadowMargin, shadowMargin, cardRect.width(), cardRect.height()), 8, 8);
+    }
+
+    if (!dragGhostLabel)
+    {
+        dragGhostLabel = new QLabel(nullptr);
+        dragGhostLabel->setWindowFlags(Qt::ToolTip | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+        dragGhostLabel->setAttribute(Qt::WA_ShowWithoutActivating);
+        dragGhostLabel->setAttribute(Qt::WA_TranslucentBackground);
+        dragGhostLabel->setStyleSheet("background: transparent;");
+    }
+    dragGhostLabel->setPixmap(dragGhostNormal);
+    dragGhostLabel->resize(dragGhostNormal.size());
+
+    const QPoint vpPos = txTable->viewport()->mapFromGlobal(globalPos);
+    lastDragVpPos = vpPos;
+    ghostOffset = (vpPos - cardRect.topLeft()) + QPoint(shadowMargin, shadowMargin);
+    dragGhostLabel->move(globalPos - ghostOffset);
+    dragGhostLabel->show();
+
+    txTable->viewport()->setCursor(Qt::ClosedHandCursor);
+    txTable->viewport()->update();
+}
+
+/**
+ * @brief Update ghost preview and target drop row while dragging.
+ * @param globalPos Current mouse position in global coordinates.
+ * @param viewportPos Current mouse position in txTable viewport coordinates.
+ */
+void MainWindow::updateTxDrag(const QPoint &globalPos, const QPoint &viewportPos)
+{
+    if (!isDraggingTx || !txTable)
+    {
+        return;
+    }
+    lastDragGlobalPos = globalPos;
+    lastDragVpPos = viewportPos;
+
+    if (dragGhostLabel)
+    {
+        dragGhostLabel->move(globalPos - ghostOffset);
+    }
+
+    // Check if hovering over the trash drop zone
+    bool hoveringTrash = false;
+    if (trashDropCard && trashDropCard->isVisible())
+    {
+        const int effectiveW = std::max(trashDropCard->width(), trashDropCard->fullWidth());
+        const QRect trashGlobal(trashDropCard->mapToGlobal(QPoint(0, 0)), QSize(effectiveW, trashDropCard->height()));
+        hoveringTrash = trashGlobal.contains(globalPos);
+    }
+
+    if (hoveringTrash != isHoveringTrash)
+    {
+        isHoveringTrash = hoveringTrash;
+        if (trashDropCard)
+        {
+            trashDropCard->setHovered(isHoveringTrash);
+        }
+        if (dragGhostLabel)
+        {
+            dragGhostLabel->setPixmap(isHoveringTrash ? dragGhostDanger : dragGhostNormal);
+        }
+    }
+
+    if (isHoveringTrash)
+    {
+        // When hovering over trash, clear placeholder slot in table
+        if (dragTargetRow != -1)
+        {
+            dragTargetRow = -1;
+            txTable->setProperty("dragTargetRow", -1);
+            txTable->viewport()->update();
+        }
+        if (dragAutoScrollTimer && dragAutoScrollTimer->isActive())
+        {
+            dragAutoScrollTimer->stop();
+        }
+        return;
+    }
+
+    int newTargetRow = -1;
+    const QModelIndex idx = txTable->indexAt(viewportPos);
+    if (idx.isValid() && idx.row() < txTable->rowCount())
+    {
+        newTargetRow = idx.row();
+    }
+    else if (viewportPos.y() < 0)
+    {
+        newTargetRow = 0;
+    }
+    else if (viewportPos.y() >= txTable->viewport()->height() && txTable->rowCount() > 0)
+    {
+        newTargetRow = txTable->rowCount() - 1;
+    }
+
+    if (newTargetRow >= 0 && newTargetRow != dragTargetRow)
+    {
+        const int prevTarget = dragTargetRow;
+        dragTargetRow = newTargetRow;
+        txTable->setProperty("dragTargetRow", dragTargetRow);
+
+        // Trigger snappy 120ms sliding animation
+        txTable->setProperty("dragAnimFrom", prevTarget);
+        txTable->setProperty("dragAnimTo", dragTargetRow);
+        const double initialOffset = (prevTarget < dragTargetRow) ? 35.0 : -35.0;
+        txTable->setProperty("dragAnimOffset", initialOffset);
+        if (dragAnimTimer && !dragAnimTimer->isActive())
+        {
+            dragAnimTimer->start(16);
+        }
+        txTable->viewport()->update();
+    }
+
+    const int scrollMargin = 30;
+    if (viewportPos.y() < scrollMargin)
+    {
+        dragAutoScrollSpeed = -1;
+        if (dragAutoScrollTimer && !dragAutoScrollTimer->isActive())
+        {
+            dragAutoScrollTimer->start(40);
+        }
+    }
+    else if (viewportPos.y() > txTable->viewport()->height() - scrollMargin)
+    {
+        dragAutoScrollSpeed = 1;
+        if (dragAutoScrollTimer && !dragAutoScrollTimer->isActive())
+        {
+            dragAutoScrollTimer->start(40);
+        }
+    }
+    else
+    {
+        dragAutoScrollSpeed = 0;
+        if (dragAutoScrollTimer && dragAutoScrollTimer->isActive())
+        {
+            dragAutoScrollTimer->stop();
+        }
+    }
+}
+
+/**
+ * @brief Finalize or cancel the active drag operation.
+ * @param commit True to apply the new row order to the worker; false to revert.
+ */
+void MainWindow::finishTxDrag(bool commit)
+{
+    if (dragAutoScrollTimer)
+    {
+        dragAutoScrollTimer->stop();
+    }
+    if (dragAnimTimer)
+    {
+        dragAnimTimer->stop();
+    }
+    if (txTable)
+    {
+        txTable->viewport()->setCursor(Qt::ArrowCursor);
+    }
+
+    const int from = dragSourceRow;
+    const int to = dragTargetRow;
+    const bool deleteRequested = isHoveringTrash;
+
+    isDraggingTx = false;
+    dragHandlePressed = false;
+    dragSourceRow = -1;
+    dragTargetRow = -1;
+    isHoveringTrash = false;
+
+    if (txTable)
+    {
+        txTable->setProperty("isDragging", false);
+        txTable->setProperty("dragSourceRow", -1);
+        txTable->setProperty("dragTargetRow", -1);
+        txTable->setProperty("dragAnimOffset", 0.0);
+        txTable->setProperty("dragAnimFrom", -1);
+        txTable->setProperty("dragAnimTo", -1);
+        txTable->clearSelection();
+        txTable->viewport()->update();
+    }
+
+    if (commit && deleteRequested && from >= 0 && txTable)
+    {
+        const uint64_t key = txTable->item(from, 0) ? txTable->item(from, 0)->data(Qt::UserRole).toULongLong() : 0;
+        if (key != 0 && dragGhostLabel && dragGhostLabel->isVisible() && trashDropCard && trashDropCard->isVisible())
+        {
+            pendingDeleteKey = key;
+            dragDeleteStartRect = dragGhostLabel->geometry();
+            dragDeleteTargetCenter = trashDropCard->mapToGlobal(QPoint(15, 14));
+            dragDeleteShrinkStep = 0;
+            dragDeleteShrinkTimerElapsed.restart();
+            if (!dragDeleteShrinkTimer)
+            {
+                dragDeleteShrinkTimer = new QTimer(this);
+                connect(dragDeleteShrinkTimer, &QTimer::timeout, this, [this]()
+                {
+                    stepTxDeleteShrink();
+                });
+            }
+            dragDeleteShrinkTimer->start(16);
+            return;
+        }
+
+        if (key != 0 && worker)
+        {
+            QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, key));
+            saveTxMessages();
+        }
+        if (dragGhostLabel)
+        {
+            dragGhostLabel->hide();
+        }
+        if (trashDropCard)
+        {
+            trashDropCard->startCollapse([this]()
+            {
+                if (deleteAllButton)
+                {
+                    deleteAllButton->show();
+                }
+            });
+        }
+        else if (deleteAllButton)
+        {
+            deleteAllButton->show();
+        }
+    }
+    else
+    {
+        if (dragGhostLabel)
+        {
+            dragGhostLabel->hide();
+        }
+        if (trashDropCard)
+        {
+            trashDropCard->startCollapse([this]()
+            {
+                if (deleteAllButton)
+                {
+                    deleteAllButton->show();
+                }
+            });
+        }
+        else if (deleteAllButton)
+        {
+            deleteAllButton->show();
+        }
+
+        if (commit && from >= 0 && to >= 0 && from != to && worker)
+        {
+            QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
+                                      Q_ARG(int, from), Q_ARG(int, to));
+            saveTxMessages();
+        }
+    }
+}
+
+/**
+ * @brief Advance the shrink-and-fade animation sucking the dragged card into the trash can.
+ */
+void MainWindow::stepTxDeleteShrink()
+{
+    const qint64 elapsed = dragDeleteShrinkTimerElapsed.elapsed();
+    const double duration = 220.0;
+    const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+    if (t >= 1.0)
+    {
+        if (dragDeleteShrinkTimer)
+        {
+            dragDeleteShrinkTimer->stop();
+        }
+        if (dragGhostLabel)
+        {
+            dragGhostLabel->hide();
+        }
+        if (pendingDeleteKey != 0 && worker)
+        {
+            QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, pendingDeleteKey));
+            saveTxMessages();
+            pendingDeleteKey = 0;
+        }
+        if (trashDropCard)
+        {
+            trashDropCard->startCollapse([this]()
+            {
+                if (deleteAllButton)
+                {
+                    deleteAllButton->show();
+                }
+            });
+        }
+        return;
+    }
+
+    if (!dragGhostLabel)
+    {
+        return;
+    }
+
+    const double ease = t * t;
+    const double scale = 1.0 - ease * 0.85;
+    const int newW = std::max(20, int(dragDeleteStartRect.width() * scale));
+    const int newH = std::max(10, int(dragDeleteStartRect.height() * scale));
+    const int curCenterX = int(dragDeleteStartRect.center().x() + (dragDeleteTargetCenter.x() - dragDeleteStartRect.center().x()) * ease);
+    const int curCenterY = int(dragDeleteStartRect.center().y() + (dragDeleteTargetCenter.y() - dragDeleteStartRect.center().y()) * ease);
+    const QRect curRect(curCenterX - newW / 2, curCenterY - newH / 2, newW, newH);
+    dragGhostLabel->setGeometry(curRect);
+
+    QPixmap scaled = dragGhostDanger.scaled(newW, newH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    QPixmap faded(scaled.size());
+    faded.fill(Qt::transparent);
+    {
+        QPainter p(&faded);
+        p.setOpacity(std::clamp(1.0 - t, 0.0, 1.0));
+        p.drawPixmap(0, 0, scaled);
+    }
+    dragGhostLabel->setPixmap(faded);
+}
+
+/** @brief Cancel the active drag operation and revert card positions. */
+void MainWindow::cancelTxDrag()
+{
+    finishTxDrag(false);
+}
+
+/** @brief Cancel drag-and-drop operations on Escape. */
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+    if (isDraggingTx && event->key() == Qt::Key_Escape)
+    {
+        cancelTxDrag();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
+}
+
 /** @brief Restore configured TX messages from workspace storage. */
 void MainWindow::restoreTxMessages()
 {
@@ -6592,36 +7506,39 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
     const uint64_t selected = pendingSelectionKey ? pendingSelectionKey : selectedTx();
     pendingSelectionKey = 0;
-    txTable->setRowCount(int(latest->tx.size()));
-    for (size_t i = 0; i < latest->tx.size(); ++i)
+    if (!isDraggingTx)
     {
-        const auto &view = latest->tx[i];
-        const auto &entry = view.entry;
-        const int row = int(i);
-        cell(txTable, row, 0, QString::number(entry.id));
-        txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
-        cell(txTable, row, 1, messageName(entry.id));
-        // Cards use the interface font rather than the numeric cell font.
-        txTable->item(row, 1)->setFont(txTable->font());
-        cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
-        cell(txTable, row, 3, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0 && entry.hz != std::floor(entry.hz)) ? 1 : 0));
-        cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
-        cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
-        cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
-        const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\nEst. wire load: ~%6\n%7 frames handed to Qt output\n%8")
-                                    .arg(messageName(entry.id), QString::number(entry.id), txTable->item(row, 2)->text(),
-                                         txTable->item(row, 3)->text(), txTable->item(row, 4)->text(),
-                                         QString::fromStdString(Mav::formatByteRate(view.estimatedBps)),
-                                         txTable->item(row, 5)->text(), txTable->item(row, 6)->text());
-        txTable->item(row, 1)->setData(Qt::AccessibleTextRole, description);
-        if (entry.key == selected && txTable->currentRow() != row)
+        txTable->setRowCount(int(latest->tx.size()));
+        for (size_t i = 0; i < latest->tx.size(); ++i)
         {
-            const int scroll = txTable->verticalScrollBar()->value();
-            txTable->setCurrentCell(row, 1);
-            txTable->verticalScrollBar()->setValue(scroll);
+            const auto &view = latest->tx[i];
+            const auto &entry = view.entry;
+            const int row = int(i);
+            cell(txTable, row, 0, QString::number(entry.id));
+            txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
+            cell(txTable, row, 1, messageName(entry.id));
+            // Cards use the interface font rather than the numeric cell font.
+            txTable->item(row, 1)->setFont(txTable->font());
+            cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
+            cell(txTable, row, 3, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0 && entry.hz != std::floor(entry.hz)) ? 1 : 0));
+            cell(txTable, row, 4, QString::number(view.measuredHz, 'f', 0));
+            cell(txTable, row, 5, QString::number(qulonglong(entry.count)));
+            cell(txTable, row, 6, entry.error.empty() ? (entry.active ? "Running" : "Stopped") : QString::fromStdString(entry.error));
+            const QString description = QString("%1 · ID %2\nSystem / Component %3\nTarget %4 Hz · Actual %5 Hz\nEst. wire load: ~%6\n%7 frames handed to Qt output\n%8")
+                                        .arg(messageName(entry.id), QString::number(entry.id), txTable->item(row, 2)->text(),
+                                             txTable->item(row, 3)->text(), txTable->item(row, 4)->text(),
+                                             QString::fromStdString(Mav::formatByteRate(view.estimatedBps)),
+                                             txTable->item(row, 5)->text(), txTable->item(row, 6)->text());
+            txTable->item(row, 1)->setData(Qt::AccessibleTextRole, description);
+            if (entry.key == selected && txTable->currentRow() != row)
+            {
+                const int scroll = txTable->verticalScrollBar()->value();
+                txTable->setCurrentCell(row, 1);
+                txTable->verticalScrollBar()->setValue(scroll);
+            }
         }
+        updateTxHeights();
     }
-    updateTxHeights();
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);
     if (metricsWidget)
@@ -7247,6 +8164,20 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     txTable->setCurrentCell(-1, -1);
                     updateActions();
                 }
+                else if (index.column() == 1)
+                {
+                    const QRect rect = txTable->visualRect(index);
+                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect handleRect = txDragHandleRect(card);
+                    if (handleRect.contains(mouseEvent->pos()))
+                    {
+                        dragHandlePressed = true;
+                        dragStartPos = mouseEvent->pos();
+                        dragSourceRow = index.row();
+                        dragTargetRow = index.row();
+                        return true;
+                    }
+                }
             }
             else
             {
@@ -7273,6 +8204,18 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         }
     }
+    if (txTable && (watched == txTable->viewport() || watched == txTable))
+    {
+        if (event->type() == QEvent::KeyPress)
+        {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (isDraggingTx && keyEvent->key() == Qt::Key_Escape)
+            {
+                cancelTxDrag();
+                return true;
+            }
+        }
+    }
     if (txTable && watched == txTable->viewport())
     {
         if (event->type() == QEvent::MouseButtonRelease)
@@ -7280,6 +8223,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
             if (mouseEvent->button() == Qt::LeftButton)
             {
+                if (isDraggingTx)
+                {
+                    finishTxDrag(true);
+                    return true;
+                }
+                if (dragHandlePressed)
+                {
+                    dragHandlePressed = false;
+                    return true;
+                }
                 const QModelIndex index = txTable->indexAt(mouseEvent->pos());
                 if (index.isValid() && index.column() == 1)
                 {
@@ -7318,12 +8271,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 {
                     const QRect rect = txTable->visualRect(index);
                     const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect handleRect = txDragHandleRect(card);
                     const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                     const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
                                                           txTable->item(index.row(), 1)->text(),
                                                           txTable->item(index.row(), 3)->text(),
                                                           txTable->font());
-                    if (badge.contains(mouseEvent->pos()) || ratePill.contains(mouseEvent->pos()))
+                    if (handleRect.contains(mouseEvent->pos()) || badge.contains(mouseEvent->pos()) || ratePill.contains(mouseEvent->pos()))
                     {
                         return true;
                     }
@@ -7333,19 +8287,38 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         else if (event->type() == QEvent::MouseMove)
         {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (dragHandlePressed)
+            {
+                if (!isDraggingTx)
+                {
+                    if ((mouseEvent->pos() - dragStartPos).manhattanLength() >= QApplication::startDragDistance())
+                    {
+                        startTxDrag(dragSourceRow, mouseEvent->globalPosition().toPoint());
+                        updateTxDrag(mouseEvent->globalPosition().toPoint(), mouseEvent->pos());
+                    }
+                }
+                else
+                {
+                    updateTxDrag(mouseEvent->globalPosition().toPoint(), mouseEvent->pos());
+                }
+                return true;
+            }
             const QModelIndex index = txTable->indexAt(mouseEvent->pos());
             if (index.isValid() && index.column() == 1)
             {
                 const QRect rect = txTable->visualRect(index);
                 const QRect card = rect.adjusted(1, 5, -2, -5);
+                const QRect handleRect = txDragHandleRect(card);
                 const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                 const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
                                                       txTable->item(index.row(), 1)->text(),
                                                       txTable->item(index.row(), 3)->text(),
                                                       txTable->font());
-                const bool onRate = ratePill.contains(mouseEvent->pos());
-                const bool onBadge = badge.contains(mouseEvent->pos()) && connected;
-                if (onRate || onBadge)
+                if (handleRect.contains(mouseEvent->pos()))
+                {
+                    txTable->viewport()->setCursor(Qt::OpenHandCursor);
+                }
+                else if (ratePill.contains(mouseEvent->pos()) || (badge.contains(mouseEvent->pos()) && connected))
                 {
                     txTable->viewport()->setCursor(Qt::PointingHandCursor);
                 }

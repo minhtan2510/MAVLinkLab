@@ -4539,6 +4539,182 @@ private slots:
         window.findChild<QLabel *>("panelTitle"); // Trigger deselection update
         QTest::qWait(30);
     }
+
+    /**
+     * @brief Test TX card drag-and-drop reordering:
+     *        1. Direct SerialWorker moveEntry slot logic.
+     *        2. Interactive UI drag handle press, drag movement, dynamic placeholder, drop, and Escape cancellation.
+     */
+    void txCardDragAndDropReordering()
+    {
+        // 1. Test SerialWorker::moveEntry
+        {
+            SerialWorker worker;
+            worker.initialize();
+
+            Mav::TxEntry e0{};
+            e0.key = 1;
+            e0.id = 0; // HEARTBEAT
+            e0.hz = 1.0;
+            e0.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+            worker.saveEntry(e0);
+
+            Mav::TxEntry e1{};
+            e1.key = 2;
+            e1.id = 1; // SYS_STATUS
+            e1.hz = 2.0;
+            e1.payload.resize(mavlink_get_msg_entry(1)->max_msg_len);
+            worker.saveEntry(e1);
+
+            Mav::TxEntry e2{};
+            e2.key = 3;
+            e2.id = 2; // SYSTEM_TIME
+            e2.hz = 5.0;
+            e2.payload.resize(mavlink_get_msg_entry(2)->max_msg_len);
+            worker.saveEntry(e2);
+
+            QSignalSpy snapshotSpy(&worker, &SerialWorker::snapshotReady);
+
+            // Invalid moves should do nothing
+            worker.moveEntry(-1, 2);
+            worker.moveEntry(0, 5);
+            worker.moveEntry(1, 1);
+            QCOMPARE(snapshotSpy.count(), 0);
+
+            // Valid move: move entry 0 (HEARTBEAT) to index 2
+            worker.moveEntry(0, 2);
+            QCOMPARE(snapshotSpy.count(), 1);
+            auto snapshot = snapshotSpy.takeFirst().at(0).value<SnapshotPtr>();
+            QCOMPARE(snapshot->tx.size(), size_t(3));
+            QCOMPARE(snapshot->tx[0].entry.id, 1u); // SYS_STATUS is now index 0
+            QCOMPARE(snapshot->tx[1].entry.id, 2u); // SYSTEM_TIME is now index 1
+            QCOMPARE(snapshot->tx[2].entry.id, 0u); // HEARTBEAT is now index 2
+
+            // Move back: move index 2 to index 0
+            worker.moveEntry(2, 0);
+            QCOMPARE(snapshotSpy.count(), 1);
+            snapshot = snapshotSpy.takeFirst().at(0).value<SnapshotPtr>();
+            QCOMPARE(snapshot->tx[0].entry.id, 0u); // HEARTBEAT back to index 0
+            QCOMPARE(snapshot->tx[1].entry.id, 1u);
+            QCOMPARE(snapshot->tx[2].entry.id, 2u);
+        }
+
+        // 2. Test MainWindow interactive UI drag-and-drop
+        {
+            MainWindow window;
+            window.stopRefreshTimer();
+            window.resize(1200, 800);
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = false;
+
+            TxView v0;
+            v0.entry.key = 100;
+            v0.entry.id = 0; // HEARTBEAT
+            v0.entry.hz = 1.0;
+            v0.entry.sysid = 1;
+            v0.entry.compid = 1;
+            snapshot->tx.push_back(v0);
+
+            TxView v1;
+            v1.entry.key = 101;
+            v1.entry.id = 1; // SYS_STATUS
+            v1.entry.hz = 2.0;
+            v1.entry.sysid = 1;
+            v1.entry.compid = 1;
+            snapshot->tx.push_back(v1);
+
+            TxView v2;
+            v2.entry.key = 102;
+            v2.entry.id = 2; // SYSTEM_TIME
+            v2.entry.hz = 5.0;
+            v2.entry.sysid = 1;
+            v2.entry.compid = 1;
+            snapshot->tx.push_back(v2);
+
+            window.applySnapshot(snapshot);
+            QCOMPARE(tx->rowCount(), 3);
+            QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+            QCOMPARE(tx->item(1, 0)->text(), QString("1"));
+            QCOMPARE(tx->item(2, 0)->text(), QString("2"));
+
+            const QRect card0 = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+            const QRect card2 = tx->visualRect(tx->model()->index(2, 1)).adjusted(1, 5, -2, -5);
+            const QPoint handle0(card0.left() + 8, card0.center().y());
+            const QPoint target2(card2.center());
+
+            const auto sendMouseMove = [tx](const QPoint &pos)
+            {
+                QMouseEvent moveEvent(QEvent::MouseMove, QPointF(pos), tx->viewport()->mapToGlobal(pos),
+                                      Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(tx->viewport(), &moveEvent);
+            };
+
+            // A. Test Drag Cancel with Escape
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(handle0 + QPoint(0, 30));
+            QTest::qWait(50);
+            QVERIFY(tx->property("isDragging").toBool());
+
+            // Press Escape to cancel
+            QTest::keyClick(tx, Qt::Key_Escape);
+            QTest::qWait(50);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0 + QPoint(0, 30));
+            QTest::qWait(50);
+
+            // B. Test Drag and Drop from Row 0 to Row 2
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(target2);
+            QTest::qWait(50);
+            QVERIFY(tx->property("isDragging").toBool());
+            QCOMPARE(tx->property("dragTargetRow").toInt(), 2);
+
+            // Release to drop
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, target2);
+            QTest::qWait(250);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QVERIFY(tx->selectedItems().isEmpty());
+
+            auto *trashCard = window.findChild<QWidget *>("trashDropCard");
+            auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
+            auto *txSummary = window.findChild<QWidget *>("txSummary");
+            QVERIFY(trashCard);
+            QVERIFY(deleteAll);
+            QVERIFY(txSummary);
+            QVERIFY(!trashCard->isVisible());
+            QVERIFY(deleteAll->isVisible());
+            const int summaryXBeforeDrag = txSummary->geometry().x();
+
+            // C. Test Drag to Trash Drop Card to Delete Message
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(handle0 + QPoint(0, 30));
+            QTest::qWait(250);
+            QVERIFY(tx->property("isDragging").toBool());
+            QVERIFY(trashCard->isVisible());
+            QVERIFY(trashCard->width() > 140);
+            QVERIFY(!deleteAll->isVisible());
+            QCOMPARE(txSummary->geometry().x(), summaryXBeforeDrag);
+
+            // Move over trash drop zone
+            const QPoint trashPosInTx = tx->viewport()->mapFromGlobal(trashCard->mapToGlobal(QPoint(trashCard->width() / 2, trashCard->height() / 2)));
+            sendMouseMove(trashPosInTx);
+            QTest::qWait(100);
+            QCOMPARE(tx->property("dragTargetRow").toInt(), -1);
+
+            // Release over trash drop zone
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, trashPosInTx);
+            QTest::qWait(450);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QVERIFY(!trashCard->isVisible());
+            QVERIFY(deleteAll->isVisible());
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

@@ -25,6 +25,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QFontDatabase>
+#include <QElapsedTimer>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -37,6 +38,7 @@ class TxSummaryWidget;
 class ConnectionStatusWidget;
 class StatusBarMetricsWidget;
 class StatusBarMessageWidget;
+class TrashDropCard;
 
 #include "plotter.h"
 
@@ -78,6 +80,8 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
+    /** @brief Cancel drag-and-drop operations on Escape. */
+    void keyPressEvent(QKeyEvent *event) override;
 private:
     /** @brief Re-enumerate ports while retaining an explicitly typed PTY/device path. */
     void refreshPorts();
@@ -134,6 +138,27 @@ private:
     void showCopiedFeedback(int row);
     /** @brief Update the color styling of the RX throughput pill based on channel utilization. */
     void updateRxThroughputStyle(double util);
+    /**
+     * @brief Start interactive drag operation for a TX message card.
+     * @param row Index of the row being dragged.
+     * @param globalPos Initial mouse position in global coordinates.
+     */
+    void startTxDrag(int row, const QPoint &globalPos);
+    /**
+     * @brief Update ghost preview and target drop row while dragging.
+     * @param globalPos Current mouse position in global coordinates.
+     * @param viewportPos Current mouse position in txTable viewport coordinates.
+     */
+    void updateTxDrag(const QPoint &globalPos, const QPoint &viewportPos);
+    /**
+     * @brief Finalize or cancel the active drag operation.
+     * @param commit True to apply the new row order to the worker; false to revert.
+     */
+    void finishTxDrag(bool commit);
+    /** @brief Cancel the active drag operation and revert card positions. */
+    void cancelTxDrag();
+    /** @brief Execute one frame of the shrink-and-fade ghost deletion animation. */
+    void stepTxDeleteShrink();
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -177,6 +202,29 @@ private:
     StatusBarMetricsWidget *metricsWidget = nullptr;
     StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;
+    bool isDraggingTx = false;
+    bool dragHandlePressed = false;
+    int dragSourceRow = -1;
+    int dragTargetRow = -1;
+    QPoint dragStartPos;
+    QPoint lastDragGlobalPos;
+    QPoint lastDragVpPos;
+    QPoint ghostOffset;
+    QLabel *dragGhostLabel = nullptr;
+    QTimer *dragAutoScrollTimer = nullptr;
+    int dragAutoScrollSpeed = 0;
+    QTimer *dragAnimTimer = nullptr;
+    std::map<int, double> dragRowOffsets;
+    TrashDropCard *trashDropCard = nullptr;
+    bool isHoveringTrash = false;
+    QTimer *dragDeleteShrinkTimer = nullptr;
+    QElapsedTimer dragDeleteShrinkTimerElapsed;
+    int dragDeleteShrinkStep = 0;
+    QRect dragDeleteStartRect;
+    QPoint dragDeleteTargetCenter;
+    uint64_t pendingDeleteKey = 0;
+    QPixmap dragGhostNormal;
+    QPixmap dragGhostDanger;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;

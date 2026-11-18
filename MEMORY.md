@@ -54,6 +54,11 @@
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
   * Batch action buttons are located in the TX Dashboard header row 1 in column 0 directly beneath `TX Dashboard` title: `runAll` (left-aligned with 'T') and `stopAll` are clustered together, while `deleteAll` is pushed via `addStretch()` so its right edge aligns pixel-perfect with the trailing letter 'd' of `TX Dashboard`. `+ Add message` is on row 1 on the far right. Status pills (`TxSummaryWidget`) are located on row 0 directly next to the `TX Dashboard` title (matching the `RX Dashboard` header style). This creates a cohesive, symmetric design language across both dashboards.
   * TX Status indicator (`TxSummaryWidget`) uses Dual/Triple Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with clean centered text (`X running` / `0 running`) without LED dot icon for a unified minimal aesthetic matching Pill 1. Text measurement uses the matching DemiBold font metrics.
+* **TX Card Drag-and-Drop & Animated Trash Dropzone (`TrashDropCard`):**
+  * Reordering TX cards uses mouse drag on the grab handle. During dragging, `deleteAllButton` is smoothly replaced by `TrashDropCard`, an overlay widget parented to `txGroup` positioned at `deleteAllButton->pos()`.
+  * `batchActions` layout is strictly kept in `(1, 0)` with width ~127px, ensuring `txSummary` pills in `(0, 1)` experience zero layout shift (0 px jitter).
+  * `TrashDropCard` expands smoothly from 28px to 190px upon drag start with a solid thin border (1.0px idle, 1.5px hover). When hovering over trash, the floating dragged card retains crisp 1:1 text/badges with an overlaid dense milky frosted glass haze (~51% opacity, alpha 130-135) and thin red border, keeping content fully legible while visually indicating the danger zone.
+  * Releasing over trash triggers an interactive shrink-and-fade animation sucking the floating ghost card into the trash can (220ms ease-in), stops active transmissions if running, removes the message, and collapses the dropzone back to 28px (180ms ease-out) before revealing `deleteAllButton`.
 * **Real-time Throughput Monitoring & Link Load Estimation:**
   * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
   * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
@@ -246,6 +251,13 @@
   * Application-wide icon: Instantiated via `MainWindow::appIcon()` and attached to `QApplication::setWindowIcon()` and `MainWindow::setWindowIcon()`.
   * Linux Desktop Integration: `resources/mavlink-lab.desktop` installed to `share/applications`, icons installed to `share/icons/hicolor/` for Ubuntu Dash/Launcher.
   * UI Alignment Invariant: Window title bar heading row begins strictly with `QLabel#heading` at $x=20$ px to maintain exact pixel-level alignment with `txPanel` left boundary (`interactionStates` test check).
+
+* **TX Message Card Drag & Drop Reordering (Dynamic Placeholder Slot):**
+  * Architecture & Performance: Virtual row remapping via `TxCardDelegate` with `txVisualToSourceRow(visualRow, sourceRow, targetRow)` ensures underlying `QTableWidget` items are not mutated during the drag, delivering flicker-free 60 FPS repaints.
+  * Dedicated Drag Handle: 6-dot vector grip (`txDragHandleRect`, $x \in [\text{left}+3, \text{left}+18]$) completely isolates drag gestures from inline rate switcher pills, status toggle badges, and card double-click edit triggers.
+  * Snapshot Suspension: While `isDraggingTx == true`, `MainWindow::applySnapshot()` suspends table row count resets to prevent 200 ms snapshot refreshes from interrupting active drag gestures.
+  * Concurrency & Persistence: Drop release invokes `SerialWorker::moveEntry(from, to)` via queued invocation, updating `entries` vector in the worker thread and immediately syncing to `QSettings` workspace storage.
+  * Safety & Cancel: Releasing outside or pressing `Escape` cleanly cancels the drag operation, resetting visual state and clearing selection.
 
 ---
 
