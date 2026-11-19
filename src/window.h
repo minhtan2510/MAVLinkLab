@@ -68,6 +68,10 @@ public:
     void setRxThroughputStats(double bps, double utilization, int baud);
     /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
     void stopRefreshTimer();
+    /** @brief Trigger smooth vertical swap slide animation between two rows. */
+    void startTxSwapAnimation(int newRow, int oldRow);
+    /** @brief Trigger smooth slide-out and push-down animation for a duplicated TX card. */
+    void startTxDuplicateAnimation(int insertRow);
     /** @brief Return the currently configured serial port settings. */
     PortConfig currentPortConfig() const;
     /** @brief Return pointer to the telemetry plotter widget. */
@@ -172,8 +176,6 @@ private:
     void deleteTxCardAt(int row);
     /** @brief Handle keyboard navigation and manipulation shortcuts for TX cards. */
     bool handleTxKeyPress(QKeyEvent *event);
-    /** @brief Trigger smooth vertical swap slide animation between two rows. */
-    void startTxSwapAnimation(int newRow, int oldRow);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -246,6 +248,10 @@ private:
     QTimer *txSwapAnimTimer = nullptr;
     QElapsedTimer txSwapAnimElapsed;
     double txSwapAnimStartOffset = 0.0;
+    uint64_t pendingDuplicateKey = 0;
+    QTimer *txDuplicateAnimTimer = nullptr;
+    QElapsedTimer txDuplicateAnimElapsed;
+    double txDuplicateAnimStartOffset = 0.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;

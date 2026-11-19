@@ -2022,6 +2022,22 @@ public:
                 animDy -= int(std::round(swapOffset));
             }
         }
+        const int dupRow = option.widget ? option.widget->property("duplicateAnimRow").toInt() : -1;
+        const double dupOffset = option.widget ? option.widget->property("duplicateAnimOffset").toDouble() : 0.0;
+        const double dupProgress = option.widget ? option.widget->property("duplicateAnimProgress").toDouble() : 1.0;
+        if (dupRow >= 0 && std::abs(dupOffset) > 0.1)
+        {
+            if (index.row() == dupRow)
+            {
+                animDy += int(std::round(dupOffset));
+                painter->setClipRect(option.rect.adjusted(0, 0, 0, 10000), Qt::IntersectClip);
+                painter->setOpacity(std::clamp(dupProgress, 0.0, 1.0));
+            }
+            else if (index.row() > dupRow)
+            {
+                animDy += int(std::round(dupOffset));
+            }
+        }
         const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
@@ -3063,6 +3079,7 @@ public:
         setMaximumWidth(240);
         resize(28, 28);
         m_animTimer = new QTimer(this);
+        m_animTimer->setTimerType(Qt::PreciseTimer);
         connect(m_animTimer, &QTimer::timeout, this, [this]()
         {
             onAnimStep();
@@ -3089,7 +3106,7 @@ public:
         raise();
         if (!m_animTimer->isActive())
         {
-            m_animTimer->start(16);
+            m_animTimer->start(8);
         }
         update();
     }
@@ -3108,7 +3125,7 @@ public:
         m_collapseTimer.restart();
         if (!m_animTimer->isActive())
         {
-            m_animTimer->start(16);
+            m_animTimer->start(8);
         }
         update();
     }
@@ -3124,7 +3141,7 @@ public:
             m_hovered = hovered;
             if (!m_animTimer->isActive())
             {
-                m_animTimer->start(16);
+                m_animTimer->start(8);
             }
         }
     }
@@ -3255,7 +3272,7 @@ private:
             const qint64 elapsed = m_expandTimer.elapsed();
             const double duration = 220.0;
             const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
-            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             m_expandProgress = ease;
             m_currentWidth = int(28 + (190 - 28) * ease);
             setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
@@ -3277,7 +3294,7 @@ private:
             const qint64 elapsed = m_collapseTimer.elapsed();
             const double duration = 180.0;
             const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
-            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             m_expandProgress = 1.0 - ease;
             m_currentWidth = int(m_collapseStartWidth + (28 - m_collapseStartWidth) * ease);
             setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
@@ -3305,7 +3322,7 @@ private:
         const double targetHover = m_hovered ? 1.0 : 0.0;
         if (std::abs(m_hoverProgress - targetHover) > 0.01)
         {
-            m_hoverProgress += (targetHover - m_hoverProgress) * 0.22;
+            m_hoverProgress += (targetHover - m_hoverProgress) * 0.12;
             if (std::abs(m_hoverProgress - targetHover) <= 0.01)
             {
                 m_hoverProgress = targetHover;
@@ -3366,6 +3383,7 @@ public:
         });
 
         m_animTimer = new QTimer(this);
+        m_animTimer->setTimerType(Qt::PreciseTimer);
         connect(m_animTimer, &QTimer::timeout, this, [this]()
         {
             onAnimStep();
@@ -3431,7 +3449,7 @@ public:
         }
         if (!m_animTimer->isActive())
         {
-            m_animTimer->start(16);
+            m_animTimer->start(8);
         }
 
         move(m_targetPos.x(), m_targetPos.y() + 20);
@@ -3478,7 +3496,7 @@ public:
         m_animElapsed.restart();
         if (!m_animTimer->isActive())
         {
-            m_animTimer->start(16);
+            m_animTimer->start(8);
         }
     }
 
@@ -3642,7 +3660,7 @@ private:
 
         if (!m_isDismissing)
         {
-            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             m_animProgress = ease;
             const int offsetY = int((1.0 - ease) * 20.0);
             move(m_targetPos.x(), m_targetPos.y() + offsetY);
@@ -3655,7 +3673,7 @@ private:
         }
         else
         {
-            const double ease = t * t * t;
+            const double ease = t * t;
             m_animProgress = std::clamp(1.0 - ease, 0.0, 1.0);
             const int offsetY = int(ease * 20.0);
             move(m_targetPos.x(), m_targetPos.y() + offsetY);
@@ -4336,6 +4354,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
     });
     dragAnimTimer = new QTimer(this);
+    dragAnimTimer->setTimerType(Qt::PreciseTimer);
     connect(dragAnimTimer, &QTimer::timeout, this, [this]()
     {
         if (!isDraggingTx || !txTable)
@@ -4349,7 +4368,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         double offset = txTable->property("dragAnimOffset").toDouble();
         if (std::abs(offset) > 0.5)
         {
-            offset *= 0.55;
+            offset *= 0.74;
             if (std::abs(offset) <= 0.5)
             {
                 offset = 0.0;
@@ -4944,8 +4963,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
         const uint64_t newKey = nextKey++;
         pendingSelectionKey = newKey;
+        pendingDuplicateKey = newKey;
         QMetaObject::invokeMethod(worker, "duplicateEntry", Qt::QueuedConnection,
                                   Q_ARG(quint64, currentKey), Q_ARG(quint64, newKey));
+        saveTxMessages();
     });
     connect(removeAction, &QAction::triggered, this, [this]()
     {
@@ -6036,6 +6057,13 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
     {
         dragDeleteShrinkTimer->stop();
     }
+    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
+    {
+        txDuplicateAnimTimer->stop();
+        txTable->setProperty("duplicateAnimRow", -1);
+        txTable->setProperty("duplicateAnimOffset", 0.0);
+        txTable->setProperty("duplicateAnimProgress", 1.0);
+    }
     pendingDeleteKey = 0;
 
     if (trashDropCard && deleteAllButton)
@@ -6241,14 +6269,14 @@ void MainWindow::updateTxDrag(const QPoint &globalPos, const QPoint &viewportPos
         dragTargetRow = newTargetRow;
         txTable->setProperty("dragTargetRow", dragTargetRow);
 
-        // Trigger snappy 120ms sliding animation
+        // Trigger snappy sliding animation
         txTable->setProperty("dragAnimFrom", prevTarget);
         txTable->setProperty("dragAnimTo", dragTargetRow);
         const double initialOffset = (prevTarget < dragTargetRow) ? 35.0 : -35.0;
         txTable->setProperty("dragAnimOffset", initialOffset);
         if (dragAnimTimer && !dragAnimTimer->isActive())
         {
-            dragAnimTimer->start(16);
+            dragAnimTimer->start(8);
         }
         txTable->viewport()->update();
     }
@@ -6334,12 +6362,13 @@ void MainWindow::finishTxDrag(bool commit)
             if (!dragDeleteShrinkTimer)
             {
                 dragDeleteShrinkTimer = new QTimer(this);
+                dragDeleteShrinkTimer->setTimerType(Qt::PreciseTimer);
                 connect(dragDeleteShrinkTimer, &QTimer::timeout, this, [this]()
                 {
                     stepTxDeleteShrink();
                 });
             }
-            dragDeleteShrinkTimer->start(16);
+            dragDeleteShrinkTimer->start(8);
             return;
         }
 
@@ -6604,6 +6633,13 @@ void MainWindow::deleteTxCardAt(int row)
     {
         return;
     }
+    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
+    {
+        txDuplicateAnimTimer->stop();
+        txTable->setProperty("duplicateAnimRow", -1);
+        txTable->setProperty("duplicateAnimOffset", 0.0);
+        txTable->setProperty("duplicateAnimProgress", 1.0);
+    }
     const QTableWidgetItem *item = txTable->item(row, 0);
     if (!item)
     {
@@ -6702,14 +6738,14 @@ bool MainWindow::handleTxKeyPress(QKeyEvent *event)
         return false;
     }
 
-    // Delete / Backspace: delete selected card immediately with Undo toast
-    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)
+    // Delete / Backspace / Ctrl+X: delete selected card immediately with Undo toast
+    const bool isDeleteKey = (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) &&
+                             (event->modifiers() == Qt::NoModifier);
+    const bool isCtrlX = (event->modifiers() & Qt::ControlModifier) && (event->key() == Qt::Key_X);
+    if (isDeleteKey || isCtrlX)
     {
-        if (event->modifiers() == Qt::NoModifier)
-        {
-            deleteTxCardAt(row);
-            return true;
-        }
+        deleteTxCardAt(row);
+        return true;
     }
 
     // Ctrl+D: duplicate selected card
@@ -6717,6 +6753,7 @@ bool MainWindow::handleTxKeyPress(QKeyEvent *event)
     {
         const uint64_t newKey = nextKey++;
         pendingSelectionKey = newKey;
+        pendingDuplicateKey = newKey;
         QMetaObject::invokeMethod(worker, "duplicateEntry", Qt::QueuedConnection,
                                   Q_ARG(quint64, key), Q_ARG(quint64, newKey));
         saveTxMessages();
@@ -6793,6 +6830,13 @@ void MainWindow::startTxSwapAnimation(int newRow, int oldRow)
     {
         return;
     }
+    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
+    {
+        txDuplicateAnimTimer->stop();
+        txTable->setProperty("duplicateAnimRow", -1);
+        txTable->setProperty("duplicateAnimOffset", 0.0);
+        txTable->setProperty("duplicateAnimProgress", 1.0);
+    }
     const double rowH = double(txTable->rowHeight(newRow) > 0 ? txTable->rowHeight(newRow) : 74);
     txSwapAnimStartOffset = (newRow < oldRow) ? +rowH : -rowH;
     txTable->setProperty("swapRowA", newRow);
@@ -6802,12 +6846,13 @@ void MainWindow::startTxSwapAnimation(int newRow, int oldRow)
     if (!txSwapAnimTimer)
     {
         txSwapAnimTimer = new QTimer(this);
+        txSwapAnimTimer->setTimerType(Qt::PreciseTimer);
         connect(txSwapAnimTimer, &QTimer::timeout, this, [this]()
         {
             const qint64 elapsed = txSwapAnimElapsed.elapsed();
-            const double duration = 140.0;
+            const double duration = 180.0;
             const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
-            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             const double curOffset = (1.0 - ease) * txSwapAnimStartOffset;
             txTable->setProperty("swapOffset", curOffset);
             txTable->viewport()->update();
@@ -6821,7 +6866,62 @@ void MainWindow::startTxSwapAnimation(int newRow, int oldRow)
             }
         });
     }
-    txSwapAnimTimer->start(16);
+    txSwapAnimTimer->start(8);
+    txTable->viewport()->update();
+}
+
+/**
+ * @brief Trigger smooth slide-out and push-down animation for a duplicated TX card.
+ * @param insertRow Row index of the newly inserted cloned card.
+ */
+void MainWindow::startTxDuplicateAnimation(int insertRow)
+{
+    if (!txTable || insertRow < 0 || insertRow >= txTable->rowCount())
+    {
+        return;
+    }
+    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
+    {
+        txDuplicateAnimTimer->stop();
+    }
+    if (txSwapAnimTimer && txSwapAnimTimer->isActive())
+    {
+        txSwapAnimTimer->stop();
+        txTable->setProperty("swapRowA", -1);
+        txTable->setProperty("swapRowB", -1);
+        txTable->setProperty("swapOffset", 0.0);
+    }
+    const double rowH = double(txTable->rowHeight(insertRow) > 0 ? txTable->rowHeight(insertRow) : 74);
+    txDuplicateAnimStartOffset = -rowH;
+    txTable->setProperty("duplicateAnimRow", insertRow);
+    txTable->setProperty("duplicateAnimOffset", txDuplicateAnimStartOffset);
+    txTable->setProperty("duplicateAnimProgress", 0.0);
+    txDuplicateAnimElapsed.restart();
+    if (!txDuplicateAnimTimer)
+    {
+        txDuplicateAnimTimer = new QTimer(this);
+        txDuplicateAnimTimer->setTimerType(Qt::PreciseTimer);
+        connect(txDuplicateAnimTimer, &QTimer::timeout, this, [this]()
+        {
+            const qint64 elapsed = txDuplicateAnimElapsed.elapsed();
+            const double duration = 220.0;
+            const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
+            const double curOffset = (1.0 - ease) * txDuplicateAnimStartOffset;
+            txTable->setProperty("duplicateAnimOffset", curOffset);
+            txTable->setProperty("duplicateAnimProgress", ease);
+            txTable->viewport()->update();
+            if (t >= 1.0)
+            {
+                txDuplicateAnimTimer->stop();
+                txTable->setProperty("duplicateAnimRow", -1);
+                txTable->setProperty("duplicateAnimOffset", 0.0);
+                txTable->setProperty("duplicateAnimProgress", 1.0);
+                txTable->viewport()->update();
+            }
+        });
+    }
+    txDuplicateAnimTimer->start(8);
     txTable->viewport()->update();
 }
 
@@ -8211,6 +8311,9 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
     const uint64_t selected = pendingSelectionKey ? pendingSelectionKey : selectedTx();
     pendingSelectionKey = 0;
+    const uint64_t dupKey = pendingDuplicateKey;
+    pendingDuplicateKey = 0;
+    int dupRow = -1;
     if (!isDraggingTx)
     {
         txTable->setRowCount(int(latest->tx.size()));
@@ -8219,6 +8322,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             const auto &view = latest->tx[i];
             const auto &entry = view.entry;
             const int row = int(i);
+            if (dupKey != 0 && entry.key == dupKey)
+            {
+                dupRow = row;
+            }
             cell(txTable, row, 0, QString::number(entry.id));
             txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
             cell(txTable, row, 1, messageName(entry.id));
@@ -8243,6 +8350,14 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             }
         }
         updateTxHeights();
+        if (dupRow >= 0)
+        {
+            startTxDuplicateAnimation(dupRow);
+            if (txTable->item(dupRow, 1))
+            {
+                txTable->scrollToItem(txTable->item(dupRow, 1), QAbstractItemView::EnsureVisible);
+            }
+        }
     }
     const bool dark = themeBox->currentIndex() == 2 ||
                       (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128);

@@ -4839,7 +4839,18 @@ private slots:
             QTest::mouseClick(toast, Qt::LeftButton);
             QTest::qWait(250);
 
-            // E. Test Focus Safety: typing in rxFilter does not trigger card deletion
+            // E. Test Ctrl+X shortcut deletes card and triggers Undo toast
+            const int preCutRowCount = tx->rowCount();
+            tx->selectRow(0);
+            tx->setCurrentCell(0, 1);
+            QTest::keyClick(&window, Qt::Key_X, Qt::ControlModifier);
+            QTest::qWait(100);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QTest::mouseClick(toast, Qt::LeftButton);
+            QTest::qWait(250);
+
+            // F. Test Focus Safety: typing in rxFilter does not trigger card deletion with Delete or Ctrl+X
             auto *rxFilter = window.findChild<QLineEdit *>("rxFilter");
             QVERIFY(rxFilter);
             rxFilter->setFocus();
@@ -4847,7 +4858,99 @@ private slots:
             QTest::keyClick(rxFilter, Qt::Key_Space);
             QTest::keyClick(rxFilter, Qt::Key_Backspace);
             QCOMPARE(rxFilter->text(), "HEART");
+
+            // Ctrl+X in input field cuts text, never deletes TX card
+            const int cardCountBeforeCut = tx->rowCount();
+            rxFilter->selectAll();
+            QTest::keyClick(rxFilter, Qt::Key_X, Qt::ControlModifier);
+            QCOMPARE(rxFilter->text(), QString(""));
+            QCOMPARE(tx->rowCount(), cardCountBeforeCut);
         }
+    }
+
+    /**
+     * @brief Test TX message duplication 220 ms slide-down animation:
+     *        1. Trigger Ctrl+D and verify newly cloned row is inserted and selected.
+     *        2. Verify duplicate animation properties on txTable (duplicateAnimRow, offset, progress).
+     *        3. Wait for animation completion and verify property reset.
+     *        4. Test consecutive rapid Ctrl+D triggers without coordinate desync.
+     */
+    void txDuplicateSlideDownAnimation()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(tx && add);
+
+        // 1. Add first message via dialog
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                auto *box = dialog->findChild<QDialogButtonBox *>();
+                if (box && box->button(QDialogButtonBox::Save))
+                {
+                    box->button(QDialogButtonBox::Save)->click();
+                }
+            }
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+
+        // Select row 0
+        tx->selectRow(0);
+        tx->setCurrentCell(0, 1);
+        QCOMPARE(tx->currentRow(), 0);
+
+        // 2. Press Ctrl+D to duplicate row 0
+        QTest::keyClick(&window, Qt::Key_D, Qt::ControlModifier);
+        QTRY_COMPARE(tx->rowCount(), 2);
+        QCOMPARE(tx->currentRow(), 1);
+
+        // Wait for 160 ms animation to complete
+        QTRY_COMPARE(tx->property("duplicateAnimRow").toInt(), -1);
+        QCOMPARE(tx->property("duplicateAnimOffset").toDouble(), 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 1.0);
+
+        // 3. Test direct startTxDuplicateAnimation and rapid interruption
+        window.startTxDuplicateAnimation(1);
+        QCOMPARE(tx->property("duplicateAnimRow").toInt(), 1);
+        QVERIFY(tx->property("duplicateAnimOffset").toDouble() < 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 0.0);
+
+        // Interrupt immediately with row 0
+        window.startTxDuplicateAnimation(0);
+        QCOMPARE(tx->property("duplicateAnimRow").toInt(), 0);
+        QVERIFY(tx->property("duplicateAnimOffset").toDouble() < 0.0);
+
+        // Wait for completion
+        QTRY_COMPARE(tx->property("duplicateAnimRow").toInt(), -1);
+        QCOMPARE(tx->property("duplicateAnimOffset").toDouble(), 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 1.0);
+
+        // 4. Test startTxSwapAnimation high-fps animation and completion
+        window.startTxSwapAnimation(1, 0);
+        QCOMPARE(tx->property("swapRowA").toInt(), 1);
+        QCOMPARE(tx->property("swapRowB").toInt(), 0);
+        QVERIFY(std::abs(tx->property("swapOffset").toDouble()) > 0.0);
+        QTRY_COMPARE(tx->property("swapRowA").toInt(), -1);
+        QCOMPARE(tx->property("swapRowB").toInt(), -1);
+        QCOMPARE(tx->property("swapOffset").toDouble(), 0.0);
     }
 };
 
