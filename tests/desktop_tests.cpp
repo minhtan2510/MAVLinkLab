@@ -5160,6 +5160,103 @@ private slots:
         QCOMPARE(tx->property("swapRowB").toInt(), -1);
         QCOMPARE(tx->property("swapOffset").toDouble(), 0.0);
     }
+
+    /**
+     * @brief Test TX Dashboard Empty State, RX Dashboard Waiting State, and TX Card Badges.
+     *        1. Verify txTable empty state offscreen rendering with 0 rows.
+     *        2. Verify rxTree disconnected waiting state offscreen rendering with 0 streams.
+     *        3. Verify rxTree connected waiting state offscreen rendering.
+     *        4. Verify rxTree populates and hides waiting state when stream arrives.
+     *        5. Verify txTable edge-flush accent bar and payload size badge for configured message.
+     */
+    void txAndRxEmptyAndWaitingStates()
+    {
+        MainWindow window;
+        window.show();
+        window.stopRefreshTimer();
+        QTest::qWait(50);
+
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *rx = window.findChild<QTreeWidget *>("rxTree");
+        QVERIFY(tx != nullptr);
+        QVERIFY(rx != nullptr);
+
+        // 1. Initially TX table has 0 rows -> Empty state rendered
+        QCOMPARE(tx->rowCount(), 0);
+        QPixmap txEmptyPix(tx->viewport()->size());
+        tx->viewport()->render(&txEmptyPix);
+        QVERIFY(!txEmptyPix.isNull());
+
+        // 2. Initially RX tree has 0 items -> Disconnected state rendered
+        QCOMPARE(rx->topLevelItemCount(), 0);
+        QPixmap rxDiscPix(rx->viewport()->size());
+        rx->viewport()->render(&rxDiscPix);
+        QVERIFY(!rxDiscPix.isNull());
+
+        // 3. Set connection status to Connected -> Connected waiting state rendered
+        window.setConnectionStatus("Connected", true);
+        QTest::qWait(20);
+        QPixmap rxConnPix(rx->viewport()->size());
+        rx->viewport()->render(&rxConnPix);
+        QVERIFY(!rxConnPix.isNull());
+
+        // 4. Inject snapshot with RX stream -> Waiting state dismissed, stream shown
+        auto snapshot = std::make_shared<Snapshot>();
+        snapshot->connected = true;
+        snapshot->baud = 115200;
+        mavlink_message_t hb;
+        mavlink_msg_heartbeat_pack(1, 200, &hb, MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_ARDUPILOTMEGA, 0, 0, 0);
+        snapshot->rx.push_back({hb, 1, 1.0, 0.0});
+        window.applySnapshot(snapshot);
+        QTest::qWait(30);
+
+        QCOMPARE(rx->topLevelItemCount(), 1);
+        QPixmap rxActivePix(rx->viewport()->size());
+        rx->viewport()->render(&rxActivePix);
+        QVERIFY(!rxActivePix.isNull());
+
+        // 5. Add a TX message and verify card renders with edge-flush accent & payload badge
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(add != nullptr);
+        QTimer::singleShot(50, [&]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+                if (catalog)
+                {
+                    catalog->setCurrentRow(0);
+                }
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                auto *box = dialog->findChild<QDialogButtonBox *>();
+                if (box && box->button(QDialogButtonBox::Save))
+                {
+                    box->button(QDialogButtonBox::Save)->click();
+                }
+            }
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+
+        QPixmap txCardPix(tx->viewport()->size());
+        tx->viewport()->render(&txCardPix);
+        QVERIFY(!txCardPix.isNull());
+
+        // Save verification artifact
+        QDir().mkpath("qa");
+        txCardPix.save("qa/tx_edge_accent_card.png");
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

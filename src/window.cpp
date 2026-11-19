@@ -2182,7 +2182,7 @@ public:
         }
         const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
-                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
+                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#3d506e" : "#b8c8dc");
         QColor surface = panelBg;
         if (hovered)
         {
@@ -2194,10 +2194,11 @@ public:
         painter->setBrush(surface);
         painter->drawRoundedRect(card, 8, 8);
 
-        // Accent strip on the left edge
+        // Refined slim 3px state capsule pill inset along left edge
+        const QRectF accentPill(card.left() + 8, card.top() + 10, 3, card.height() - 20);
         painter->setPen(Qt::NoPen);
         painter->setBrush(stateAccent);
-        painter->drawRoundedRect(QRect(card.left() + 8, card.top() + 8, 5, card.height() - 16), 3, 3);
+        painter->drawRoundedRect(accentPill, 1.5, 1.5);
 
         // Status badge button on top right
         const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
@@ -2290,6 +2291,28 @@ public:
             const int cy = pillRect.center().y();
             painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
             painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
+        }
+
+        // Draw schema payload wire length badge if space permits
+        const uint32_t msgId = value(0).toUInt();
+        const auto *metadata = mavlink_get_msg_entry(msgId);
+        const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+        const QString payloadText = QString("%1 B").arg(payloadLen);
+        QFont payloadFont = option.font;
+        payloadFont.setPixelSize(10);
+        payloadFont.setWeight(QFont::Medium);
+        const int payloadAdvance = QFontMetrics(payloadFont).horizontalAdvance(payloadText);
+        const int payloadWidth = payloadAdvance + 10;
+        const int payloadX = pillRect.isValid() ? (pillRect.right() + 6) : (textLeft + (lines.size() > 1 ? maxTitleWidth : QFontMetrics(titleFont).horizontalAdvance(title)) + 8);
+        if (payloadX + payloadWidth <= badge.left() - 6)
+        {
+            const QRect payloadRect(payloadX, badge.top() + (badge.height() - 18) / 2, payloadWidth, 18);
+            painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+            painter->setBrush(QColor(dark ? "#1a2536" : "#f1f5f9"));
+            painter->drawRoundedRect(payloadRect, 4, 4);
+            painter->setFont(payloadFont);
+            painter->setPen(QColor(dark ? "#8ca0be" : "#475569"));
+            painter->drawText(payloadRect, Qt::AlignCenter, payloadText);
         }
 
         // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
@@ -3057,10 +3080,213 @@ static QPushButton *button(const QString &text, const char *name, QBoxLayout *la
     return control;
 }
 
-/** @brief Configure a read-only, single-row-selection dashboard table. */
-static QTableWidget *table(const QStringList &headers)
+/**
+ * @brief Table widget for TX cards with minimalist empty state rendering.
+ */
+class TxTableWidget : public QTableWidget
 {
-    auto *result = new QTableWidget(0, headers.size());
+public:
+    using QTableWidget::QTableWidget;
+
+protected:
+    /**
+     * @brief Paint table contents and render empty state message when no rows are configured.
+     * @param event Paint event.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        QTableWidget::paintEvent(event);
+        if (rowCount() == 0)
+        {
+            QPainter painter(viewport());
+            painter.setRenderHint(QPainter::Antialiasing, true);
+
+            const bool dark = property("darkTheme").toBool();
+            const QRect rect = viewport()->rect();
+            const int cx = rect.center().x();
+            const int cy = rect.center().y();
+
+            // Minimalist Outgoing Transmission Glyph (Paper Airplane)
+            const QColor iconColor = dark ? QColor("#607290") : QColor("#94a3b8");
+            painter.setPen(QPen(iconColor, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.setBrush(Qt::NoBrush);
+
+            // Center of icon at (cx, cy - 26)
+            const int iconY = cy - 26;
+            QPainterPath plane;
+            plane.moveTo(cx + 14, iconY - 9);
+            plane.lineTo(cx - 14, iconY - 3);
+            plane.lineTo(cx - 4, iconY + 2);
+            plane.lineTo(cx - 4, iconY + 9);
+            plane.lineTo(cx + 1, iconY + 3);
+            plane.lineTo(cx + 14, iconY - 9);
+            plane.closeSubpath();
+            painter.drawPath(plane);
+
+            // Plane fold line
+            painter.drawLine(QPointF(cx - 4, iconY + 2), QPointF(cx + 14, iconY - 9));
+
+            // Subtle dashed trail behind plane
+            painter.setPen(QPen(iconColor, 1.2, Qt::DashLine, Qt::RoundCap));
+            painter.drawLine(QPointF(cx - 24, iconY + 6), QPointF(cx - 16, iconY + 2));
+
+            // Title: "No messages configured"
+            QFont titleFont = font();
+            titleFont.setPixelSize(13);
+            titleFont.setWeight(QFont::DemiBold);
+            painter.setFont(titleFont);
+            painter.setPen(dark ? QColor("#edf0fa") : QColor("#1e293b"));
+            const QRect titleRect(rect.left() + 16, iconY + 20, rect.width() - 32, 20);
+            painter.drawText(titleRect, Qt::AlignCenter, "No messages configured");
+
+            // Subtitle: "Click '+ Add message' to create your first transmission"
+            QFont subFont = font();
+            subFont.setPixelSize(11);
+            subFont.setWeight(QFont::Normal);
+            painter.setFont(subFont);
+            painter.setPen(dark ? QColor("#8992a6") : QColor("#64748b"));
+            const QRect subRect(rect.left() + 16, iconY + 42, rect.width() - 32, 18);
+            painter.drawText(subRect, Qt::AlignCenter, "Click '+ Add message' to create your first transmission");
+        }
+    }
+};
+
+/**
+ * @brief Tree widget for RX telemetry streams with state-aware waiting state rendering.
+ */
+class RxTreeWidget : public QTreeWidget
+{
+public:
+    using QTreeWidget::QTreeWidget;
+
+    /**
+     * @brief Update connection parameters for the waiting state view.
+     * @param connected Whether serial link is open.
+     * @param portName Name of the connected serial port.
+     * @param baudRate Current baud rate.
+     */
+    void setConnectionInfo(bool connected, const QString &portName, const QString &baudRate)
+    {
+        if (connected_ != connected || portName_ != portName || baudRate_ != baudRate)
+        {
+            connected_ = connected;
+            portName_ = portName;
+            baudRate_ = baudRate;
+            viewport()->update();
+        }
+    }
+
+protected:
+    /**
+     * @brief Paint tree contents and render waiting state when no streams have been received.
+     * @param event Paint event.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        QTreeWidget::paintEvent(event);
+        if (topLevelItemCount() == 0)
+        {
+            QPainter painter(viewport());
+            painter.setRenderHint(QPainter::Antialiasing, true);
+
+            const bool dark = property("darkTheme").toBool();
+            const QRect rect = viewport()->rect();
+            const int cx = rect.center().x();
+            const int cy = rect.center().y();
+            const int iconY = cy - 28;
+
+            if (!connected_)
+            {
+                // Disconnected State: Broken Cable / Plug Glyph
+                const QColor iconColor = dark ? QColor("#607290") : QColor("#94a3b8");
+                painter.setPen(QPen(iconColor, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                painter.setBrush(Qt::NoBrush);
+
+                // Left plug
+                painter.drawLine(QPointF(cx - 20, iconY), QPointF(cx - 10, iconY));
+                painter.drawRoundedRect(QRectF(cx - 10, iconY - 6, 6, 12), 2, 2);
+                painter.drawLine(QPointF(cx - 4, iconY - 3), QPointF(cx - 1, iconY - 3));
+                painter.drawLine(QPointF(cx - 4, iconY + 3), QPointF(cx - 1, iconY + 3));
+
+                // Right socket
+                painter.drawRoundedRect(QRectF(cx + 4, iconY - 6, 6, 12), 2, 2);
+                painter.drawLine(QPointF(cx + 10, iconY), QPointF(cx + 20, iconY));
+
+                // Title: "Serial Disconnected"
+                QFont titleFont = font();
+                titleFont.setPixelSize(13);
+                titleFont.setWeight(QFont::DemiBold);
+                painter.setFont(titleFont);
+                painter.setPen(dark ? QColor("#edf0fa") : QColor("#1e293b"));
+                const QRect titleRect(rect.left() + 16, iconY + 20, rect.width() - 32, 20);
+                painter.drawText(titleRect, Qt::AlignCenter, "Serial Disconnected");
+
+                // Subtitle
+                QFont subFont = font();
+                subFont.setPixelSize(11);
+                subFont.setWeight(QFont::Normal);
+                painter.setFont(subFont);
+                painter.setPen(dark ? QColor("#8992a6") : QColor("#64748b"));
+                const QRect subRect(rect.left() + 16, iconY + 42, rect.width() - 32, 18);
+                painter.drawText(subRect, Qt::AlignCenter, "Select a serial port and click Connect to start receiving telemetry");
+            }
+            else
+            {
+                // Connected State: Pure UART Digital Square Waveform (Emerald pulse)
+                const QColor pulseColor = dark ? QColor("#34d399") : QColor("#059669");
+                painter.setPen(QPen(pulseColor, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                painter.setBrush(Qt::NoBrush);
+
+                // Serial UART Framing Waveform: Idle High -> Start bit Low -> Data 1 -> Data 0 -> Stop 1
+                const double highY = iconY + 1;
+                const double lowY = iconY + 13;
+                QPainterPath wave;
+                wave.moveTo(cx - 24, highY);
+                wave.lineTo(cx - 15, highY); // Idle High
+                wave.lineTo(cx - 15, lowY);  // Falling edge: Start bit (0)
+                wave.lineTo(cx - 6, lowY);
+                wave.lineTo(cx - 6, highY);  // Rising edge: Data bit (1)
+                wave.lineTo(cx + 3, highY);
+                wave.lineTo(cx + 3, lowY);   // Falling edge: Data bit (0)
+                wave.lineTo(cx + 12, lowY);
+                wave.lineTo(cx + 12, highY); // Rising edge: Stop bit (1)
+                wave.lineTo(cx + 24, highY); // Idle High
+                painter.drawPath(wave);
+
+                // Title: "Connected to <port> (<baud>)"
+                QFont titleFont = font();
+                titleFont.setPixelSize(13);
+                titleFont.setWeight(QFont::DemiBold);
+                painter.setFont(titleFont);
+                painter.setPen(dark ? QColor("#edf0fa") : QColor("#1e293b"));
+                const QRect titleRect(rect.left() + 16, iconY + 20, rect.width() - 32, 20);
+                const QString titleText = !portName_.isEmpty()
+                    ? QString("Connected to %1 (%2)").arg(portName_, baudRate_)
+                    : "Connected to Serial Port";
+                painter.drawText(titleRect, Qt::AlignCenter, titleText);
+
+                // Subtitle: "Waiting for incoming MAVLink packets on serial port..."
+                QFont subFont = font();
+                subFont.setPixelSize(11);
+                subFont.setWeight(QFont::Normal);
+                painter.setFont(subFont);
+                painter.setPen(dark ? QColor("#8992a6") : QColor("#64748b"));
+                const QRect subRect(rect.left() + 16, iconY + 42, rect.width() - 32, 18);
+                painter.drawText(subRect, Qt::AlignCenter, "Waiting for incoming MAVLink packets on serial port...");
+            }
+        }
+    }
+
+private:
+    bool connected_ = false;
+    QString portName_;
+    QString baudRate_;
+};
+
+/** @brief Configure a read-only, single-row-selection dashboard table. */
+static QTableWidget *table(const QStringList &headers, bool isTx = false)
+{
+    auto *result = isTx ? new TxTableWidget(0, headers.size()) : new QTableWidget(0, headers.size());
     result->setHorizontalHeaderLabels(headers);
     result->setEditTriggers(QAbstractItemView::NoEditTriggers);
     result->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -4540,7 +4766,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txDivider->setObjectName("txDivider");
     txDivider->setFixedHeight(1);
     txLayout->addWidget(txDivider);
-    txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"});
+    txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"}, true);
     txTable->setObjectName("txTable");
     txTable->setItemDelegateForColumn(1, new TxCardDelegate(txTable));
     txTable->horizontalHeader()->hide();
@@ -4698,7 +4924,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxSplit->setObjectName("rxSplit");
     rxSplit->setChildrenCollapsible(false);
     rxSplit->setHandleWidth(16);
-    rxTree = new QTreeWidget;
+    rxTree = new RxTreeWidget;
     rxTree->setObjectName("rxTree");
     rxTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rxTree->setHeader(new RxHeader(rxTree));
@@ -5058,6 +5284,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             connectionStatusPill->setStatus(state, open);
         }
         connected = open;
+        if (auto *tree = dynamic_cast<RxTreeWidget *>(rxTree))
+        {
+            tree->setConnectionInfo(open,
+                                    portBox ? portBox->currentText() : QString(),
+                                    baudBox ? baudBox->currentText() : QString());
+        }
         if (rxThroughput)
         {
             if (!open)
@@ -9098,6 +9330,12 @@ void MainWindow::setTxSummaryStats(int total, int running, double estimatedBps, 
 void MainWindow::setConnectionStatus(const QString &state, bool open)
 {
     connected = open;
+    if (auto *tree = dynamic_cast<RxTreeWidget *>(rxTree))
+    {
+        tree->setConnectionInfo(open,
+                                portBox ? portBox->currentText() : QString(),
+                                baudBox ? baudBox->currentText() : QString());
+    }
     if (connectionStatusPill)
     {
         connectionStatusPill->setStatus(state, open);
@@ -9766,6 +10004,12 @@ void MainWindow::applyTheme()
     if (txTable)
     {
         txTable->setProperty("darkTheme", dark);
+        txTable->viewport()->update();
+    }
+    if (rxTree)
+    {
+        rxTree->setProperty("darkTheme", dark);
+        rxTree->viewport()->update();
     }
     if (inspector)
     {
