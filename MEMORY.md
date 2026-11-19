@@ -108,6 +108,18 @@
   * Soft Area Gradient Fill: Each active channel renders a vertical linear gradient from curve down to baseline (`plotRect.bottom()`, 35–50% alpha down to 0%), giving modern dashboard depth while preserving a crisp 2.0px foreground polyline.
   * Interactive Channel Legend Pills: Clicking any channel tag pill toggles visibility (`channel.visible`). Hidden channels show a hollow dot `○`, 40% dimmed opacity and dashed border, their curves disappear, and auto-scale excludes them dynamically.
   * Dual-Axis Crosshair: Inspection cursor draws both vertical (time) and horizontal (value) dashed hairlines intersecting at cursor position, forming an exact crosshair with inspection tooltip.
+* **Modularization of MainWindow & Domain-Specific Translation Units:**
+  * Refactored monolithic `src/window.cpp` (formerly 10,331 lines) into dedicated domain compilation units housed under `src/window/` with private header `src/window/window_private.h` following Qt Private convention:
+    1. `src/window.h` & `src/window.cpp` (~1,830 lines): `MainWindow` public API and core lifecycle, central layout, toolbar actions, splitters, window events, and event filter.
+    2. `src/window/window_private.h` (~4,180 lines): Internal widget declarations, delegates, custom controls, and helper utilities.
+    3. `src/window/window_widgets.cpp`: Dedicated compilation unit for Workbench UI widgets, delegates, and dialogs.
+    4. `src/window/window_tx.cpp` (~1,225 lines): TX message dashboard, drag-and-drop, animations, and multi-step undo system.
+    5. `src/window/window_rx.cpp` (~625 lines): RX stream tree, snapshot processing, inspector, and parameter editor.
+    6. `src/window/window_editor.cpp` (~1,150 lines): MAVLink message catalog search dialog and payload field editor.
+    7. `src/window/window_serial.cpp` (~220 lines): Serial port detection, connection lifecycle, and hardware alert dialogs.
+    8. `src/window/window_settings.cpp` (~910 lines): Persistent settings, profile import/export, updates check, and keyboard shortcuts.
+    9. `src/window/window_theme.cpp` (~350 lines): Dark/Light semantic theme application and QSS stylesheet engine.
+  * Preserves 100% public API compatibility of `MainWindow`, enables rapid multi-threaded parallel compilation, and passes all 88 automated tests with zero regressions.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.

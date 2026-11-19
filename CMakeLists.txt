@@ -47,7 +47,21 @@ if(BUILD_GUI)
     if(NOT MAVLINK_LIB_GIT_HASH)
         set(MAVLINK_LIB_GIT_HASH "unknown")
     endif()
-    add_library(mavdesktop src/worker.cpp src/window.cpp src/profile.cpp src/plotter.cpp resources/resources.qrc)
+    add_library(mavdesktop
+        src/worker.cpp
+        src/window.cpp
+        src/window/window_widgets.cpp
+        src/window/window_tx.cpp
+        src/window/window_rx.cpp
+        src/window/window_editor.cpp
+        src/window/window_serial.cpp
+        src/window/window_settings.cpp
+        src/window/window_theme.cpp
+        src/profile.cpp
+        src/plotter.cpp
+        resources/resources.qrc
+    )
+    target_include_directories(mavdesktop PUBLIC src src/window)
     target_compile_definitions(mavdesktop PUBLIC
         MAVLINK_LAB_VERSION="${PROJECT_VERSION}"
     )
