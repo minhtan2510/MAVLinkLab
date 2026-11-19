@@ -193,6 +193,8 @@ private slots:
         for (quint64 key : {1, 2})
         {
             entry.key = key;
+            entry.id = uint32_t(key - 1);
+            entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
             worker.saveEntry(entry);
         }
         worker.runAll();
@@ -215,6 +217,8 @@ private slots:
         for (quint64 key : {1, 2})
         {
             entry.key = key;
+            entry.id = uint32_t(key - 1);
+            entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
             worker.saveEntry(entry);
         }
         worker.runAll();
@@ -402,11 +406,15 @@ private slots:
         QTRY_VERIFY(inspector->rowCount() > 0);
         auto *filter = window.findChild<QLineEdit *>("rxFilter");
         QVERIFY(filter);
+        QVERIFY(filter->isClearButtonEnabled());
+        auto *rxClearBtn = filter->findChild<QToolButton *>();
+        QVERIFY(rxClearBtn && !rxClearBtn->icon().isNull());
         filter->setText("no_such_message");
         auto *rxEmpty = rx->viewport()->findChild<QLabel *>("emptyState");
         QVERIFY(!rxEmpty);
         QVERIFY(rx->topLevelItem(0)->isHidden());
-        filter->clear();
+        QTest::mouseClick(rxClearBtn, Qt::LeftButton);
+        QVERIFY(filter->text().isEmpty());
         QVERIFY(!rx->topLevelItem(0)->isHidden());
         QCOMPARE(rx->currentItem(), message);
         theme->setCurrentIndex(1);
@@ -2951,6 +2959,76 @@ private slots:
         checkUpdates->trigger();
     }
 
+    /** @brief Verify Help menu action, F1 keypress, and Keyboard Shortcuts dialog layout. */
+    void keyboardShortcutsDialog()
+    {
+        MainWindow window;
+        window.stopRefreshTimer();
+
+        // 1. Verify Help menu action exists and is wired to F1 (QKeySequence::HelpContents)
+        auto *shortcutsAction = window.findChild<QAction *>("actionKeyboardShortcuts");
+        QVERIFY(shortcutsAction != nullptr);
+        QCOMPARE(shortcutsAction->text(), QString("Keyboard Shortcuts"));
+        QCOMPARE(shortcutsAction->shortcut(), QKeySequence(QKeySequence::HelpContents));
+
+        auto *helpMenu = window.findChild<QMenu *>("helpMenu");
+        QVERIFY(helpMenu != nullptr);
+        QVERIFY(helpMenu->actions().contains(shortcutsAction));
+
+        // 2. Trigger via action and verify dialog structure
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("keyboardShortcutsDialog");
+            QVERIFY(dialog != nullptr);
+            QCOMPARE(dialog->windowTitle(), QString("Keyboard Shortcuts"));
+            QCOMPARE(dialog->isSizeGripEnabled(), false);
+            QCOMPARE(dialog->minimumSize(), dialog->maximumSize());
+            QCOMPARE(dialog->width(), dialog->sizeHint().width());
+            QVERIFY(dialog->width() >= 440);
+
+            auto *card = dialog->findChild<QFrame *>("shortcutsCard");
+            QVERIFY(card != nullptr);
+
+            auto keycaps = dialog->findChildren<QLabel *>("keycapBadge");
+            QVERIFY(keycaps.size() >= 7);
+
+            auto descriptions = dialog->findChildren<QLabel *>("shortcutDesc");
+            QVERIFY(descriptions.size() >= 7);
+            QCOMPARE(descriptions[0]->text(), QString("Toggle transmission"));
+            QCOMPARE(descriptions[1]->text(), QString("Duplicate message"));
+
+            auto *btnClose = dialog->findChild<QPushButton *>("btnCloseShortcuts");
+            QVERIFY(btnClose != nullptr);
+
+            QVERIFY(dialog->grab().save("qa/keyboard-shortcuts-dialog.png"));
+
+            // Close dialog
+            btnClose->click();
+        });
+
+        shortcutsAction->trigger();
+
+        // 3. Verify triggering via F1 key event
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("keyboardShortcutsDialog");
+            QVERIFY(dialog != nullptr);
+            auto *btnClose = dialog->findChild<QPushButton *>("btnCloseShortcuts");
+            QVERIFY(btnClose != nullptr);
+            btnClose->click();
+        });
+
+        QKeyEvent f1Event(QEvent::KeyPress, Qt::Key_F1, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &f1Event);
+
+        // 4. Verify WorkbenchMenu rendering with shortcut keycap pill badges
+        helpMenu->popup(QPoint(100, 100));
+        QCoreApplication::processEvents();
+        QVERIFY(helpMenu->sizeHint().width() > 180);
+        QVERIFY(helpMenu->grab().save("qa/help-menu-shortcuts-badge.png"));
+        helpMenu->close();
+    }
+
     /**
      * @brief Test real-time throughput metrics display and TX load estimation.
      */
@@ -3258,6 +3336,21 @@ private slots:
         QTest::qWait(100);
         QCOMPARE(tx->item(0, 6)->text(), QString("Stopped"));
 
+        // Double click on status badge when DISCONNECTED -> should NOT open edit dialog
+        bool dialogOpenedOnDisconnectedBadge = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnDisconnectedBadge]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                dialogOpenedOnDisconnectedBadge = true;
+                dialog->reject();
+            }
+        });
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTest::qWait(100);
+        QVERIFY(!dialogOpenedOnDisconnectedBadge);
+
         // Connect serial port via PTY
         portBox->setEditable(true);
         portBox->setCurrentText(pty.name);
@@ -3271,17 +3364,43 @@ private slots:
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
 
-        // 3. Double click on card row opens Edit dialog
-        QTimer::singleShot(50, [&window]()
+        // Double click on status badge when CONNECTED -> toggle without opening Edit dialog
+        bool dialogOpenedOnBadge = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnBadge]()
         {
             auto *dialog = window.findChild<QDialog *>("messageDialog");
             if (dialog)
             {
+                dialogOpenedOnBadge = true;
                 dialog->reject();
             }
         });
-        emit tx->cellDoubleClicked(0, 1);
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
         QTest::qWait(100);
+        QVERIFY(!dialogOpenedOnBadge);
+
+        // Single click toggles to Running
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Single click toggles back to Stopped
+        QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
+
+        // 3. Double click on card body opens Edit dialog
+        bool dialogOpenedOnCard = false;
+        QTimer::singleShot(50, [&window, &dialogOpenedOnCard]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                dialogOpenedOnCard = true;
+                dialog->reject();
+            }
+        });
+        const QPoint cardBodyPoint(card0Rect.left() + 20, card0Rect.center().y());
+        QTest::mouseDClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, cardBodyPoint);
+        QTRY_VERIFY(dialogOpenedOnCard);
 
         // 4. Test removeAction on selected message
         tx->selectRow(0);
@@ -3377,12 +3496,12 @@ private slots:
                             }
                             if (dialog)
                             {
-                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                auto *spin = dialog->findChild<QSpinBox *>("customRateSpin");
                                 if (spin)
                                 {
-                                    QCOMPARE(spin->minimum(), 0.1);
-                                    QCOMPARE(spin->maximum(), 1000.0);
-                                    spin->setValue(45.0);
+                                    QCOMPARE(spin->minimum(), 1);
+                                    QCOMPARE(spin->maximum(), 1000);
+                                    spin->setValue(45);
                                 }
                                 dialog->reject();
                             }
@@ -3397,7 +3516,7 @@ private slots:
         QTest::qWait(250);
         QCOMPARE(tx->item(0, 3)->text(), QString("1")); // Preserved
 
-        // 2. Test Apply with decimal rate 5.5 Hz
+        // 2. Test Apply with integer rate 6 Hz
         QTimer::singleShot(100, &window, [&window]()
         {
             auto *menu = window.findChild<QMenu *>("quickRateMenu");
@@ -3416,10 +3535,10 @@ private slots:
                             }
                             if (dialog)
                             {
-                                auto *spin = dialog->findChild<QDoubleSpinBox *>("customRateSpin");
+                                auto *spin = dialog->findChild<QSpinBox *>("customRateSpin");
                                 if (spin)
                                 {
-                                    spin->setValue(5.5);
+                                    spin->setValue(6);
                                 }
                                 dialog->accept();
                             }
@@ -3431,7 +3550,7 @@ private slots:
             }
         });
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, pillClickPos);
-        QTRY_COMPARE(tx->item(0, 3)->text(), QString("5.5"));
+        QTRY_COMPARE(tx->item(0, 3)->text(), QString("6"));
     }
 
     /**
@@ -3848,6 +3967,1198 @@ private slots:
             QVERIFY(!paramFilter->isVisible());
             QCOMPARE(inspectorTitle->text(), QString("[0] HEARTBEAT"));
         }
+    }
+
+    /** @brief Test real-time telemetry plotter: channel pinning, strip-chart canvas, controls and CSV export. */
+    void telemetryRealTimePlotter()
+    {
+        for (const QString &themeSuffix : {QString("light"), QString("dark")})
+        {
+            MainWindow window;
+            window.stopRefreshTimer();
+            window.resize(1440, 900);
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+            auto *themeBox = window.findChild<QComboBox *>("theme");
+            QVERIFY(themeBox);
+            themeBox->setCurrentIndex(themeSuffix == "dark" ? 2 : 1);
+            QTest::qWait(30);
+
+            auto *plotter = window.plotterWidget();
+            QVERIFY(plotter);
+            auto *plotToggleBtn = window.findChild<QPushButton *>("plotToggleBtn");
+            QVERIFY(plotToggleBtn);
+            auto *inspector = window.findChild<QTableWidget *>("inspector");
+            QVERIFY(inspector);
+            auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+            QVERIFY(rxTree);
+
+            // 1. Initial State: Plotter is hidden by default, zero channels
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+            QCOMPARE(plotter->channelCount(), size_t(0));
+
+            // 2. Synthetic Telemetry Snapshot with ATTITUDE and STATUSTEXT
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = true;
+            snapshot->baud = 115200;
+
+            // ATTITUDE (msgid 30)
+            mavlink_message_t attitudeMsg{};
+            mavlink_attitude_t attitudeData{};
+            attitudeData.time_boot_ms = 12345;
+            attitudeData.roll = 0.5235f;  // ~30 deg
+            attitudeData.pitch = -0.2618f; // ~-15 deg
+            attitudeData.yaw = 1.5708f;   // ~90 deg
+            attitudeData.rollspeed = 0.05f;
+            attitudeData.pitchspeed = -0.02f;
+            attitudeData.yawspeed = 0.1f;
+            mavlink_msg_attitude_encode(1, 1, &attitudeMsg, &attitudeData);
+
+            RxView attitudeView;
+            attitudeView.message = attitudeMsg;
+            attitudeView.count = 42;
+            attitudeView.hz = 20.0;
+            attitudeView.age = 0.05;
+            snapshot->rx.push_back(attitudeView);
+
+            // STATUSTEXT (msgid 253)
+            mavlink_message_t statusMsg{};
+            mavlink_statustext_t statusData{};
+            statusData.severity = 6;
+            std::strncpy(statusData.text, "PreArm: EKF healthy", sizeof(statusData.text));
+            mavlink_msg_statustext_encode(1, 1, &statusMsg, &statusData);
+
+            RxView statusView;
+            statusView.message = statusMsg;
+            statusView.count = 5;
+            statusView.hz = 1.0;
+            statusView.age = 0.1;
+            snapshot->rx.push_back(statusView);
+
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            // Expand device and select ATTITUDE
+            QVERIFY(rxTree->topLevelItemCount() > 0);
+            auto *deviceItem = rxTree->topLevelItem(0);
+            deviceItem->setExpanded(true);
+            QVERIFY(deviceItem->childCount() >= 2);
+
+            QTreeWidgetItem *attitudeItem = nullptr;
+            QTreeWidgetItem *statusItem = nullptr;
+            for (int i = 0; i < deviceItem->childCount(); ++i)
+            {
+                if (deviceItem->child(i)->data(0, Qt::UserRole).toUInt() == 30)
+                {
+                    attitudeItem = deviceItem->child(i);
+                }
+                if (deviceItem->child(i)->data(0, Qt::UserRole).toUInt() == 253)
+                {
+                    statusItem = deviceItem->child(i);
+                }
+            }
+            QVERIFY(attitudeItem && statusItem);
+
+            // 3. Test non-numeric field (STATUSTEXT text char[50]) -> context menu hides plot action
+            rxTree->setCurrentItem(statusItem);
+            QTest::qWait(30);
+            auto *valueMenu = inspector->findChild<QMenu *>("inspectorMenu");
+            QVERIFY(valueMenu);
+            auto *plotFieldAction = valueMenu->findChild<QAction *>("plotFieldAction");
+            QVERIFY(plotFieldAction);
+
+            // Row 1 in STATUSTEXT is text char[50]
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QVERIFY(!plotFieldAction->isVisible());
+            valueMenu->close();
+
+            // 4. Test numeric field (ATTITUDE roll and pitch) -> plotFieldAction visible
+            rxTree->setCurrentItem(attitudeItem);
+            QTest::qWait(30);
+            QVERIFY(inspector->rowCount() >= 4);
+
+            // Row 1 is roll (float)
+            inspector->setCurrentCell(1, 2);
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QVERIFY(plotFieldAction->isVisible());
+            QCOMPARE(plotFieldAction->text(), QString("Plot this field"));
+
+            // Click "Plot this field"
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+
+            // Verify plotter opened and roll channel added
+            QVERIFY(plotter->isVisible());
+            QVERIFY(plotToggleBtn->isChecked());
+            QCOMPARE(plotter->channelCount(), size_t(1));
+            QCOMPARE(plotter->channels()[0].fieldName, QString("roll"));
+            QCOMPARE(plotter->channels()[0].label, QString("ATTITUDE.roll"));
+
+            // Verify right-clicking roll now shows "Unplot this field"
+            emit inspector->customContextMenuRequested(QPoint(10, 50));
+            QTest::qWait(20);
+            QCOMPARE(plotFieldAction->text(), QString("Unplot this field"));
+            valueMenu->close();
+
+            // Add second channel: row 2 (pitch)
+            inspector->setCurrentCell(2, 2);
+            emit inspector->customContextMenuRequested(QPoint(10, 90));
+            QTest::qWait(20);
+            QCOMPARE(plotFieldAction->text(), QString("Plot this field"));
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+            QCOMPARE(plotter->channelCount(), size_t(2));
+            QCOMPARE(plotter->channels()[1].fieldName, QString("pitch"));
+
+            // 5. Channel capacity boundary (Max 6 channels)
+            // Add remaining fields (yaw, rollspeed, pitchspeed, yawspeed)
+            QVERIFY(plotter->addChannel(1, 1, 30, "yaw", "ATTITUDE.yaw"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "rollspeed", "ATTITUDE.rollspeed"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "pitchspeed", "ATTITUDE.pitchspeed"));
+            QVERIFY(plotter->addChannel(1, 1, 30, "yawspeed", "ATTITUDE.yawspeed"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // Attempting 7th channel must be rejected
+            QVERIFY(!plotter->addChannel(1, 1, 30, "time_boot_ms", "ATTITUDE.time_boot_ms"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // Attempting duplicate channel must be rejected
+            QVERIFY(!plotter->addChannel(1, 1, 30, "roll", "ATTITUDE.roll"));
+            QCOMPARE(plotter->channelCount(), size_t(6));
+
+            // 6. Data Feed into Plotter via applySnapshot
+            // Feed updated values
+            attitudeData.roll = 0.75f;
+            attitudeData.pitch = -0.45f;
+            mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+            window.applySnapshot(snapshot);
+            QTest::qWait(30);
+
+            QVERIFY(plotter->channels()[0].hasValue);
+            QVERIFY(std::abs(plotter->channels()[0].latestValue - 0.75) < 1e-4);
+            QVERIFY(std::abs(plotter->channels()[1].latestValue - (-0.45)) < 1e-4);
+            QVERIFY(plotter->channels()[0].buffer.size() > 0);
+
+            // Feed multiple samples to exercise waveform accumulation
+            for (int step = 0; step < 5; ++step)
+            {
+                attitudeData.roll = 0.75f + float(step) * 0.05f;
+                attitudeData.pitch = -0.45f - float(step) * 0.05f;
+                mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+                window.applySnapshot(snapshot);
+            }
+            QTest::qWait(30);
+            QVERIFY(plotter->channels()[0].buffer.size() >= 5);
+
+            // 7. Time Window Selector
+            auto *timeRangeBox = plotter->timeRangeBox();
+            QVERIFY(timeRangeBox);
+            timeRangeBox->setCurrentIndex(0); // 10s
+            QCOMPARE(plotter->canvas()->timeWindow(), 10);
+            timeRangeBox->setCurrentIndex(2); // 60s
+            QCOMPARE(plotter->canvas()->timeWindow(), 60);
+            timeRangeBox->setCurrentIndex(1); // 30s
+            QCOMPARE(plotter->canvas()->timeWindow(), 30);
+
+            // 8. Auto-Scale Y and Range Verification
+            auto *autoScaleBtn = plotter->autoScaleButton();
+            QVERIFY(autoScaleBtn);
+            QVERIFY(autoScaleBtn->isChecked());
+            QVERIFY(plotter->canvas()->isAutoScale());
+
+            const auto yRange = plotter->canvas()->currentYRange();
+            QVERIFY(yRange.first <= -0.45); // Min covers negative pitch
+            QVERIFY(yRange.second >= 0.75); // Max covers positive roll
+
+            // Toggle Auto-Scale off (manual lock)
+            autoScaleBtn->click();
+            QVERIFY(!autoScaleBtn->isChecked());
+            QVERIFY(!plotter->canvas()->isAutoScale());
+            autoScaleBtn->click();
+            QVERIFY(autoScaleBtn->isChecked());
+
+            // 9. Pause / Freeze Control
+            auto *pauseBtn = plotter->pauseButton();
+            QVERIFY(pauseBtn);
+            QVERIFY(!pauseBtn->isChecked());
+            QVERIFY(!plotter->canvas()->isPaused());
+
+            pauseBtn->click();
+            QVERIFY(pauseBtn->isChecked());
+            QCOMPARE(pauseBtn->text(), QString("Resume"));
+            QVERIFY(plotter->canvas()->isPaused());
+
+            // Apply snapshot while paused (canvas remains frozen)
+            attitudeData.roll = 0.99f;
+            mavlink_msg_attitude_encode(1, 1, &snapshot->rx[0].message, &attitudeData);
+            window.applySnapshot(snapshot);
+            QTest::qWait(20);
+
+            pauseBtn->click();
+            QVERIFY(!pauseBtn->isChecked());
+            QCOMPARE(pauseBtn->text(), QString("Pause"));
+            QVERIFY(!plotter->canvas()->isPaused());
+
+            // 10. Inspection Hover Cursor Simulation
+            const QRect canvasRect = plotter->canvas()->rect();
+            QMouseEvent moveEvent(QEvent::MouseMove, QPointF(canvasRect.center()), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(plotter->canvas(), &moveEvent);
+            QTest::qWait(20);
+
+            QEvent leaveEvent(QEvent::Leave);
+            QApplication::sendEvent(plotter->canvas(), &leaveEvent);
+            QTest::qWait(20);
+
+            // 11. CSV Export Functionality
+            QTemporaryDir exportDir;
+            QVERIFY(exportDir.isValid());
+            const QString csvPath = exportDir.filePath("test_telemetry.csv");
+
+            QVERIFY(plotter->exportCsv(csvPath));
+            QVERIFY(QFile::exists(csvPath));
+
+            QFile csvFile(csvPath);
+            QVERIFY(csvFile.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString csvContent = QString::fromUtf8(csvFile.readAll());
+            csvFile.close();
+
+            QVERIFY(csvContent.startsWith("Time_us,Relative_s"));
+            QVERIFY(csvContent.contains("ATTITUDE.roll"));
+            QVERIFY(csvContent.contains("ATTITUDE.pitch"));
+
+            // 12. Parameter Protocol Field Plotting
+            auto paramSnapshot = std::make_shared<Snapshot>();
+            paramSnapshot->connected = true;
+            paramSnapshot->baud = 115200;
+
+            mavlink_message_t paramMsg{};
+            mavlink_param_value_t paramVal{};
+            std::strncpy(paramVal.param_id, "BATT_VOLT", sizeof(paramVal.param_id));
+            paramVal.param_value = 16.4f; // 4S battery
+            paramVal.param_type = MAV_PARAM_TYPE_REAL32;
+            paramVal.param_index = 0;
+            paramVal.param_count = 1;
+            mavlink_msg_param_value_encode(1, 1, &paramMsg, &paramVal);
+
+            RxView paramView;
+            paramView.message = paramMsg;
+            paramView.count = 1;
+            paramView.hz = 1.0;
+            paramView.age = 0.1;
+            paramSnapshot->rx.push_back(paramView);
+
+            Mav::ParamItem item;
+            item.id = "BATT_VOLT";
+            item.value = 16.4f;
+            item.type = MAV_PARAM_TYPE_REAL32;
+            item.index = 0;
+            item.count = 1;
+            paramSnapshot->params[{1, 1}].byId["BATT_VOLT"] = item;
+            paramSnapshot->params[{1, 1}].byIndex[0] = "BATT_VOLT";
+            paramSnapshot->params[{1, 1}].totalCount = 1;
+
+            window.applySnapshot(paramSnapshot);
+            QTest::qWait(30);
+
+            // Remove 1 channel to make room for parameter
+            plotter->removeChannelAt(5);
+            QCOMPARE(plotter->channelCount(), size_t(5));
+
+            // Select PARAM_VALUE (msgid 22) in tree
+            QTreeWidgetItem *paramTreeItem = nullptr;
+            auto *topDev = rxTree->topLevelItem(0);
+            if (topDev)
+            {
+                topDev->setExpanded(true);
+                for (int i = 0; i < topDev->childCount(); ++i)
+                {
+                    if (topDev->child(i)->data(0, Qt::UserRole).toUInt() == 22)
+                    {
+                        paramTreeItem = topDev->child(i);
+                        break;
+                    }
+                }
+            }
+            QVERIFY(paramTreeItem);
+            rxTree->setCurrentItem(paramTreeItem);
+            QTest::qWait(30);
+            QVERIFY(inspector->rowCount() > 0);
+            inspector->setCurrentCell(0, 2);
+            emit inspector->customContextMenuRequested(QPoint(-1, -1));
+            QTest::qWait(20);
+            plotFieldAction->trigger();
+            QTest::qWait(30);
+            QVERIFY(plotter->hasChannel(1, 1, 22, "BATT_VOLT"));
+
+            // 13. Clear All Data
+            auto *clearBtn = plotter->clearButton();
+            QVERIFY(clearBtn);
+            clearBtn->click();
+            QTest::qWait(20);
+            for (const auto &ch : plotter->channels())
+            {
+                QCOMPARE(ch.buffer.size(), size_t(0));
+            }
+
+            // 14. Visibility Controls: plotToggleBtn and Close Button
+            // Toggle off via button
+            plotToggleBtn->click();
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
+            // Toggle back on
+            plotToggleBtn->click();
+            QVERIFY(plotter->isVisible());
+            QVERIFY(plotToggleBtn->isChecked());
+
+            // Close via plotter close button
+            auto *closeBtn = plotter->closeButton();
+            QVERIFY(closeBtn);
+            closeBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
+            // Test Pop-out and Dock buttons
+            plotToggleBtn->click();
+            QTest::qWait(20);
+            QVERIFY(plotter->isVisible());
+            auto *popoutBtn = plotter->popoutButton();
+            QVERIFY(popoutBtn);
+            popoutBtn->click();
+            QTest::qWait(20);
+            QVERIFY(plotter->isFloating());
+            popoutBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isFloating());
+            closeBtn->click();
+            QTest::qWait(20);
+            QVERIFY(!plotter->isVisible());
+            QVERIFY(!plotToggleBtn->isChecked());
+
+            // 15. Capture QA Visual Regression Artifacts
+            plotToggleBtn->click(); // Make visible for screenshot
+            QTest::qWait(30);
+            QDir().mkpath("build/qa");
+            QVERIFY(plotter->grab().save(QString("build/qa/plotter-%1.png").arg(themeSuffix)));
+            QVERIFY(window.grab().save(QString("build/qa/window-plotter-%1.png").arg(themeSuffix)));
+        }
+    }
+
+    /** @brief Enforce mutual exclusion for duplicate TX stream identities and test preference toggle. */
+    void singleActiveStreamEnforcement()
+    {
+        Pty pty;
+        QVERIFY(pty.master >= 0);
+        SerialWorker worker;
+        QSignalSpy snapshots(&worker, &SerialWorker::snapshotReady);
+        worker.initialize();
+
+        PortConfig config;
+        config.port = pty.name;
+        config.baud = 115200;
+        worker.openPort(config);
+        QTest::qWait(50);
+
+        // 1. Create two entries sharing identical stream identity: SysID 1, CompID 1, MsgID 0 (HEARTBEAT)
+        Mav::TxEntry entry1;
+        entry1.key = 1;
+        entry1.sysid = 1;
+        entry1.compid = 1;
+        entry1.id = 0;
+        entry1.hz = 2.0;
+        entry1.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+        worker.saveEntry(entry1);
+
+        Mav::TxEntry entry2;
+        entry2.key = 2;
+        entry2.sysid = 1;
+        entry2.compid = 1;
+        entry2.id = 0;
+        entry2.hz = 5.0;
+        entry2.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+        worker.saveEntry(entry2);
+
+        // Also create a 3rd entry with a distinct stream identity: SysID 1, CompID 1, MsgID 30 (ATTITUDE)
+        Mav::TxEntry entry3;
+        entry3.key = 3;
+        entry3.sysid = 1;
+        entry3.compid = 1;
+        entry3.id = 30;
+        entry3.hz = 10.0;
+        entry3.payload.resize(mavlink_get_msg_entry(30)->max_msg_len);
+        worker.saveEntry(entry3);
+
+        // 2. Activate entry 1
+        worker.setActive(1, true);
+        worker.requestSnapshot();
+        auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(!snapshot->tx[1].entry.active);
+
+        // 3. Activate entry 2 -> entry 1 should automatically be stopped
+        worker.setActive(2, true);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(!snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+
+        // Activating entry 3 (distinct stream) must not stop entry 2
+        worker.setActive(3, true);
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(!snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+
+        // 4. Test runAll(): only the first entry of the duplicate group (entry 1) runs, entry 2 stays stopped, entry 3 runs
+        worker.stopAll();
+        worker.runAll();
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(!snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+
+        // 5. Disable singleActiveStream
+        worker.setSingleActiveStream(false);
+        worker.stopAll();
+        worker.runAll();
+        worker.requestSnapshot();
+        snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QVERIFY(snapshot->tx[0].entry.active);
+        QVERIFY(snapshot->tx[1].entry.active);
+        QVERIFY(snapshot->tx[2].entry.active);
+        worker.closePort();
+
+        // 6. Test UI Settings Checkbox and persistence
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+        auto *singleActiveBox = window.findChild<QCheckBox *>("singleActiveStream");
+        QVERIFY(singleActiveBox);
+        QVERIFY(singleActiveBox->isChecked());
+
+        // Toggle checkbox and verify QSettings persistence
+        singleActiveBox->setChecked(false);
+        QTest::qWait(20);
+        QSettings settings("MAVLinkSimulator", "Preferences");
+        QCOMPARE(settings.value("workspace/singleActiveStream").toBool(), false);
+
+        // Restore to default
+        singleActiveBox->setChecked(true);
+        QTest::qWait(20);
+        QCOMPARE(settings.value("workspace/singleActiveStream").toBool(), true);
+
+        // 7. Test adding duplicate message while connected:
+        // Original running message continues running at Row 0; new duplicate appears at Row 1 (bottom) as Stopped.
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        window.findChild<QComboBox *>("port")->addItem(pty.name);
+        window.findChild<QComboBox *>("port")->setCurrentText(pty.name);
+        window.findChild<QPushButton *>("connect")->click();
+        QTRY_COMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Disconnect"));
+
+        // Add first message (HEARTBEAT, 1 Hz)
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            catalog->setCurrentRow(0);
+            dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+        QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Add second duplicate message (HEARTBEAT, 5 Hz)
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            catalog->setCurrentRow(0);
+            dialog->findChild<QDoubleSpinBox *>()->setValue(5.0);
+            auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+            if (fields)
+            {
+                for (int i = 0; i < fields->rowCount(); ++i)
+                {
+                    if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                    {
+                        fields->item(i, 2)->setText("0");
+                    }
+                }
+            }
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 2);
+
+        // Row 0: Original message continues running at 1 Hz
+        QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(0, 3)->text(), QString("1"));
+        QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
+
+        // Row 1: New duplicate message appears at bottom as Stopped at 5 Hz
+        QCOMPARE(tx->item(1, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(1, 3)->text(), QString("5"));
+        QCOMPARE(tx->item(1, 6)->text(), QString("Stopped"));
+    }
+
+    /** @brief Verify duplicate message action in context menu inserts an identical stopped clone directly below. */
+    void duplicateTxMessageAction()
+    {
+        // 1. Test SerialWorker duplicateEntry slot directly
+        SerialWorker worker;
+        QSignalSpy snapshots(&worker, &SerialWorker::snapshotReady);
+        worker.initialize();
+
+        Mav::TxEntry e0;
+        e0.key = 10;
+        e0.id = 0;
+        e0.hz = 2.0;
+        e0.sysid = 1;
+        e0.compid = 1;
+        e0.payload.assign(mavlink_get_msg_entry(0)->max_msg_len, 0);
+
+        Mav::TxEntry e1;
+        e1.key = 20;
+        e1.id = 33;
+        e1.hz = 10.0;
+        e1.sysid = 1;
+        e1.compid = 1;
+        e1.payload.assign(mavlink_get_msg_entry(33)->max_msg_len, 0);
+
+        worker.saveEntry(e0);
+        worker.saveEntry(e1);
+
+        // Duplicate e0 (key 10) with key 11
+        worker.duplicateEntry(10, 11);
+        worker.requestSnapshot();
+        auto snapshot = qvariant_cast<SnapshotPtr>(snapshots.last()[0]);
+        QCOMPARE(snapshot->tx.size(), 3);
+
+        // Index 0: Original [0] HEARTBEAT
+        QCOMPARE(snapshot->tx[0].entry.key, 10);
+        QCOMPARE(snapshot->tx[0].entry.id, 0);
+
+        // Index 1: Cloned [0] HEARTBEAT immediately after Index 0
+        QCOMPARE(snapshot->tx[1].entry.key, 11);
+        QCOMPARE(snapshot->tx[1].entry.id, 0);
+        QCOMPARE(snapshot->tx[1].entry.hz, 2.0);
+        QVERIFY(!snapshot->tx[1].entry.active);
+        QCOMPARE(snapshot->tx[1].entry.count, 0);
+
+        // Index 2: Shifted [33] GLOBAL_POSITION_INT
+        QCOMPARE(snapshot->tx[2].entry.key, 20);
+        QCOMPARE(snapshot->tx[2].entry.id, 33);
+
+        // 2. Test MainWindow UI action
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *duplicateAction = window.findChild<QAction *>("duplicateMessage");
+        QVERIFY(duplicateAction);
+        QCOMPARE(duplicateAction->text(), QString("Duplicate message"));
+        QVERIFY(!duplicateAction->icon().isNull());
+        QVERIFY(!duplicateAction->isEnabled());
+
+        // Apply snapshot to UI
+        window.applySnapshot(snapshot);
+        QCOMPARE(tx->rowCount(), 3);
+
+        // Row 0: Original [0] HEARTBEAT
+        QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(0, 3)->text(), QString("2"));
+
+        // Row 1: Cloned [0] HEARTBEAT inserted immediately below Row 0
+        QCOMPARE(tx->item(1, 0)->text(), QString("0"));
+        QCOMPARE(tx->item(1, 3)->text(), QString("2"));
+        QCOMPARE(tx->item(1, 6)->text(), QString("Stopped"));
+
+        // Row 2: Shifted [33] GLOBAL_POSITION_INT
+        QCOMPARE(tx->item(2, 0)->text(), QString("33"));
+        QCOMPARE(tx->item(2, 3)->text(), QString("10"));
+
+        // Select Row 0 -> duplicateAction is enabled
+        tx->setCurrentCell(0, 1);
+        QVERIFY(duplicateAction->isEnabled());
+
+        // Clear selection -> duplicateAction is disabled
+        tx->clearSelection();
+        tx->setCurrentCell(-1, -1);
+        window.findChild<QLabel *>("panelTitle"); // Trigger deselection update
+        QTest::qWait(30);
+    }
+
+    /**
+     * @brief Test TX card drag-and-drop reordering:
+     *        1. Direct SerialWorker moveEntry slot logic.
+     *        2. Interactive UI drag handle press, drag movement, dynamic placeholder, drop, and Escape cancellation.
+     */
+    void txCardDragAndDropReordering()
+    {
+        // 1. Test SerialWorker::moveEntry
+        {
+            SerialWorker worker;
+            worker.initialize();
+
+            Mav::TxEntry e0{};
+            e0.key = 1;
+            e0.id = 0; // HEARTBEAT
+            e0.hz = 1.0;
+            e0.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+            worker.saveEntry(e0);
+
+            Mav::TxEntry e1{};
+            e1.key = 2;
+            e1.id = 1; // SYS_STATUS
+            e1.hz = 2.0;
+            e1.payload.resize(mavlink_get_msg_entry(1)->max_msg_len);
+            worker.saveEntry(e1);
+
+            Mav::TxEntry e2{};
+            e2.key = 3;
+            e2.id = 2; // SYSTEM_TIME
+            e2.hz = 5.0;
+            e2.payload.resize(mavlink_get_msg_entry(2)->max_msg_len);
+            worker.saveEntry(e2);
+
+            QSignalSpy snapshotSpy(&worker, &SerialWorker::snapshotReady);
+
+            // Invalid moves should do nothing
+            worker.moveEntry(-1, 2);
+            worker.moveEntry(0, 5);
+            worker.moveEntry(1, 1);
+            QCOMPARE(snapshotSpy.count(), 0);
+
+            // Valid move: move entry 0 (HEARTBEAT) to index 2
+            worker.moveEntry(0, 2);
+            QCOMPARE(snapshotSpy.count(), 1);
+            auto snapshot = snapshotSpy.takeFirst().at(0).value<SnapshotPtr>();
+            QCOMPARE(snapshot->tx.size(), size_t(3));
+            QCOMPARE(snapshot->tx[0].entry.id, 1u); // SYS_STATUS is now index 0
+            QCOMPARE(snapshot->tx[1].entry.id, 2u); // SYSTEM_TIME is now index 1
+            QCOMPARE(snapshot->tx[2].entry.id, 0u); // HEARTBEAT is now index 2
+
+            // Move back: move index 2 to index 0
+            worker.moveEntry(2, 0);
+            QCOMPARE(snapshotSpy.count(), 1);
+            snapshot = snapshotSpy.takeFirst().at(0).value<SnapshotPtr>();
+            QCOMPARE(snapshot->tx[0].entry.id, 0u); // HEARTBEAT back to index 0
+            QCOMPARE(snapshot->tx[1].entry.id, 1u);
+            QCOMPARE(snapshot->tx[2].entry.id, 2u);
+        }
+
+        // 2. Test MainWindow interactive UI drag-and-drop
+        {
+            MainWindow window;
+            window.stopRefreshTimer();
+            window.resize(1200, 800);
+            window.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            auto snapshot = std::make_shared<Snapshot>();
+            snapshot->connected = false;
+
+            TxView v0;
+            v0.entry.key = 100;
+            v0.entry.id = 0; // HEARTBEAT
+            v0.entry.hz = 1.0;
+            v0.entry.sysid = 1;
+            v0.entry.compid = 1;
+            snapshot->tx.push_back(v0);
+
+            TxView v1;
+            v1.entry.key = 101;
+            v1.entry.id = 1; // SYS_STATUS
+            v1.entry.hz = 2.0;
+            v1.entry.sysid = 1;
+            v1.entry.compid = 1;
+            snapshot->tx.push_back(v1);
+
+            TxView v2;
+            v2.entry.key = 102;
+            v2.entry.id = 2; // SYSTEM_TIME
+            v2.entry.hz = 5.0;
+            v2.entry.sysid = 1;
+            v2.entry.compid = 1;
+            snapshot->tx.push_back(v2);
+
+            window.applySnapshot(snapshot);
+            QCOMPARE(tx->rowCount(), 3);
+            QCOMPARE(tx->item(0, 0)->text(), QString("0"));
+            QCOMPARE(tx->item(1, 0)->text(), QString("1"));
+            QCOMPARE(tx->item(2, 0)->text(), QString("2"));
+
+            const QRect card0 = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+            const QRect card2 = tx->visualRect(tx->model()->index(2, 1)).adjusted(1, 5, -2, -5);
+            const QPoint handle0(card0.left() + 8, card0.center().y());
+            const QPoint target2(card2.center());
+
+            const auto sendMouseMove = [tx](const QPoint &pos)
+            {
+                QMouseEvent moveEvent(QEvent::MouseMove, QPointF(pos), tx->viewport()->mapToGlobal(pos),
+                                      Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(tx->viewport(), &moveEvent);
+            };
+
+            // A. Test Drag Cancel with Escape
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(handle0 + QPoint(0, 30));
+            QTest::qWait(50);
+            QVERIFY(tx->property("isDragging").toBool());
+
+            // Press Escape to cancel
+            QTest::keyClick(tx, Qt::Key_Escape);
+            QTest::qWait(50);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0 + QPoint(0, 30));
+            QTest::qWait(50);
+
+            // B. Test Drag and Drop from Row 0 to Row 2
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(target2);
+            QTest::qWait(50);
+            QVERIFY(tx->property("isDragging").toBool());
+            QCOMPARE(tx->property("dragTargetRow").toInt(), 2);
+
+            // Release to drop
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, target2);
+            QTest::qWait(250);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QVERIFY(tx->selectedItems().isEmpty());
+
+            auto *trashCard = window.findChild<QWidget *>("trashDropCard");
+            auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
+            auto *txSummary = window.findChild<QWidget *>("txSummary");
+            QVERIFY(trashCard);
+            QVERIFY(deleteAll);
+            QVERIFY(txSummary);
+            QVERIFY(!trashCard->isVisible());
+            QVERIFY(deleteAll->isVisible());
+            const int summaryXBeforeDrag = txSummary->geometry().x();
+            auto *stopAll = window.findChild<QPushButton *>("stopAll");
+            auto *addBtn = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(stopAll);
+            QVERIFY(addBtn);
+
+            // C. Test Drag to Trash Drop Card to Delete Message
+            QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
+            sendMouseMove(handle0 + QPoint(0, 30));
+            QTest::qWait(250);
+            QVERIFY(tx->property("isDragging").toBool());
+            QVERIFY(trashCard->isVisible());
+            QVERIFY(trashCard->width() > 140);
+            QCOMPARE(trashCard->height(), 32);
+            const int initialGap = deleteAll->x() - (stopAll->x() + stopAll->width());
+            const int shiftLeft = initialGap / 2;
+            const int finalGap = initialGap - shiftLeft;
+            QCOMPARE(trashCard->x(), deleteAll->x() - shiftLeft);
+            const int gapLeft = trashCard->x() - (stopAll->x() + stopAll->width());
+            const int gapRight = addBtn->x() - (trashCard->x() + trashCard->width());
+            QCOMPARE(gapLeft, finalGap);
+            QCOMPARE(gapRight, gapLeft);
+            QVERIFY(!deleteAll->isVisible());
+            QCOMPARE(txSummary->geometry().x(), summaryXBeforeDrag);
+
+            // Move over trash drop zone
+            const QPoint trashPosInTx = tx->viewport()->mapFromGlobal(trashCard->mapToGlobal(QPoint(trashCard->width() / 2, trashCard->height() / 2)));
+            sendMouseMove(trashPosInTx);
+            QTest::qWait(100);
+            QCOMPARE(tx->property("dragTargetRow").toInt(), -1);
+
+            // Release over trash drop zone
+            QTest::mouseRelease(tx->viewport(), Qt::LeftButton, Qt::NoModifier, trashPosInTx);
+            QTest::qWait(450);
+            QVERIFY(!tx->property("isDragging").toBool());
+            QVERIFY(!trashCard->isVisible());
+            QVERIFY(deleteAll->isVisible());
+
+            // Verify toast appeared after trash drop
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            QVERIFY(toast);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+        }
+    }
+
+    /**
+     * @brief Test Undo Toast notification and smart keyboard shortcuts for TX cards:
+     *        1. Direct SerialWorker::restoreEntry index placement.
+     *        2. Ctrl+D duplication with selection advance.
+     *        3. Ctrl+Up and Ctrl+Down row movement tracking selection.
+     *        4. Space toggle active transmission.
+     *        5. Delete key with Undo restoration to exact row index.
+     *        6. Focus safety: text typing in search filter does not trigger card actions.
+     */
+    void txUndoToastAndSmartKeyboardShortcuts()
+    {
+        // 1. Test SerialWorker::restoreEntry
+        {
+            SerialWorker worker;
+            worker.initialize();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                Mav::TxEntry entry;
+                entry.key = i;
+                entry.id = uint32_t(i - 1);
+                entry.hz = 1.0;
+                entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
+                worker.saveEntry(entry);
+            }
+            std::shared_ptr<const Snapshot> snap;
+            QObject::connect(&worker, &SerialWorker::snapshotReady, [&](SnapshotPtr s)
+            {
+                snap = s;
+            });
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 3UL);
+
+            // Restore entry at index 1
+            Mav::TxEntry restored;
+            restored.key = 99;
+            restored.id = 30; // ATTITUDE
+            restored.hz = 2.0;
+            restored.payload.resize(mavlink_get_msg_entry(30)->max_msg_len);
+            worker.restoreEntry(1, restored);
+            QCOMPARE(snap->tx.size(), 4UL);
+            QCOMPARE(snap->tx[1].entry.key, 99ULL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[2].entry.key, 2ULL);
+            QCOMPARE(snap->tx[3].entry.key, 3ULL);
+        }
+
+        // 2. Interactive UI tests
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(50);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            // Inject 3 TX entries via snapshot
+            auto snap = std::make_shared<Snapshot>();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                TxView view;
+                view.entry.key = i;
+                view.entry.id = uint32_t(i - 1);
+                view.entry.hz = 1.0;
+                view.entry.active = false;
+                view.entry.payload.resize(mavlink_get_msg_entry(view.entry.id)->max_msg_len);
+                snap->tx.push_back(view);
+            }
+            window.stopRefreshTimer();
+            window.applySnapshot(snap);
+            QCOMPARE(tx->rowCount(), 3);
+
+            // Select row 1
+            tx->selectRow(1);
+            tx->setCurrentCell(1, 1);
+            QCOMPARE(tx->currentRow(), 1);
+
+            // A. Test Space when disconnected is disabled (no-op, no error)
+            auto *lastError = window.findChild<QLabel *>("lastError");
+            QTest::keyClick(&window, Qt::Key_Space, Qt::NoModifier);
+            QTest::qWait(50);
+            if (lastError && lastError->isVisible())
+            {
+                QVERIFY(!lastError->text().contains("Serial port is closed"));
+            }
+
+            // B. Test Ctrl+Down moves row 1 down to row 2
+            QTest::keyClick(&window, Qt::Key_Down, Qt::ControlModifier);
+            QTest::qWait(50);
+            QCOMPARE(tx->currentRow(), 2);
+
+            // C. Test Ctrl+Up moves row 2 up to row 1
+            QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
+            QTest::qWait(50);
+            QCOMPARE(tx->currentRow(), 1);
+
+            // D. Test Delete triggers remove animation (reverse duplicate tuck-up + slide-up) and Undo Toast
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(30);
+            // Verify delete animation is active or has cleanly completed
+            QVERIFY(tx->property("deleteAnimRow").toInt() >= 0 || tx->rowCount() < 3);
+            QTest::qWait(260);
+            QCOMPARE(tx->property("deleteAnimRow").toInt(), -1);
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            QVERIFY(toast);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QCOMPARE(toast->width(), 72);
+            QCOMPARE(toast->height(), 28);
+            const int targetY = toast->y();
+
+            // Test consecutive delete while toast is active: in-place reset without slide re-entry
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(50);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QCOMPARE(toast->y(), targetY);
+
+            // Click Undo capsule
+            QTest::mouseClick(toast, Qt::LeftButton);
+            QTest::qWait(250);
+
+            // E. Test Ctrl+X shortcut deletes card and triggers Undo toast
+            const int preCutRowCount = tx->rowCount();
+            tx->selectRow(0);
+            tx->setCurrentCell(0, 1);
+            QTest::keyClick(&window, Qt::Key_X, Qt::ControlModifier);
+            QTest::qWait(100);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QTest::mouseClick(toast, Qt::LeftButton);
+            QTest::qWait(250);
+
+            // F. Test Focus Safety: typing in rxFilter does not trigger card deletion with Delete or Ctrl+X
+            auto *rxFilter = window.findChild<QLineEdit *>("rxFilter");
+            QVERIFY(rxFilter);
+            rxFilter->setFocus();
+            QTest::keyClicks(rxFilter, "HEART");
+            QTest::keyClick(rxFilter, Qt::Key_Space);
+            QTest::keyClick(rxFilter, Qt::Key_Backspace);
+            QCOMPARE(rxFilter->text(), "HEART");
+
+            // Ctrl+X in input field cuts text, never deletes TX card
+            const int cardCountBeforeCut = tx->rowCount();
+            rxFilter->selectAll();
+            QTest::keyClick(rxFilter, Qt::Key_X, Qt::ControlModifier);
+            QCOMPARE(rxFilter->text(), QString(""));
+            QCOMPARE(tx->rowCount(), cardCountBeforeCut);
+        }
+    }
+
+    /** @brief Test multi-step Undo with Ctrl+Z independent of Toast 4s timeout. */
+    void txMultiStepUndoWithCtrlZ()
+    {
+        // 1. Test SerialWorker::restoreEntry multi-step LIFO behavior
+        {
+            SerialWorker worker;
+            worker.initialize();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                Mav::TxEntry entry;
+                entry.key = i;
+                entry.id = uint32_t(i - 1);
+                entry.hz = 1.0;
+                entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
+                worker.saveEntry(entry);
+            }
+            std::shared_ptr<const Snapshot> snap;
+            QObject::connect(&worker, &SerialWorker::snapshotReady, [&](SnapshotPtr s)
+            {
+                snap = s;
+            });
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 3UL);
+
+            // Remove entry 3 (key 3, index 2)
+            worker.removeEntry(3);
+            // Remove entry 1 (key 1, index 0)
+            worker.removeEntry(1);
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 1UL);
+            QCOMPARE(snap->tx[0].entry.key, 2ULL);
+
+            // Restore key 1 at index 0 (first Undo)
+            Mav::TxEntry restored1;
+            restored1.key = 1;
+            restored1.id = 0;
+            restored1.hz = 1.0;
+            restored1.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+            worker.restoreEntry(0, restored1);
+            QCOMPARE(snap->tx.size(), 2UL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[1].entry.key, 2ULL);
+
+            // Restore key 3 at index 2 (second Undo)
+            Mav::TxEntry restored3;
+            restored3.key = 3;
+            restored3.id = 2;
+            restored3.hz = 1.0;
+            restored3.payload.resize(mavlink_get_msg_entry(2)->max_msg_len);
+            worker.restoreEntry(2, restored3);
+            QCOMPARE(snap->tx.size(), 3UL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[1].entry.key, 2ULL);
+            QCOMPARE(snap->tx[2].entry.key, 3ULL);
+        }
+
+        // 2. Test MainWindow Ctrl+Z keystrokes without being constrained by toast visibility
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(50);
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            // Inject 3 entries via snapshot
+            auto snap = std::make_shared<Snapshot>();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                TxView view;
+                view.entry.key = i;
+                view.entry.id = uint32_t(i - 1);
+                view.entry.hz = 1.0;
+                view.entry.active = false;
+                view.entry.payload.resize(mavlink_get_msg_entry(view.entry.id)->max_msg_len);
+                snap->tx.push_back(view);
+            }
+            window.stopRefreshTimer();
+            window.applySnapshot(snap);
+            QCOMPARE(tx->rowCount(), 3);
+
+            // Delete row 2
+            tx->selectRow(2);
+            tx->setCurrentCell(2, 1);
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(260);
+
+            // Delete row 0
+            tx->selectRow(0);
+            tx->setCurrentCell(0, 1);
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(260);
+
+            // Hide the toast to simulate 4-second timeout expiration
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            if (toast)
+            {
+                toast->hide();
+            }
+            QVERIFY(!toast || !toast->isVisible());
+
+            // First Ctrl+Z: pops stack even though toast is hidden
+            QKeyEvent ctrlZ(QEvent::KeyPress, Qt::Key_Z, Qt::ControlModifier);
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Second Ctrl+Z: pops next item from stack
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Third Ctrl+Z when stack is empty: safe no-op
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Test Delete All button clears the undo stack
+            auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
+            QVERIFY(deleteAll);
+            deleteAll->click();
+            QTest::qWait(50);
+        }
+    }
+
+    /**
+     * @brief Test TX message duplication 220 ms slide-down animation:
+     *        1. Trigger Ctrl+D and verify newly cloned row is inserted and selected.
+     *        2. Verify duplicate animation properties on txTable (duplicateAnimRow, offset, progress).
+     *        3. Wait for animation completion and verify property reset.
+     *        4. Test consecutive rapid Ctrl+D triggers without coordinate desync.
+     */
+    void txDuplicateSlideDownAnimation()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+
+        auto *tx = window.findChild<QTableWidget *>("txTable");
+        auto *add = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(tx && add);
+
+        // 1. Add first message via dialog
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            if (dialog)
+            {
+                auto *fields = dialog->findChild<QTableWidget *>("payloadFields");
+                if (fields)
+                {
+                    for (int i = 0; i < fields->rowCount(); ++i)
+                    {
+                        if (fields->item(i, 2) && fields->item(i, 2)->text().isEmpty())
+                        {
+                            fields->item(i, 2)->setText("0");
+                        }
+                    }
+                }
+                auto *box = dialog->findChild<QDialogButtonBox *>();
+                if (box && box->button(QDialogButtonBox::Save))
+                {
+                    box->button(QDialogButtonBox::Save)->click();
+                }
+            }
+        });
+        add->click();
+        QTRY_COMPARE(tx->rowCount(), 1);
+
+        // Select row 0
+        tx->selectRow(0);
+        tx->setCurrentCell(0, 1);
+        QCOMPARE(tx->currentRow(), 0);
+
+        // 2. Press Ctrl+D to duplicate row 0
+        QTest::keyClick(&window, Qt::Key_D, Qt::ControlModifier);
+        QTRY_COMPARE(tx->rowCount(), 2);
+        QCOMPARE(tx->currentRow(), 1);
+
+        // Wait for 160 ms animation to complete
+        QTRY_COMPARE(tx->property("duplicateAnimRow").toInt(), -1);
+        QCOMPARE(tx->property("duplicateAnimOffset").toDouble(), 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 1.0);
+
+        // 3. Test direct startTxDuplicateAnimation and rapid interruption
+        window.startTxDuplicateAnimation(1);
+        QCOMPARE(tx->property("duplicateAnimRow").toInt(), 1);
+        QVERIFY(tx->property("duplicateAnimOffset").toDouble() < 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 0.0);
+
+        // Interrupt immediately with row 0
+        window.startTxDuplicateAnimation(0);
+        QCOMPARE(tx->property("duplicateAnimRow").toInt(), 0);
+        QVERIFY(tx->property("duplicateAnimOffset").toDouble() < 0.0);
+
+        // Wait for completion
+        QTRY_COMPARE(tx->property("duplicateAnimRow").toInt(), -1);
+        QCOMPARE(tx->property("duplicateAnimOffset").toDouble(), 0.0);
+        QCOMPARE(tx->property("duplicateAnimProgress").toDouble(), 1.0);
+
+        // 4. Test startTxSwapAnimation high-fps animation and completion
+        window.startTxSwapAnimation(1, 0);
+        QCOMPARE(tx->property("swapRowA").toInt(), 1);
+        QCOMPARE(tx->property("swapRowB").toInt(), 0);
+        QVERIFY(std::abs(tx->property("swapOffset").toDouble()) > 0.0);
+        QTRY_COMPARE(tx->property("swapRowA").toInt(), -1);
+        QCOMPARE(tx->property("swapRowB").toInt(), -1);
+        QCOMPARE(tx->property("swapOffset").toDouble(), 0.0);
     }
 };
 

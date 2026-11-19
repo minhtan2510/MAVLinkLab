@@ -66,11 +66,100 @@ struct TxView
     double measuredHz = 0;
     double estimatedBps = 0;
 };
+using ParamMap = std::map<std::pair<uint32_t, uint8_t>, Mav::ParamCollection>;
+
+/**
+ * @brief Copy-on-write parameter store wrapper for immutable shared snapshots.
+ */
+class SnapshotParams
+{
+public:
+    SnapshotParams() = default;
+    template <typename T>
+    SnapshotParams(std::shared_ptr<T> ptr) : m_ptr(std::move(ptr))
+    {
+    }
+
+    template <typename T>
+    SnapshotParams &operator=(std::shared_ptr<T> ptr)
+    {
+        m_ptr = std::move(ptr);
+        return *this;
+    }
+
+    const ParamMap &map() const
+    {
+        static const ParamMap empty;
+        return m_ptr ? *m_ptr : empty;
+    }
+
+    auto find(const std::pair<uint32_t, uint8_t> &key) const
+    {
+        return map().find(key);
+    }
+
+    auto begin() const
+    {
+        return map().begin();
+    }
+
+    auto end() const
+    {
+        return map().end();
+    }
+
+    bool empty() const
+    {
+        return map().empty();
+    }
+
+    size_t size() const
+    {
+        return map().size();
+    }
+
+    const ParamMap *operator->() const
+    {
+        return &map();
+    }
+
+    const ParamMap &operator*() const
+    {
+        return map();
+    }
+
+    Mav::ParamCollection &operator[](const std::pair<uint32_t, uint8_t> &key)
+    {
+        auto mutableMap = std::make_shared<ParamMap>();
+        if (m_ptr)
+        {
+            *mutableMap = *m_ptr;
+        }
+        m_ptr = mutableMap;
+        return (*mutableMap)[key];
+    }
+
+    explicit operator bool() const
+    {
+        return m_ptr != nullptr;
+    }
+
+    std::shared_ptr<const ParamMap> sharedPtr() const
+    {
+        return m_ptr;
+    }
+
+private:
+    std::shared_ptr<const ParamMap> m_ptr;
+};
+
 struct Snapshot
 {
+    using ParamMap = ::ParamMap;
+
     std::vector<RxView> rx;
     std::vector<TxView> tx;
-    std::map<std::pair<uint32_t, uint8_t>, Mav::ParamCollection> params;
+    SnapshotParams params;
     bool connected = false;
     uint64_t crcErrors = 0;
     uint64_t overflow = 0;
@@ -105,6 +194,24 @@ public slots:
     void saveEntry(Mav::TxEntry entry);
     /** @brief Remove an entry and cancel pending output. */
     void removeEntry(quint64 key);
+    /**
+     * @brief Duplicate an existing entry immediately after its current position.
+     * @param existingKey Identifier of the entry to duplicate.
+     * @param newKey Identifier to assign to the cloned entry.
+     */
+    void duplicateEntry(quint64 existingKey, quint64 newKey);
+    /**
+     * @brief Move an existing entry from one position index to another.
+     * @param fromIndex Source index of the entry to move.
+     * @param toIndex Destination index where the entry should be placed.
+     */
+    void moveEntry(int fromIndex, int toIndex);
+    /**
+     * @brief Restore an entry at its exact original position index (Undo).
+     * @param targetIndex Original index in the entries vector.
+     * @param entry Full TxEntry configuration to restore.
+     */
+    void restoreEntry(int targetIndex, Mav::TxEntry entry);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
     /**
@@ -146,6 +253,11 @@ public slots:
     void setAutoReconnect(bool enabled);
     /** @brief Set control-line policy for the next open without changing an active link. */
     void setDeassertControlLines(bool enabled);
+    /**
+     * @brief Configure mutual exclusion policy to prevent duplicate active TX streams.
+     * @param enabled True to stop conflicting active messages sharing the same (sysid, compid, msgid).
+     */
+    void setSingleActiveStream(bool enabled);
 signals:
     void stateChanged(QString state, bool connected);
     void failure(QString message);
@@ -177,6 +289,15 @@ private:
      * @param reason Failure message or error description.
      */
     void handleUnexpectedDisconnect(const QString &reason);
+    /**
+     * @brief Check whether any TX entries are active or output queue has pending data.
+     * @return True if isochronous pacing timer needs to be active.
+     */
+    bool hasActiveTransmissions() const;
+    /**
+     * @brief Start or stop the 1ms pacing timer based on port state and transmission activity.
+     */
+    void updatePacingTimer();
     /** @brief Periodic attempt to rediscover and reopen the configured serial port. */
     void attemptReconnect();
 
@@ -193,7 +314,10 @@ private:
     std::map<std::pair<uint8_t, uint8_t>, mavlink_status_t> txStatuses;
     Mav::ByteRate rxThroughput;
     Mav::ByteRate txThroughput;
+    std::shared_ptr<const Snapshot::ParamMap> cachedParamsSnapshot;
+    uint64_t lastSnapshotParamsVersion = 0;
     int64_t lastReport = 0;
     bool closing = false;
     bool reconnecting = false;
+    bool singleActiveStream = true;
 };

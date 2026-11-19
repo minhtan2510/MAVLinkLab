@@ -28,6 +28,26 @@
 * **Safe Session Restoration:**
   * Restored TX messages are strictly initialized with `active = false` (Stopped) and zero counters to prevent unintended transmissions on startup.
   * Restoration options (such as `workspace/restoreTx`) must always be **disabled by default (`false`)** for safety.
+* **TX Stream Mutual Exclusion (Single Active Stream per 3-Tuple):**
+  * An outgoing MAVLink stream is uniquely identified by `sysid + compid + msgid`. Multiple TX cards sharing this identity can be configured as presets, but running them simultaneously causes rate multiplication, bandwidth waste, and receiver state jitter.
+  * `SerialWorker` enforces mutual exclusion when `singleActiveStream` is enabled (default: `true`):
+    * **Single run:** Activating an entry (`setActive(key, true)`) automatically stops any other running entry sharing the same `(sysid, compid, id)`.
+    * **Run all:** `runAll()` starts only the first occurrence of each stream identity group and keeps duplicates stopped.
+  * Managed via `WorkbenchCheckBox` in `SettingsDialog` (`Workspace & Session` card, `workspace/singleActiveStream`), persisted in `QSettings` and synced asynchronously to the worker thread.
+* **Comprehensive UI Animation Subsystem (120 FPS & `Qt::PreciseTimer`):**
+  * All transient interactive UI animations are standardized to high-resolution `Qt::PreciseTimer` (8 ms intervals, ~120 FPS) and smooth quadratic easing curves ($1 - (1-t)^2$) to eliminate Linux kernel event loop coarse timer jitter and stutter:
+    1. **TX Duplicate Slide-Down (`startTxDuplicateAnimation`):** 220 ms slide-out from under source card with vertical offset $-rowHeight \to 0$ and alpha fade-in $0.0 \to 1.0$.
+    2. **TX Card Keyboard Swap (`startTxSwapAnimation`, `Ctrl+Up`/`Ctrl+Down`):** 180 ms isochronous vertical translation swap between rows with continuous quadratic deceleration.
+    3. **TX Undo Toast Entrance/Exit (`TxUndoToast`):** 180 ms slide-up entrance with quadratic ease-out; 150 ms slide-down fade exit with quadratic ease-in ($t^2$).
+    4. **Trash Drop Zone (`TrashDropCard`):** Frosted glass acrylic plate starting from `deleteAllButton` and smoothly sliding left by $\text{initialGap}/2$ towards `stopAllButton` while expanding rightward towards `addButton`, maintaining equal rhythm spacing on both sides ($\text{gapRight} = \text{gapLeft} = \text{finalGap} \approx 10\text{--}12\text{px}$); height expands $28\text{px} \to 32\text{px}$ in 220 ms with translucent burgundy/rose glass tint, 1.0px border and frosted reflection highlight; collapses in 180 ms; 120 FPS `Qt::PreciseTimer`.
+    5. **Drag-and-Drop Slot Displacement (`dragAnimTimer`):** 8 ms decay step `offset *= 0.74` (derived from $\sqrt{0.55}$ at 16 ms) preserving natural visual pace while doubling smoothness.
+    6. **Trash Ghost Card Shrink (`dragDeleteShrinkTimer`):** 220 ms 120 FPS scale and translation into trash drop target.
+    7. **TX Card Removal Animation (`startTxDeleteAnimation`):** 220 ms duration, ~120 FPS (`Qt::PreciseTimer`, 8 ms), quadratic ease-out curve ($1 - (1-t)^2$) matching duplicate animation. Exact inverse visual behavior of Duplicate slide-down: the dying card slides vertically upward ($0 \to -rowHeight$) and is clipped at its original cell top boundary (`option.rect.top()`) while fading out ($1.0 \to 0.0$), seamlessly tucking underneath the card above (or behind the top table boundary/header if row 0). Simultaneously, all rows below smoothly slide up by $0 \to -rowHeight$ in unison to close the gap. Active selection highlight is suppressed on the dying card during animation. At $t = 1.0$, `finalizeTxDeleteAnimation()` immediately removes the row from `txTable` (`removeRow(deletedRow)`), updates heights, selects the new occupying row, and sets `pendingDeleteKey` to prevent 200 ms snapshot latency from re-adding the row, achieving a 100% flicker-free transition with zero visual jump (0 px offset). Successive deletions cleanly finalize any in-progress animation immediately. Triggering Undo (`Ctrl+Z` or clicking toast) during the 220 ms window instantly aborts deletion in-place before physical removal.
+* **TX Message Duplication (`Duplicate message` Context Action & `Ctrl+D`):**
+  * Right-clicking any TX card offers `"Duplicate message"` (or pressing `Ctrl+D`), creating a silent 100% clone (`id`, `sysid`, `compid`, `version1`, `hz`, `payload`) placed immediately below the selected card (at index $i + 1$).
+  * The clone strictly starts in the `Stopped` state with zero counters (`count = 0`), preserving the active transmission state of the original card without triggering mutual exclusion stops.
+  * Focus and selection automatically transition to the newly duplicated card for rapid inline inspection and editing.
+  * **Slide-down Insert Animation (220 ms, High-FPS Smoothness):** Cloned card smoothly slides out from beneath the original card (vertical offset $-rowHeight \to 0$ with quadratic ease-out $1 - (1-t)^2$) and fades in from $0.0 \to 1.0$ opacity. Paced by a high-resolution `Qt::PreciseTimer` (8 ms intervals) over 220 ms to guarantee stutter-free 120 FPS rendering and eliminate Linux timer jitter. The top boundary of the new cell geometry serves as a clip boundary, preventing overlap with the source card above, while all rows below simultaneously push down by $-rowHeight \to 0$. Rapid successive duplications gracefully restart the animation for the newest card without coordinate desynchronization.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
@@ -44,6 +64,19 @@
   * Vector icons (`runAll`: double play `▶▶`, `stopAll`: solid stop `■`, `deleteAll`: 3-rib trash bin) adapt dynamically to light/dark themes and disabled states.
   * Batch action buttons are located in the TX Dashboard header row 1 in column 0 directly beneath `TX Dashboard` title: `runAll` (left-aligned with 'T') and `stopAll` are clustered together, while `deleteAll` is pushed via `addStretch()` so its right edge aligns pixel-perfect with the trailing letter 'd' of `TX Dashboard`. `+ Add message` is on row 1 on the far right. Status pills (`TxSummaryWidget`) are located on row 0 directly next to the `TX Dashboard` title (matching the `RX Dashboard` header style). This creates a cohesive, symmetric design language across both dashboards.
   * TX Status indicator (`TxSummaryWidget`) uses Dual/Triple Pills: Pill 1 displays total configured messages with neutral background, and Pill 2 displays dynamic transmitting state with clean centered text (`X running` / `0 running`) without LED dot icon for a unified minimal aesthetic matching Pill 1. Text measurement uses the matching DemiBold font metrics.
+* **TX Card Drag-and-Drop & Animated Trash Dropzone (`TrashDropCard`):**
+  * Reordering TX cards uses mouse drag on the grab handle. During dragging, `deleteAllButton` is smoothly replaced by `TrashDropCard`, an overlay widget parented to `txGroup` positioned at `deleteAllButton->pos()`.
+  * `batchActions` layout is strictly kept in `(1, 0)` with width ~127px, ensuring `txSummary` pills in `(0, 1)` experience zero layout shift (0 px jitter).
+  * `TrashDropCard` expands smoothly from 28px to 190px upon drag start with a solid thin border (1.0px idle, 1.5px hover). When hovering over trash, the floating dragged card retains crisp 1:1 text/badges with an overlaid dense milky frosted glass haze (~51% opacity, alpha 130-135) and thin red border, keeping content fully legible while visually indicating the danger zone.
+  * Releasing over trash triggers an interactive shrink-and-fade animation sucking the floating ghost card into the trash can (220ms ease-in), stops active transmissions if running, removes the message, and collapses the dropzone back to 28px (180ms ease-out) before revealing `deleteAllButton`.
+* **TX Undo Toast Notification & Smart Keyboard Navigation (`WorkbenchToast`):**
+  * When any TX card is removed (via trash drop, context menu "Remove message", or `Delete`/`Backspace` shortcut), an ultra-minimalist floating capsule toast (`WorkbenchToast`, 72x28 px, fully rounded capsule with radius 14 px, text-only "Undo") appears at the bottom-left (`x = 36px`, 24px above status bar) with an airy suspended feel.
+  * The toast features a 4.0s perimeter countdown contour running clockwise around the rounded capsule path from top-center, rendered via exact analytical subpaths with `Qt::SolidLine` and round caps to prevent arc chord aliasing. The timer automatically pauses when the mouse hovers over the capsule and resumes on leave.
+  * Multi-step LIFO Undo Stack: When any TX card is deleted, it is pushed to an authoritative multi-step stack (`std::vector<DeletedTxItem> txUndoStack`, capped at 64 entries). Pressing `Ctrl+Z` pops and restores the latest deleted card sequentially at its exact row index, completely independent of whether the transient 4.0s toast is visible or expired. Restored cards are highlighted and centered in viewport; `txUndoStack` is cleared safely on `deleteAll` and `importProfile`.
+  * The toast pill serves as a tactile button (`PointingHandCursor`): clicking the capsule or pressing `Ctrl+Z` invokes `SerialWorker::restoreEntry(originalRowIndex, entry)`, restoring the entry with 100% configuration preserved, advancing selection to the restored card and dismissing the toast with slide-down animation.
+  * Smart Keyboard Shortcuts: `Delete`/`Backspace`/`Ctrl+X` deletes card; `Ctrl+D` duplicates card and selects the clone; `Ctrl+Up`/`Ctrl+Down` reorders the card with an ease-out 140ms swap slide animation; `Space` toggles transmitting state (safely disabled when disconnected); `Ctrl+Z` triggers undo. All shortcuts strictly bypass text inputs (`QLineEdit`, `QTextEdit`, `QSpinBox`) so search filters are never interrupted; `Ctrl+X` in text inputs cuts text normally without deleting cards.
+  * Keyboard Shortcuts Reference Dialog (`keyboardShortcutsDialog`): Accessible via `Help -> Keyboard Shortcuts` menu (`actionKeyboardShortcuts`) or global `F1` key (`QKeySequence::HelpContents`). Renders an elegant theme-adaptive cheatsheet displaying keycaps (`Space`, `Ctrl+D`, `Delete`/`Backspace`/`Ctrl+X`, `Ctrl+Z`, `Ctrl+Up`/`Ctrl+Down`, `Esc`, `F1`) and action descriptions inside a frameless `addDialogTitleBar` window with fixed non-resizable geometry (`QLayout::SetFixedSize`, size grip disabled).
+  * Menu Shortcut Keycap Pill Badges (`WorkbenchMenu`): Custom `QMenu` subclass across all top-level (`File`, `View`, `Tool`, `Help`) and popup context menus. Overrides virtual `initStyleOption` to strip raw `\t` accelerator text from labels, enforces `min-width: 190px` for ample breathing room, and renders right-aligned keycap pill badges (`r = 3.5px`, $9\text{ pt}$ Normal weight) with subtle hairline semi-transparent border/fill and soft muted text in normal state, switching to translucent white on hover over `#4f46e5` selection.
 * **Real-time Throughput Monitoring & Link Load Estimation:**
   * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
   * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
@@ -52,6 +85,12 @@
   * Status bar displays live measured byte rates (`RX ↓` and `TX ↑`) with tooltips indicating channel capacity utilization and active baudrate.
   * Message Edit Dialog shows pre-flight load estimation badge (`Est. load: ~X B/s (Y.YY% at <baud> <framing>)`) with 2 decimal places and detailed framing tooltip.
   * Message Edit Dialog displays a dedicated schema payload length badge (`X Bytes`) right next to the selected message title (`[ID] NAME`).
+* **Comprehensive Performance & Resource Optimization (Zero-Churn & Dynamic Event Loops):**
+  * **Dynamic 1ms Pacing Timer:** The worker thread 1ms `Qt::PreciseTimer` sleeps automatically when disconnected or when no periodic messages are active (`hasActiveTransmissions() == false`), eliminating 1,000 idle wakeups/second and saving substantial CPU on Linux.
+  * **Zero-Allocation Parser Hot Path:** `Mav::Parser::feed(const uint8_t *data, size_t length)` directly processes raw serial memory slices without constructing intermediate `std::vector<uint8_t>` heap buffers, while `readAvailable()` drains serial chunks in a bounded synchronous loop up to 64 KiB.
+  * **Copy-on-Write Parameter Snapshots (`SnapshotParams`):** Snapshot parameters are encapsulated in a copy-on-write wrapper (`SnapshotParams`) referencing a shared immutable map (`std::shared_ptr<const ParamMap>`). Parameter collections are version-tracked (`receiver.paramsVersion`) and only deep-copied when actual `PARAM_VALUE` frames arrive, eliminating continuous heap allocation churn (thousands of map nodes) during 200 ms snapshot broadcasts.
+  * **Decoupled Card Height & Font Query Caching:** `updateTxHeights()` layout calculations are decoupled from the 200 ms snapshot loop, triggering strictly when card count or titles change (`titleChanged`), eliminating repetitive `QFontMetrics` wrapping calculations. Fixed-pitch fonts are cached via `cachedFixedFont()` to avoid continuous OS font database queries.
+  * **In-Place Telemetry Plotter Channel Tag Updates:** `TelemetryPlotWidget` maintains persistent channel tag components (`tagWidgets_`) and updates numeric value text directly in-place (`updateChannelTagValues()`), entirely eliminating widget destruction and recreation overhead on every 200 ms snapshot.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
@@ -80,6 +119,10 @@
     ### 🗑️ Removed
     - ...
     ```
+* **Clarification & Approval Gate Workflow:**
+  * Before making any code or project changes requested in user prompts: Must ensure complete and unambiguous understanding of all requirements. Assumptions are strictly forbidden; if any point is unclear or if there are questions/doubts, actively interview and clarify with the user using the `/grill-me` skill until 100% clarity is achieved.
+  * Once requirements are understood, **do NOT jump straight into implementation**. Instead, summarize the understood requirements and outline the planned execution steps.
+  * Proceed with implementation **only after receiving explicit user approval/confirmation**.
 
 ---
 
@@ -102,7 +145,9 @@
   * `MainWindow` maintains a 200ms `refresh` timer triggering `worker->requestSnapshot()`. In unit tests injecting synthetic snapshots directly via `window.applySnapshot(snapshot)`, call `window.stopRefreshTimer()` to prevent worker's empty periodic snapshots from overwriting test state.
   * Conversely, in integration tests relying on worker thread events (e.g. TX queue additions, PTY real transmission), keep the refresh timer active so worker snapshots flow naturally to the GUI.
 * **Linux X11 Popups & Rounded Window Masks:**
-  * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11. QSS `border-radius` leaves raw square corners unless `Qt::WA_TranslucentBackground` and `setMask(roundedRect)` are explicitly applied.
+  * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11/Wayland unless configured with `setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint)` and `setAttribute(Qt::WA_TranslucentBackground, true)` prior to show/popup.
+  * Avoid applying 1-bit raster masks via `setMask(roundedRect)` on translucent popups: XShape 1-bit polygon masks lack antialiasing, and integer polygon quantization errors leave dark/black pixel artifacts at the sharp outer vertices outside the stylesheet's antialiased curved border.
+  * Proper architecture: configure `FramelessWindowHint` + `WA_TranslucentBackground` upfront and invoke `clearMask()`, allowing the compositor to render the stylesheet's `border-radius` with true 32-bit ARGB alpha blending and zero corner artifacts.
 * **Editable ComboBox Text Clipping, Alignment & Inner Padding:**
   * Child `QLineEdit` inside editable `QComboBox` inherits generic `QLineEdit:focus` styling; avoid QSS `outline` which ignores border-radius, and explicitly clear child line-edit borders/outlines (`QComboBox QLineEdit { border: none; outline: none; }`).
   * Qt6's `QStyleSheetStyle` calculates the geometry of the embedded `QLineEdit` strictly via `subControlRect(SC_ComboBoxEditField)`, which honors `QComboBox` padding but completely ignores CSS `padding-left` applied directly to child `QLineEdit`.
@@ -122,9 +167,18 @@
   * Dropdown items store their underlying numeric value in `Qt::ToolTipRole`. `WorkbenchComboDelegate::helpEvent()` intercepts `QHelpEvent` to reliably display item numeric values (e.g. `154` for `MAV_COMP_ID_GIMBAL`) without jitter via `QToolTip::showText(..., option.rect)`.
 * **TX Card Deselection on Clicking Elsewhere:**
   * Only classify mouse presses delivered to `QWidget` receivers. Application event filters also see the popup's `QWindow` event before widget delivery; treating that non-widget receiver as an outside click clears the TX selection and disables context-menu actions before activation.
+* **TX Card Double-Click Exclusion for Running/Stopped Badge & Rate Pill:**
+  * Double-clicking a TX message card in `txTable` opens `editMessage(true)` by default.
+  * To prevent accidental modal dialog popups when rapidly clicking or double-clicking interactive buttons on the card, `MainWindow::eventFilter` intercepts `QEvent::MouseButtonDblClick` on `txTable->viewport()`:
+    * If cursor coordinates reside within the status badge (`card.right() - 88` to `card.right() - 8`) or the frequency rate pill (`txRatePillRect`), `eventFilter` swallows the double-click event (`return true`), preventing `cellDoubleClicked` from firing.
+    * Multiple rapid clicks or double-clicks on the status badge smoothly toggle transmission state via `MouseButtonRelease` without interruption, both when connected and disconnected.
 * **IME Bypass for Technical Search and Code Inputs:**
   * Technical inputs and filter fields (`CatalogSearch` used for `rxFilter`, catalog message search, parameter catalog filter; `paramFilter`; `inputEdit` parameter value editor) explicitly set `setAttribute(Qt::WA_InputMethodEnabled, false)` and `setInputMethodHints(Qt::ImhLatinOnly | Qt::ImhNoPredictiveText)`.
   * This bypasses OS-level IME composition (e.g. Vietnamese IBus/Fcitx Telex/VNI pre-edit buffers), ensuring instantaneous single-character key dispatch and immediate `textChanged` emission without requiring trailing space or underscore keys.
+* **Search Clear Button Vector '✕' Override:**
+  * When `setClearButtonEnabled(true)` is used, Qt attempts to resolve system icons (`SP_LineEditClearButton` / `edit-clear`). On newer OS releases (such as Ubuntu 26.04) or customized desktop icon themes, the system theme may map `edit-clear` to a broom/sweep icon.
+  * `CatalogSearch` and search input filters (`rxFilter`, `paramFilter`) explicitly override the embedded `QToolButton` icon with a dedicated vector `✕` (`clearButtonIcon`) featuring smooth antialiasing, balanced 7x7 px geometry (`(4.5, 4.5)` to `(11.5, 11.5)`), and theme-aware colors for both normal and hover states (`#7e899f` / `#8992a6` normal, `#0f172a` / `#f1f5f9` active), guaranteed across both Light and Dark themes.
+
 * **QLineEdit Placeholder Text & QSS Palette Override:**
   * In Qt6, QSS `color` on `QLineEdit` automatically resets `QPalette::PlaceholderText` to the primary text color during widget polish and show events, causing placeholder text to render at full foreground brightness instead of muted.
   * `WorkbenchLineEdit` intercepts `showEvent()` and `changeEvent()` (`PaletteChange`, `ApplicationPaletteChange`, `StyleChange`) and explicitly clears resolve masks (`colors.setResolveMask(0)`) to preserve the theme-aware dimmed placeholder color (`#606d88` in Dark, `#8893a7` in Light).
@@ -215,6 +269,25 @@
     11. WriteQueue multi-step partial writes, head frame transitions, no-mutation consumption guarantee, and exact `16384` byte capacity limit.
     12. Monotonic sliding window rates (`ByteRate`), deadline progression without catch-up bursts, link throughput estimation, and bandwidth overload detection.
 
+* **Real-time Telemetry Plotter & High-Performance Strip-Chart Canvas:**
+  * Zero external dependencies: Built a native real-time strip-chart canvas using antialiased vector `QPainter`, eliminating third-party dependencies such as QCustomPlot or QtCharts.
+  * Modular Architecture (`src/plotter.h`, `src/plotter.cpp`): Cleanly decoupled from `window.h`/`window.cpp`. Contains `PlotChannel`, `PlotCanvasWidget`, and `TelemetryPlotWidget`. Encapsulates sample ingestion via `TelemetryPlotWidget::processSnapshot(snapshot)`, handling both standard numeric MAVLink streams and Parameter Protocol type-punning (`mavlink_param_union_t`).
+  * Pop-out / Floating Window Capability:
+    - Provides smooth detachment of `TelemetryPlotWidget` into an independent top-level desktop window (`Qt::Window`) via dedicated pop-out button (`⧉` / `⤓`), enabling dual-monitor setups and full-screen data telemetry inspection.
+    - Floating window inherits the application icon (`setWindowIcon`), displays clear title `MAVLinkLab — Telemetry Plotter`, and defaults to an ergonomic 850x550 px layout.
+    - Bi-directional synchronization: Docking or closing the floating window seamlessly returns it to `inspectorContentSplitter`, maintaining channel buffers, pause state, and active time-series curves.
+    - Application Lifecycle Safe: `MainWindow::closeEvent()` guarantees any active floating plotter window is gracefully closed and cleaned up before serial link teardown.
+  * Dedicated Automated Test Suite (`tests/plotter_tests.cpp`): Independently tests channel bounds (max 6, duplicate rejection, index/key removal), snapshot processing, parameter union conversions, canvas controls (time window, auto-scale, pause), hover readout hairline, theme switching, CSV export, and pop-out/docking transitions (`testPopoutAndDocking`).
+  * Zero-Allocation Telemetry Rendering: Eliminates all heap allocations in `PlotCanvasWidget::paintEvent()` by querying `Mav::PlotBuffer::rangeSince(startUs)` directly on the ring buffer for AutoScale, and iterating `channel.buffer.at(i)` for polyline curves and hover readouts.
+  * Bounded Ring Buffer (`Mav::PlotBuffer`): Fixed capacity of 2048 samples/channel, preallocated once (zero runtime allocations during telemetry streaming), providing query methods `range()`, `rangeSince()`, and `samples()`.
+  * Safe numeric field extraction (`Mav::readFieldNumeric`): Supports all primitive integer types (`uint8`..`uint64`, `int8`..`int64`) and floating-point types (`float`, `double`), strictly filtering out character strings (`char[]`) and non-finite values (`NaN`, `Inf`).
+  * Intelligent UI integration: Positioned within a `QSplitter` on the right side of `inspectorPane` (hidden by default to conserve resources). Automatically activated when right-clicking any numeric field in `Decoded Fields` or `Parameter Protocol View` and choosing "Plot this field". Supports up to 6 simultaneous channels with high-contrast palette colors.
+  * Advanced controls: Dynamic Y-axis auto-scaling (with divide-by-zero protection for flatlines), configurable time windows (10s, 30s, 60s, 120s), Pause/Freeze to inspect historical values, Hairline Cursor hover to inspect timestamped values, and CSV export for offline analysis.
+  * Theme Re-entrancy & Stylesheet: Avoid invoking `setStyleSheet()` locally on child widgets during theme transitions; manage CSS centrally in `dataStyle` and protect `applyTheme()` with a re-entrancy guard `static bool applying = false;` to prevent infinite recursion when Qt emits `ApplicationPaletteChange`.
+  * Floating-point & Test Context Menus: When verifying floating-point values extracted from single-precision MAVLink messages (`float`), use `std::abs(val - target) < 1e-4` rather than exact equality to prevent IEEE-754 rounding discrepancies. For context menus in `QTableWidget`, trigger via `QPoint(-1, -1)` (keyboard simulation) combined with `setCurrentCell()` to target the selected row accurately without depending on viewport pixel coordinates.
+* **Unified Documentation Language Standard:**
+  * All documentation files across the project (`README.md`, `AGENTS.md`, `MEMORY.md`, and all documents under `docs/`) must strictly and consistently be written in **English** (with operational agent guidelines provided in `AGENTS.md`). Direct assistant conversational explanations remain in Vietnamese per user preference.
+
 * **Application Icon & Visual Brand Identity Integration:**
   * Official Logo Identity: **Concept 3: Isometric Monogram M-L** (3D isometric block representing MAVLink GCS and laboratory workbench).
   * Asset Location: Embedded via Qt Resource System (`resources/resources.qrc` mapped to `:/icons/`).
@@ -223,6 +296,13 @@
   * Application-wide icon: Instantiated via `MainWindow::appIcon()` and attached to `QApplication::setWindowIcon()` and `MainWindow::setWindowIcon()`.
   * Linux Desktop Integration: `resources/mavlink-lab.desktop` installed to `share/applications`, icons installed to `share/icons/hicolor/` for Ubuntu Dash/Launcher.
   * UI Alignment Invariant: Window title bar heading row begins strictly with `QLabel#heading` at $x=20$ px to maintain exact pixel-level alignment with `txPanel` left boundary (`interactionStates` test check).
+
+* **TX Message Card Drag & Drop Reordering (Dynamic Placeholder Slot):**
+  * Architecture & Performance: Virtual row remapping via `TxCardDelegate` with `txVisualToSourceRow(visualRow, sourceRow, targetRow)` ensures underlying `QTableWidget` items are not mutated during the drag, delivering flicker-free 60 FPS repaints.
+  * Dedicated Drag Handle: 6-dot vector grip (`txDragHandleRect`, $x \in [\text{left}+3, \text{left}+18]$) completely isolates drag gestures from inline rate switcher pills, status toggle badges, and card double-click edit triggers.
+  * Snapshot Suspension: While `isDraggingTx == true`, `MainWindow::applySnapshot()` suspends table row count resets to prevent 200 ms snapshot refreshes from interrupting active drag gestures.
+  * Concurrency & Persistence: Drop release invokes `SerialWorker::moveEntry(from, to)` via queued invocation, updating `entries` vector in the worker thread and immediately syncing to `QSettings` workspace storage.
+  * Safety & Cancel: Releasing outside or pressing `Escape` cleanly cancels the drag operation, resetting visual state and clearing selection.
 
 ---
 
@@ -249,7 +329,8 @@
   LD_LIBRARY_PATH=/tmp/mavlink-qt-prefix/usr/lib/x86_64-linux-gnu \
   ctest --test-dir build --output-on-failure
   ```
-* **CodeGraph Synchronization:**
+* **CodeGraph & Knowledge Graph Synchronization:**
   ```bash
   codegraph sync && codegraph status
+  $(cat graphify-out/.graphify_python) -m graphify.cli --update
   ```

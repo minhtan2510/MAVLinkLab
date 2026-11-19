@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstring>
 #include <limits>
+#include <set>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -86,6 +87,10 @@ void SerialWorker::initialize()
         const int64_t now = clock.nsecsElapsed() / 1000;
         txThroughput.add(size_t(bytes), now);
         pump();
+        if (!hasActiveTransmissions())
+        {
+            updatePacingTimer();
+        }
     });
     connect(port, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error)
     {
@@ -99,7 +104,7 @@ void SerialWorker::initialize()
             handleUnexpectedDisconnect(reason);
         }
     });
-    timer->start();
+    updatePacingTimer();
 }
 
 /** @brief Open the configured port and verify control lines before reporting Connected. */
@@ -141,10 +146,15 @@ void SerialWorker::openPort(PortConfig requested)
     txThroughput.clear();
     lastReport = clock.nsecsElapsed() / 1000;
     emit stateChanged("Connected", true);
+    updatePacingTimer();
 }
 
 void SerialWorker::closePort()
 {
+    if (timer)
+    {
+        timer->stop();
+    }
     if (reconnectTimer)
     {
         reconnectTimer->stop();
@@ -170,6 +180,11 @@ void SerialWorker::closePort()
 void SerialWorker::setDeassertControlLines(bool enabled)
 {
     config.deassertControlLines = enabled;
+}
+
+void SerialWorker::setSingleActiveStream(bool enabled)
+{
+    singleActiveStream = enabled;
 }
 
 void SerialWorker::setAutoReconnect(bool enabled)
@@ -224,6 +239,70 @@ void SerialWorker::removeEntry(quint64 key)
     }), entries.end());
 }
 
+void SerialWorker::duplicateEntry(quint64 existingKey, quint64 newKey)
+{
+    if (entries.size() >= 128)
+    {
+        fail("TX entry limit reached (128)");
+        return;
+    }
+    auto found = std::find_if(entries.begin(), entries.end(), [&](const auto &item)
+    {
+        return item.key == existingKey;
+    });
+    if (found == entries.end())
+    {
+        return;
+    }
+    Mav::TxEntry clone = *found;
+    clone.key = newKey;
+    clone.active = false;
+    clone.count = 0;
+    clone.deadline = 0;
+    clone.measured = {};
+    clone.error.clear();
+    entries.insert(found + 1, std::move(clone));
+    requestSnapshot();
+}
+
+void SerialWorker::moveEntry(int fromIndex, int toIndex)
+{
+    if (fromIndex < 0 || fromIndex >= int(entries.size()) ||
+        toIndex < 0 || toIndex >= int(entries.size()) ||
+        fromIndex == toIndex)
+    {
+        return;
+    }
+    Mav::TxEntry item = std::move(entries[fromIndex]);
+    entries.erase(entries.begin() + fromIndex);
+    entries.insert(entries.begin() + toIndex, std::move(item));
+    requestSnapshot();
+}
+
+/**
+ * @brief Restore an entry at its exact original position index (Undo).
+ * @param targetIndex Original index in the entries vector.
+ * @param entry Full TxEntry configuration to restore.
+ */
+void SerialWorker::restoreEntry(int targetIndex, Mav::TxEntry entry)
+{
+    if (!Mav::validTx(entry))
+    {
+        fail("Invalid TX entry or unsupported MAVLink version");
+        return;
+    }
+    if (entries.size() >= 128)
+    {
+        fail("TX entry limit reached (128)");
+        return;
+    }
+    entry.active = false;
+    entry.error.clear();
+    const int idx = std::clamp(targetIndex, 0, int(entries.size()));
+    entries.insert(entries.begin() + idx, std::move(entry));
+    requestSnapshot();
+}
+
 void SerialWorker::setActive(quint64 key, bool active)
 {
     for (auto &entry : entries)
@@ -237,6 +316,7 @@ void SerialWorker::setActive(quint64 key, bool active)
             entry.active = false;
             entry.error.clear();
             discardOutput();
+            updatePacingTimer();
             requestSnapshot();
             return;
         }
@@ -244,12 +324,28 @@ void SerialWorker::setActive(quint64 key, bool active)
         {
             entry.error = "Port closed";
             fail("Cannot start: Serial port is closed");
+            updatePacingTimer();
             requestSnapshot();
             return;
         }
         entry.error.clear();
         entry.active = true;
         entry.deadline = clock.nsecsElapsed() / 1000;
+        if (singleActiveStream)
+        {
+            for (auto &other : entries)
+            {
+                if (other.key != key && other.active &&
+                    other.sysid == entry.sysid &&
+                    other.compid == entry.compid &&
+                    other.id == entry.id)
+                {
+                    other.active = false;
+                    other.error.clear();
+                }
+            }
+        }
+        updatePacingTimer();
         requestSnapshot();
         return;
     }
@@ -291,6 +387,7 @@ void SerialWorker::sendOnce(quint64 key)
             }
             enqueue(entry);
             pump();
+            updatePacingTimer();
         }
     }
 }
@@ -347,6 +444,7 @@ void SerialWorker::stopAll()
         entry.active = false;
     }
     discardOutput();
+    updatePacingTimer();
 }
 
 void SerialWorker::runAll()
@@ -363,15 +461,29 @@ void SerialWorker::runAll()
             entry.error = "Port closed";
         }
         fail("Cannot run all: Serial port is closed");
+        updatePacingTimer();
         requestSnapshot();
         return;
     }
+    std::set<std::tuple<uint8_t, uint8_t, uint32_t>> seen;
     for (auto &entry : entries)
     {
+        if (singleActiveStream)
+        {
+            const auto streamKey = std::make_tuple(entry.sysid, entry.compid, entry.id);
+            if (seen.find(streamKey) != seen.end())
+            {
+                entry.active = false;
+                entry.error.clear();
+                continue;
+            }
+            seen.insert(streamKey);
+        }
         entry.active = true;
         entry.error.clear();
         entry.deadline = clock.nsecsElapsed() / 1000;
     }
+    updatePacingTimer();
     requestSnapshot();
 }
 
@@ -379,6 +491,7 @@ void SerialWorker::deleteAll()
 {
     stopAll();
     entries.clear();
+    updatePacingTimer();
 }
 
 void SerialWorker::importProfile(QByteArray data, bool append, quint64 minimumKey)
@@ -465,6 +578,8 @@ void SerialWorker::clearStatistics()
     parser = {};
     rxThroughput.clear();
     txThroughput.clear();
+    cachedParamsSnapshot.reset();
+    lastSnapshotParamsVersion = 0;
     lastReport = clock.nsecsElapsed() / 1000;
 }
 
@@ -474,14 +589,23 @@ void SerialWorker::readAvailable()
     {
         return;
     }
-    const QByteArray bytes = port->read(8192);
     const int64_t now = clock.nsecsElapsed() / 1000;
-    rxThroughput.add(bytes.size(), now);
-    const auto *data = reinterpret_cast<const uint8_t *>(bytes.constData());
-    const auto messages = parser.feed(Mav::Bytes(data, data + bytes.size()));
-    for (const auto &message : messages)
+    qint64 totalRead = 0;
+    while (port->bytesAvailable() > 0 && totalRead < 65536)
     {
-        receiver.accept(message, now);
+        const QByteArray bytes = port->read(8192);
+        if (bytes.isEmpty())
+        {
+            break;
+        }
+        totalRead += bytes.size();
+        rxThroughput.add(bytes.size(), now);
+        const auto *data = reinterpret_cast<const uint8_t *>(bytes.constData());
+        const auto messages = parser.feed(data, size_t(bytes.size()));
+        for (const auto &message : messages)
+        {
+            receiver.accept(message, now);
+        }
     }
     if (port->bytesAvailable() > 0)
     {
@@ -493,6 +617,7 @@ void SerialWorker::tick()
 {
     if (!port->isOpen())
     {
+        updatePacingTimer();
         return;
     }
     const int64_t now = clock.nsecsElapsed() / 1000;
@@ -506,6 +631,10 @@ void SerialWorker::tick()
         }
     }
     pump();
+    if (!hasActiveTransmissions())
+    {
+        updatePacingTimer();
+    }
 }
 
 void SerialWorker::enqueue(Mav::TxEntry &entry)
@@ -584,7 +713,12 @@ void SerialWorker::requestSnapshot()
     snapshot->estimatedTxBps = txEstimate.totalBytesPerSec;
     snapshot->estimatedTxUtilization = txEstimate.utilizationPercent;
     lastReport = now;
-    snapshot->params = receiver.params;
+    if (!cachedParamsSnapshot || receiver.paramsVersion != lastSnapshotParamsVersion)
+    {
+        cachedParamsSnapshot = std::make_shared<const Snapshot::ParamMap>(receiver.params);
+        lastSnapshotParamsVersion = receiver.paramsVersion;
+    }
+    snapshot->params = cachedParamsSnapshot;
     for (auto &[key, entry] : receiver.entries)
     {
         Q_UNUSED(key);
@@ -701,4 +835,45 @@ void SerialWorker::attemptReconnect()
     lastReport = clock.nsecsElapsed() / 1000;
 
     emit stateChanged("Connected", true);
+    updatePacingTimer();
+}
+
+/**
+ * @brief Check whether any TX entries are active or output queue has pending data.
+ * @return True if isochronous pacing timer needs to be active.
+ */
+bool SerialWorker::hasActiveTransmissions() const
+{
+    if (queue.size() > 0 || (port && port->bytesToWrite() > 0))
+    {
+        return true;
+    }
+    for (const auto &entry : entries)
+    {
+        if (entry.active)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Start or stop the 1ms pacing timer based on port state and transmission activity.
+ */
+void SerialWorker::updatePacingTimer()
+{
+    if (!timer)
+    {
+        return;
+    }
+    const bool shouldRun = port && port->isOpen() && hasActiveTransmissions();
+    if (shouldRun && !timer->isActive())
+    {
+        timer->start();
+    }
+    else if (!shouldRun && timer->isActive())
+    {
+        timer->stop();
+    }
 }

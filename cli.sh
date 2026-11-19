@@ -398,7 +398,7 @@ run_tests()
         local filter_arg=()
         if [[ $# -gt 0 && "$1" != -* ]]; then
             case "$1" in
-                core|desktop|profile|control-lines)
+                core|desktop|profile|control-lines|plotter)
                     suite_arg=(--suite "$1")
                     ;;
                 *)

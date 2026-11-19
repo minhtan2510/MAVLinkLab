@@ -15,12 +15,33 @@
 #include <QLabel>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QSplitter>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QLayoutItem>
+#include <QPainter>
+#include <QMouseEvent>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
+#include <QFontDatabase>
+#include <QElapsedTimer>
+#include <functional>
+#include <limits>
+#include <vector>
+#include <array>
+#include <chrono>
+#include <cmath>
 #include <map>
 
 class TxSummaryWidget;
 class ConnectionStatusWidget;
 class StatusBarMetricsWidget;
 class StatusBarMessageWidget;
+class TrashDropCard;
+class WorkbenchToast;
+
+#include "plotter.h"
 
 class MainWindow : public QMainWindow
 {
@@ -47,8 +68,16 @@ public:
     void setRxThroughputStats(double bps, double utilization, int baud);
     /** @brief Stop the background snapshot polling timer (e.g. for deterministic unit testing). */
     void stopRefreshTimer();
+    /** @brief Trigger smooth vertical swap slide animation between two rows. */
+    void startTxSwapAnimation(int newRow, int oldRow);
+    /** @brief Trigger smooth slide-out and push-down animation for a duplicated TX card. */
+    void startTxDuplicateAnimation(int insertRow);
     /** @brief Return the currently configured serial port settings. */
     PortConfig currentPortConfig() const;
+    /** @brief Return pointer to the telemetry plotter widget. */
+    TelemetryPlotWidget *plotterWidget() const;
+    /** @brief Add or toggle a field subscription in the telemetry plotter. */
+    void togglePlotField(uint32_t sysid, uint8_t compid, uint32_t msgid, const QString &fieldName, const QString &label);
     /** @brief Return the application icon containing multi-resolution raster assets. */
     static QIcon appIcon();
 protected:
@@ -56,6 +85,10 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
+    /** @brief Cancel drag-and-drop operations on Escape and dispatch smart TX shortcuts. */
+    void keyPressEvent(QKeyEvent *event) override;
+    /** @brief Keep overlays such as the undo toast properly positioned on resize. */
+    void resizeEvent(QResizeEvent *event) override;
 private:
     /** @brief Re-enumerate ports while retaining an explicitly typed PTY/device path. */
     void refreshPorts();
@@ -106,17 +139,59 @@ private:
     void exportProfile();
     /** @brief Display the Check for Updates dialog and query GitHub latest release. */
     void checkForUpdates();
+    /** @brief Display reference dialog showing available keyboard shortcuts. */
+    void showKeyboardShortcuts();
     /** @brief Display a popup menu with preset frequencies and custom rate input. */
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     /** @brief Display transient confirmation badge and cell flash when copying a field value. */
     void showCopiedFeedback(int row);
     /** @brief Update the color styling of the RX throughput pill based on channel utilization. */
     void updateRxThroughputStyle(double util);
+    /**
+     * @brief Start interactive drag operation for a TX message card.
+     * @param row Index of the row being dragged.
+     * @param globalPos Initial mouse position in global coordinates.
+     */
+    void startTxDrag(int row, const QPoint &globalPos);
+    /**
+     * @brief Update ghost preview and target drop row while dragging.
+     * @param globalPos Current mouse position in global coordinates.
+     * @param viewportPos Current mouse position in txTable viewport coordinates.
+     */
+    void updateTxDrag(const QPoint &globalPos, const QPoint &viewportPos);
+    /**
+     * @brief Finalize or cancel the active drag operation.
+     * @param commit True to apply the new row order to the worker; false to revert.
+     */
+    void finishTxDrag(bool commit);
+    /** @brief Cancel the active drag operation and revert card positions. */
+    void cancelTxDrag();
+    /** @brief Execute one frame of the shrink-and-fade ghost deletion animation. */
+    void stepTxDeleteShrink();
+    /** @brief Display a transient undo toast at the bottom-left corner when an entry is deleted. */
+    void showTxUndoToast(const Mav::TxEntry &entry, int rowIndex);
+    /** @brief Restore the last deleted TX entry at its original row position. */
+    void executeTxUndo();
+    /** @brief Reposition the undo toast anchored to the bottom-left of the window. */
+    void repositionTxUndoToast();
+    /** @brief Delete a TX message card at the specified row and trigger the undo toast. */
+    void deleteTxCardAt(int row);
+    /**
+     * @brief Start smooth 220ms tuck-up collapse animation for row deletion (reverse duplicate).
+     * @param row Index of the card row being deleted.
+     * @param key Identifier of the message entry being deleted.
+     */
+    void startTxDeleteAnimation(int row, uint64_t key);
+    /** @brief Finalize any active row deletion animation immediately. */
+    void finalizeTxDeleteAnimation();
+    /** @brief Handle keyboard navigation and manipulation shortcuts for TX cards. */
+    bool handleTxKeyPress(QKeyEvent *event);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
     QAction *exportProfileAction = nullptr;
     QAction *checkUpdatesAction = nullptr;
+    QAction *keyboardShortcutsAction = nullptr;
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -129,6 +204,7 @@ private:
     int connectingBaud = 0;
     bool paused = false;
     uint64_t nextKey = 1;
+    uint64_t pendingSelectionKey = 0;
     SnapshotPtr latest;
     QComboBox *portBox = nullptr;
     QComboBox *baudBox = nullptr;
@@ -143,6 +219,7 @@ private:
     QCheckBox *autoReconnectBox = nullptr;
     QCheckBox *deassertControlLinesBox = nullptr;
     QCheckBox *restoreTxBox = nullptr;
+    QCheckBox *singleActiveStreamBox = nullptr;
     QCheckBox *showDebugBarBox = nullptr;
     QComboBox *statsRateUnitBox = nullptr;
     QLabel *statsRateUnitLabel = nullptr;
@@ -153,6 +230,51 @@ private:
     StatusBarMetricsWidget *metricsWidget = nullptr;
     StatusBarMessageWidget *lastError = nullptr;
     QTableWidget *txTable = nullptr;
+    bool isDraggingTx = false;
+    bool dragHandlePressed = false;
+    int dragSourceRow = -1;
+    int dragTargetRow = -1;
+    QPoint dragStartPos;
+    QPoint lastDragGlobalPos;
+    QPoint lastDragVpPos;
+    QPoint ghostOffset;
+    QLabel *dragGhostLabel = nullptr;
+    QTimer *dragAutoScrollTimer = nullptr;
+    int dragAutoScrollSpeed = 0;
+    QTimer *dragAnimTimer = nullptr;
+    std::map<int, double> dragRowOffsets;
+    TrashDropCard *trashDropCard = nullptr;
+    bool isHoveringTrash = false;
+    QTimer *dragDeleteShrinkTimer = nullptr;
+    QElapsedTimer dragDeleteShrinkTimerElapsed;
+    int dragDeleteShrinkStep = 0;
+    QRect dragDeleteStartRect;
+    QPoint dragDeleteTargetCenter;
+    uint64_t pendingDeleteKey = 0;
+    QPixmap dragGhostNormal;
+    QPixmap dragGhostDanger;
+    WorkbenchToast *txUndoToast = nullptr;
+    /** @brief Record for an entry deleted from the transmit queue. */
+    struct DeletedTxItem
+    {
+        Mav::TxEntry entry;
+        int rowIndex = -1;
+    };
+    std::vector<DeletedTxItem> txUndoStack;
+    Mav::TxEntry lastDeletedTxEntry;
+    int lastDeletedTxRowIndex = -1;
+    QTimer *txSwapAnimTimer = nullptr;
+    QElapsedTimer txSwapAnimElapsed;
+    double txSwapAnimStartOffset = 0.0;
+    uint64_t pendingDuplicateKey = 0;
+    QTimer *txDuplicateAnimTimer = nullptr;
+    QElapsedTimer txDuplicateAnimElapsed;
+    double txDuplicateAnimStartOffset = 0.0;
+    QTimer *txDeleteAnimTimer = nullptr;
+    QElapsedTimer txDeleteAnimElapsed;
+    int txDeleteAnimRow = -1;
+    uint64_t txDeleteAnimKey = 0;
+    double txDeleteAnimRowHeight = 74.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
@@ -162,6 +284,7 @@ private:
     uint32_t activeParamSysId = 0;
     uint8_t activeParamCompId = 0;
     QAction *editAction = nullptr;
+    QAction *duplicateAction = nullptr;
     QAction *removeAction = nullptr;
     QAction *onceAction = nullptr;
     QAction *startAction = nullptr;
@@ -180,5 +303,9 @@ private:
     QTimer *copyFeedbackTimer = nullptr;
     int copiedInspectorRow = -1;
     QLabel *pausedLabel = nullptr;
+    QPushButton *plotToggleBtn = nullptr;
+    QAction *plotFieldAction = nullptr;
+    QSplitter *inspectorContentSplitter = nullptr;
+    TelemetryPlotWidget *telemetryPlotter = nullptr;
     std::map<QString, QString> lastFieldValues;
 };

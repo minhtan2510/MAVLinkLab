@@ -836,7 +836,140 @@ static void testRatesAndThroughputEstimation()
         check(overEst.utilizationPercent > 100.0, "Utilization > 100%");
     }
 
-    std::cout << "PASS: [12/12] Monotonic Rate Tracking, Due Scheduling and Bandwidth Estimation\n";
+    std::cout << "PASS: [12/13] Monotonic Rate Tracking, Due Scheduling and Bandwidth Estimation\n";
+}
+
+/**
+ * @brief Test suite 13: Timeseries PlotBuffer ring-buffering and numeric field reflection.
+ */
+void testPlotBufferAndNumericReflection()
+{
+    // 1. readFieldNumeric with primitive integers, floats, doubles, arrays
+    {
+        const auto *attitudeInfo = mavlink_get_message_info_by_id(MAVLINK_MSG_ID_ATTITUDE);
+        const auto *attitudeEntry = mavlink_get_msg_entry(MAVLINK_MSG_ID_ATTITUDE);
+        check(attitudeInfo != nullptr && attitudeEntry != nullptr, "ATTITUDE message metadata exists");
+
+        mavlink_message_t msg{};
+        mavlink_status_t status{};
+        std::vector<uint8_t> payload(attitudeEntry->max_msg_len, 0);
+
+        // Set roll = -0.5, pitch = 1.25, yaw = 3.14159, time_boot_ms = 54321
+        std::string err;
+        check(Mav::setField(payload, attitudeInfo->fields[0], "54321", err), "Set time_boot_ms");
+        check(Mav::setField(payload, attitudeInfo->fields[1], "-0.5", err), "Set roll");
+        check(Mav::setField(payload, attitudeInfo->fields[2], "1.25", err), "Set pitch");
+        check(Mav::setField(payload, attitudeInfo->fields[3], "3.14159", err), "Set yaw");
+
+        const auto bytes = Mav::encode(MAVLINK_MSG_ID_ATTITUDE, 1, 1, false, payload, status);
+        check(!bytes.empty(), "Encoded ATTITUDE frame");
+
+        Mav::Parser parser;
+        const auto parsed = parser.feed(bytes);
+        check(parsed.size() == 1, "Parsed ATTITUDE frame");
+        const auto &attitudeMsg = parsed.front();
+
+        // Numeric extraction
+        const auto timeBoot = Mav::readFieldNumeric(attitudeMsg, attitudeInfo->fields[0]);
+        check(timeBoot.has_value() && *timeBoot == 54321.0, "readFieldNumeric uint32_t matches 54321");
+
+        const auto roll = Mav::readFieldNumeric(attitudeMsg, attitudeInfo->fields[1]);
+        check(roll.has_value() && std::abs(*roll - (-0.5)) < 1e-5, "readFieldNumeric float roll matches -0.5");
+
+        const auto pitch = Mav::readFieldNumeric(attitudeMsg, attitudeInfo->fields[2]);
+        check(pitch.has_value() && std::abs(*pitch - 1.25) < 1e-5, "readFieldNumeric float pitch matches 1.25");
+
+        const auto yaw = Mav::readFieldNumeric(attitudeMsg, attitudeInfo->fields[3]);
+        check(yaw.has_value() && std::abs(*yaw - 3.14159) < 1e-4, "readFieldNumeric float yaw matches 3.14159");
+
+        // Out-of-bounds array index
+        const auto oob = Mav::readFieldNumeric(attitudeMsg, attitudeInfo->fields[1], 1);
+        check(!oob.has_value(), "Scalar field index 1 returns nullopt");
+
+        // String rejection
+        const auto *statustextInfo = mavlink_get_message_info_by_id(MAVLINK_MSG_ID_STATUSTEXT);
+        if (statustextInfo)
+        {
+            // field 1 in STATUSTEXT is text char[50]
+            const auto textNumeric = Mav::readFieldNumeric(attitudeMsg, statustextInfo->fields[1]);
+            check(!textNumeric.has_value(), "Char array returns nullopt for readFieldNumeric");
+        }
+    }
+
+    // 2. PlotBuffer ring-buffering, capacity bounds, and range calculation
+    {
+        Mav::PlotBuffer buffer(5);
+        check(buffer.capacity() == 5, "Buffer capacity is 5");
+        check(buffer.size() == 0, "Initial size is 0");
+        check(buffer.empty(), "Initial buffer is empty");
+        check(buffer.range() == std::make_pair(0.0, 0.0), "Empty range is {0, 0}");
+
+        // Push 1 sample
+        buffer.push(1000, 10.5);
+        check(buffer.size() == 1, "Size is 1");
+        check(!buffer.empty(), "Buffer is not empty");
+        check(buffer.at(0).timeUs == 1000, "Sample 0 timestamp is 1000");
+        check(buffer.at(0).value == 10.5, "Sample 0 value is 10.5");
+        check(buffer.range() == std::make_pair(10.5, 10.5), "Single sample range is {10.5, 10.5}");
+
+        // Push non-finite values (must be rejected)
+        buffer.push(1500, std::numeric_limits<double>::quiet_NaN());
+        buffer.push(1600, std::numeric_limits<double>::infinity());
+        buffer.push(1700, -std::numeric_limits<double>::infinity());
+        check(buffer.size() == 1, "Non-finite samples rejected, size remains 1");
+
+        // Fill up to capacity
+        buffer.push(2000, 20.0);
+        buffer.push(3000, -5.0);
+        buffer.push(4000, 15.0);
+        buffer.push(5000, 0.0);
+        check(buffer.size() == 5, "Buffer is full at capacity 5");
+        check(buffer.range() == std::make_pair(-5.0, 20.0), "Range is {-5.0, 20.0}");
+        check(buffer.at(0).value == 10.5, "Oldest sample is 10.5");
+        check(buffer.at(4).value == 0.0, "Newest sample is 0.0");
+
+        // Push 6th sample (overwriting oldest)
+        buffer.push(6000, 25.0);
+        check(buffer.size() == 5, "Size remains capped at 5");
+        check(buffer.at(0).value == 20.0, "New oldest sample is 20.0 (10.5 was evicted)");
+        check(buffer.at(4).value == 25.0, "Newest sample is 25.0");
+        check(buffer.range() == std::make_pair(-5.0, 25.0), "Range updated to {-5.0, 25.0}");
+
+        // Push 7th sample
+        buffer.push(7000, -10.0);
+        check(buffer.size() == 5, "Size remains 5");
+        check(buffer.at(0).value == -5.0, "Oldest is -5.0 (20.0 was evicted)");
+        check(buffer.at(4).value == -10.0, "Newest is -10.0");
+        check(buffer.range() == std::make_pair(-10.0, 25.0), "Range updated to {-10.0, 25.0}");
+
+        // samples() vector export
+        const auto samples = buffer.samples();
+        check(samples.size() == 5, "samples() size is 5");
+        check(samples.front().value == -5.0, "samples() front is oldest");
+        check(samples.back().value == -10.0, "samples() back is newest");
+
+        // clear()
+        buffer.clear();
+        check(buffer.size() == 0, "Buffer cleared to size 0");
+        check(buffer.empty(), "Buffer is empty after clear");
+        check(buffer.range() == std::make_pair(0.0, 0.0), "Cleared range is {0, 0}");
+        check(!buffer.rangeSince(1000).has_value(), "Cleared buffer rangeSince is nullopt");
+
+        // rangeSince() time-bounded testing
+        buffer.push(1000, 10.0);
+        buffer.push(2000, 50.0);
+        buffer.push(3000, -20.0);
+        buffer.push(4000, 30.0);
+        buffer.push(5000, 5.0);
+
+        check(!buffer.rangeSince(6000).has_value(), "rangeSince beyond newest is nullopt");
+        check(buffer.rangeSince(0) == std::make_pair(-20.0, 50.0), "rangeSince from 0 matches full range");
+        check(buffer.rangeSince(3000) == std::make_pair(-20.0, 30.0), "rangeSince from 3000 excludes 10 and 50");
+        check(buffer.rangeSince(4000) == std::make_pair(5.0, 30.0), "rangeSince from 4000 covers only {30, 5}");
+        check(buffer.rangeSince(5000) == std::make_pair(5.0, 5.0), "rangeSince for newest sample is {5, 5}");
+    }
+
+    std::cout << "PASS: [13/13] Timeseries PlotBuffer ring-buffering and numeric field reflection\n";
 }
 
 /**
@@ -858,8 +991,9 @@ int main()
         testReceiverBoundedCapacity();
         testWriteQueueComprehensive();
         testRatesAndThroughputEstimation();
+        testPlotBufferAndNumericReflection();
 
-        std::cout << "ALL CORE TESTS PASSED: 12 exhaustive test suites, 100% assertions satisfied\n";
+        std::cout << "ALL CORE TESTS PASSED: 13 exhaustive test suites, 100% assertions satisfied\n";
         return EXIT_SUCCESS;
     }
     catch (const std::exception &error)
