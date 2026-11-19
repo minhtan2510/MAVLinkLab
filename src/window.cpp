@@ -2048,6 +2048,22 @@ public:
                 animDy += int(std::round(dupOffset));
             }
         }
+        const int delRow = option.widget ? option.widget->property("deleteAnimRow").toInt() : -1;
+        const double delOffset = option.widget ? option.widget->property("deleteAnimOffset").toDouble() : 0.0;
+        const double delProgress = option.widget ? option.widget->property("deleteAnimProgress").toDouble() : 0.0;
+        if (delRow >= 0)
+        {
+            if (index.row() == delRow)
+            {
+                animDy += int(std::round(delOffset));
+                painter->setClipRect(option.rect.adjusted(0, 0, 0, 10000), Qt::IntersectClip);
+                painter->setOpacity(std::clamp(1.0 - delProgress, 0.0, 1.0));
+            }
+            else if (index.row() > delRow && std::abs(delOffset) > 0.1)
+            {
+                animDy += int(std::round(delOffset));
+            }
+        }
         const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
@@ -2056,8 +2072,9 @@ public:
         {
             surface = dark ? surface.lighter(112) : QColor("#f8fafc");
         }
-        const QColor cardBorder = selected ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
-        painter->setPen(QPen(cardBorder, selected ? 1.5 : 1.2));
+        const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
+        const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
+        painter->setPen(QPen(cardBorder, (selected && !isDeletingThis) ? 1.5 : 1.2));
         painter->setBrush(surface);
         painter->drawRoundedRect(card, 8, 8);
 
@@ -6139,6 +6156,7 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
     lastDragGlobalPos = globalPos;
     isHoveringTrash = false;
 
+    finalizeTxDeleteAnimation();
     if (dragDeleteShrinkTimer && dragDeleteShrinkTimer->isActive())
     {
         dragDeleteShrinkTimer->stop();
@@ -6696,11 +6714,39 @@ void MainWindow::showTxUndoToast(const Mav::TxEntry &entry, int rowIndex)
  */
 void MainWindow::executeTxUndo()
 {
+    if (txDeleteAnimKey != 0)
+    {
+        if (txDeleteAnimKey == lastDeletedTxEntry.key)
+        {
+            if (txDeleteAnimTimer && txDeleteAnimTimer->isActive())
+            {
+                txDeleteAnimTimer->stop();
+            }
+            if (txTable)
+            {
+                txTable->setProperty("deleteAnimRow", -1);
+                txTable->setProperty("deleteAnimOffset", 0.0);
+                txTable->setProperty("deleteAnimProgress", 0.0);
+                txTable->viewport()->update();
+            }
+            txDeleteAnimKey = 0;
+            txDeleteAnimRow = -1;
+            lastDeletedTxEntry = Mav::TxEntry{};
+            lastDeletedTxRowIndex = -1;
+            if (txUndoToast)
+            {
+                txUndoToast->dismiss();
+            }
+            return;
+        }
+        finalizeTxDeleteAnimation();
+    }
     if (lastDeletedTxEntry.id == 0 || lastDeletedTxRowIndex < 0 || !worker)
     {
         return;
     }
     const int row = lastDeletedTxRowIndex;
+    pendingDeleteKey = 0;
     pendingSelectionKey = lastDeletedTxEntry.key;
     QMetaObject::invokeMethod(worker, "restoreEntry", Qt::QueuedConnection,
                               Q_ARG(int, row), Q_ARG(Mav::TxEntry, lastDeletedTxEntry));
@@ -6740,13 +6786,6 @@ void MainWindow::deleteTxCardAt(int row)
     {
         return;
     }
-    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
-    {
-        txDuplicateAnimTimer->stop();
-        txTable->setProperty("duplicateAnimRow", -1);
-        txTable->setProperty("duplicateAnimOffset", 0.0);
-        txTable->setProperty("duplicateAnimProgress", 1.0);
-    }
     const QTableWidgetItem *item = txTable->item(row, 0);
     if (!item)
     {
@@ -6773,26 +6812,128 @@ void MainWindow::deleteTxCardAt(int row)
         }
     }
 
-    QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, key));
-    saveTxMessages();
-
     if (found)
     {
         showTxUndoToast(entryToRestore, row);
     }
 
-    if (txTable->rowCount() > 1)
+    startTxDeleteAnimation(row, key);
+}
+
+/**
+ * @brief Finalize any active row deletion animation immediately.
+ */
+void MainWindow::finalizeTxDeleteAnimation()
+{
+    if (txDeleteAnimTimer && txDeleteAnimTimer->isActive())
     {
-        const int nextRow = (row < txTable->rowCount() - 1) ? row : (row - 1);
-        txTable->selectRow(nextRow);
-        txTable->setCurrentCell(nextRow, 1);
+        txDeleteAnimTimer->stop();
     }
-    else
+    if (txTable)
     {
-        txTable->clearSelection();
-        txTable->setCurrentItem(nullptr);
+        txTable->setProperty("deleteAnimRow", -1);
+        txTable->setProperty("deleteAnimOffset", 0.0);
+        txTable->setProperty("deleteAnimProgress", 0.0);
     }
-    updateActions();
+    if (txDeleteAnimKey != 0 && worker)
+    {
+        const uint64_t keyToRemove = txDeleteAnimKey;
+        const int deletedRow = txDeleteAnimRow;
+        txDeleteAnimKey = 0;
+        txDeleteAnimRow = -1;
+        pendingDeleteKey = keyToRemove;
+
+        if (txTable && deletedRow >= 0 && deletedRow < txTable->rowCount())
+        {
+            txTable->removeRow(deletedRow);
+            updateTxHeights();
+        }
+
+        QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, keyToRemove));
+        saveTxMessages();
+
+        if (txTable && txTable->rowCount() > 0)
+        {
+            const int nextRow = (deletedRow >= 0 && deletedRow < txTable->rowCount()) ? deletedRow : (txTable->rowCount() - 1);
+            txTable->selectRow(nextRow);
+            txTable->setCurrentCell(nextRow, 1);
+        }
+        else if (txTable)
+        {
+            txTable->clearSelection();
+            txTable->setCurrentItem(nullptr);
+        }
+        updateActions();
+    }
+    if (txTable)
+    {
+        txTable->viewport()->update();
+    }
+}
+
+/**
+ * @brief Start smooth 220ms tuck-up collapse animation for row deletion (reverse duplicate).
+ * @param row Index of the card row being deleted.
+ * @param key Identifier of the message entry being deleted.
+ */
+void MainWindow::startTxDeleteAnimation(int row, uint64_t key)
+{
+    if (!txTable || row < 0 || row >= txTable->rowCount() || key == 0)
+    {
+        return;
+    }
+    if (txDeleteAnimKey != 0)
+    {
+        finalizeTxDeleteAnimation();
+    }
+    if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
+    {
+        txDuplicateAnimTimer->stop();
+        txTable->setProperty("duplicateAnimRow", -1);
+        txTable->setProperty("duplicateAnimOffset", 0.0);
+        txTable->setProperty("duplicateAnimProgress", 1.0);
+    }
+    if (txSwapAnimTimer && txSwapAnimTimer->isActive())
+    {
+        txSwapAnimTimer->stop();
+        txTable->setProperty("swapRowA", -1);
+        txTable->setProperty("swapRowB", -1);
+        txTable->setProperty("swapOffset", 0.0);
+    }
+
+    txDeleteAnimRow = row;
+    txDeleteAnimKey = key;
+    txDeleteAnimRowHeight = double(txTable->rowHeight(row) > 0 ? txTable->rowHeight(row) : 74);
+
+    txTable->setProperty("deleteAnimRow", row);
+    txTable->setProperty("deleteAnimOffset", 0.0);
+    txTable->setProperty("deleteAnimProgress", 0.0);
+
+    txDeleteAnimElapsed.restart();
+    if (!txDeleteAnimTimer)
+    {
+        txDeleteAnimTimer = new QTimer(this);
+        txDeleteAnimTimer->setTimerType(Qt::PreciseTimer);
+        connect(txDeleteAnimTimer, &QTimer::timeout, this, [this]()
+        {
+            const qint64 elapsed = txDeleteAnimElapsed.elapsed();
+            const double duration = 220.0;
+            const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 2.0);
+            const double curOffset = -ease * txDeleteAnimRowHeight;
+
+            txTable->setProperty("deleteAnimOffset", curOffset);
+            txTable->setProperty("deleteAnimProgress", ease);
+            txTable->viewport()->update();
+
+            if (t >= 1.0)
+            {
+                finalizeTxDeleteAnimation();
+            }
+        });
+    }
+    txDeleteAnimTimer->start(8);
+    txTable->viewport()->update();
 }
 
 /**
@@ -6937,6 +7078,7 @@ void MainWindow::startTxSwapAnimation(int newRow, int oldRow)
     {
         return;
     }
+    finalizeTxDeleteAnimation();
     if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
     {
         txDuplicateAnimTimer->stop();
@@ -6987,6 +7129,7 @@ void MainWindow::startTxDuplicateAnimation(int insertRow)
     {
         return;
     }
+    finalizeTxDeleteAnimation();
     if (txDuplicateAnimTimer && txDuplicateAnimTimer->isActive())
     {
         txDuplicateAnimTimer->stop();
@@ -7096,6 +7239,7 @@ void MainWindow::saveTxMessages()
 /** @brief Save only geometry, splitters and column presentation on a normal close. */
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    finalizeTxDeleteAnimation();
     saveSettings();
     if (restoreTxBox && restoreTxBox->isChecked())
     {
@@ -8409,11 +8553,30 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
 {
     snapshotPending = false;
     latest = std::move(snapshot);
-    const auto running = std::count_if(latest->tx.begin(), latest->tx.end(), [](const auto &view)
+
+    std::vector<const TxView *> visibleTx;
+    visibleTx.reserve(latest->tx.size());
+    bool foundPendingDelete = false;
+    size_t running = 0;
+    for (const auto &view : latest->tx)
     {
-        return view.entry.active;
-    });
-    txSummary->setStats(int(latest->tx.size()), int(running),
+        if (pendingDeleteKey != 0 && view.entry.key == pendingDeleteKey)
+        {
+            foundPendingDelete = true;
+            continue;
+        }
+        visibleTx.push_back(&view);
+        if (view.entry.active)
+        {
+            ++running;
+        }
+    }
+    if (!foundPendingDelete)
+    {
+        pendingDeleteKey = 0;
+    }
+
+    txSummary->setStats(int(visibleTx.size()), int(running),
                         latest->estimatedTxBps, latest->estimatedTxUtilization);
     setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
     const uint64_t selected = pendingSelectionKey ? pendingSelectionKey : selectedTx();
@@ -8423,12 +8586,12 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     int dupRow = -1;
     if (!isDraggingTx)
     {
-        const bool rowsChanged = (txTable->rowCount() != int(latest->tx.size()));
+        const bool rowsChanged = (txTable->rowCount() != int(visibleTx.size()));
         bool titleChanged = rowsChanged;
-        txTable->setRowCount(int(latest->tx.size()));
-        for (size_t i = 0; i < latest->tx.size(); ++i)
+        txTable->setRowCount(int(visibleTx.size()));
+        for (size_t i = 0; i < visibleTx.size(); ++i)
         {
-            const auto &view = latest->tx[i];
+            const auto &view = *visibleTx[i];
             const auto &entry = view.entry;
             const int row = int(i);
             if (dupKey != 0 && entry.key == dupKey)

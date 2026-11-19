@@ -174,6 +174,14 @@ private:
     void repositionTxUndoToast();
     /** @brief Delete a TX message card at the specified row and trigger the undo toast. */
     void deleteTxCardAt(int row);
+    /**
+     * @brief Start smooth 220ms tuck-up collapse animation for row deletion (reverse duplicate).
+     * @param row Index of the card row being deleted.
+     * @param key Identifier of the message entry being deleted.
+     */
+    void startTxDeleteAnimation(int row, uint64_t key);
+    /** @brief Finalize any active row deletion animation immediately. */
+    void finalizeTxDeleteAnimation();
     /** @brief Handle keyboard navigation and manipulation shortcuts for TX cards. */
     bool handleTxKeyPress(QKeyEvent *event);
     bool profileBusy = false;
@@ -252,6 +260,11 @@ private:
     QTimer *txDuplicateAnimTimer = nullptr;
     QElapsedTimer txDuplicateAnimElapsed;
     double txDuplicateAnimStartOffset = 0.0;
+    QTimer *txDeleteAnimTimer = nullptr;
+    QElapsedTimer txDeleteAnimElapsed;
+    int txDeleteAnimRow = -1;
+    uint64_t txDeleteAnimKey = 0;
+    double txDeleteAnimRowHeight = 74.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;

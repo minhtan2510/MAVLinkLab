@@ -4830,9 +4830,13 @@ private slots:
             QTest::qWait(50);
             QCOMPARE(tx->currentRow(), 1);
 
-            // D. Test Delete triggers ultra-minimalist floating capsule Undo Toast at bottom-left
+            // D. Test Delete triggers remove animation (reverse duplicate tuck-up + slide-up) and Undo Toast
             QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
-            QTest::qWait(250);
+            QTest::qWait(30);
+            // Verify delete animation is active or has cleanly completed
+            QVERIFY(tx->property("deleteAnimRow").toInt() >= 0 || tx->rowCount() < 3);
+            QTest::qWait(260);
+            QCOMPARE(tx->property("deleteAnimRow").toInt(), -1);
             auto *toast = window.findChild<QWidget *>("workbenchToast");
             QVERIFY(toast);
             QVERIFY(toast->isVisible());
