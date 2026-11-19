@@ -451,6 +451,122 @@ static void configureTranslucentMenu(QMenu *menu)
     menu->setAttribute(Qt::WA_TranslucentBackground, true);
 }
 
+/**
+ * @brief Custom menu supporting decoupled, right-aligned keycap pill badges for keyboard shortcuts.
+ */
+class WorkbenchMenu : public QMenu
+{
+public:
+    using QMenu::QMenu;
+
+protected:
+    /**
+     * @brief Intercept style option to decouple accelerator text from menu item labels.
+     * @param option The style option being populated.
+     * @param action The corresponding action being queried.
+     */
+    void initStyleOption(QStyleOptionMenuItem *option, const QAction *action) const override
+    {
+        QMenu::initStyleOption(option, action);
+        if (option)
+        {
+            const int tabIdx = option->text.indexOf(QLatin1Char('\t'));
+            if (tabIdx >= 0)
+            {
+                option->text = option->text.left(tabIdx);
+            }
+        }
+    }
+
+    /**
+     * @brief Render right-aligned keycap pill badges for actions with assigned keyboard shortcuts.
+     * @param event The paint event parameters.
+     */
+    void paintEvent(QPaintEvent *event) override
+    {
+        QMenu::paintEvent(event);
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        const QAction *active = activeAction();
+        const bool isDark = palette().color(QPalette::Window).lightness() < 128;
+
+        for (auto *action : actions())
+        {
+            if (!action || action->isSeparator() || action->shortcut().isEmpty())
+            {
+                continue;
+            }
+
+            const QRect rect = actionGeometry(action);
+            if (rect.isEmpty())
+            {
+                continue;
+            }
+
+            const QString shortcutText = action->shortcut().toString(QKeySequence::NativeText);
+            if (shortcutText.isEmpty())
+            {
+                continue;
+            }
+
+            const bool isHovered = (action == active);
+
+            QFont font = painter.font();
+            font.setPointSize(9);
+            font.setWeight(QFont::Normal);
+            painter.setFont(font);
+
+            const QFontMetrics fm(font);
+            const int textW = fm.horizontalAdvance(shortcutText);
+            const int textH = fm.height();
+
+            const int badgeW = textW + 10;
+            const int badgeH = textH + 2;
+            const int rightMargin = 12;
+
+            const QRect badgeRect(rect.right() - badgeW - rightMargin + 1,
+                                  rect.top() + (rect.height() - badgeH) / 2,
+                                  badgeW, badgeH);
+
+            QPainterPath path;
+            path.addRoundedRect(badgeRect, 3.5, 3.5);
+
+            if (isHovered)
+            {
+                painter.fillPath(path, QColor(255, 255, 255, 28));
+                painter.setPen(QPen(QColor(255, 255, 255, 45), 1.0));
+                painter.drawPath(path);
+
+                painter.setPen(QColor(255, 255, 255, 190));
+                painter.drawText(badgeRect, Qt::AlignCenter, shortcutText);
+            }
+            else
+            {
+                if (isDark)
+                {
+                    painter.fillPath(path, QColor(255, 255, 255, 10));
+                    painter.setPen(QPen(QColor(255, 255, 255, 22), 1.0));
+                    painter.drawPath(path);
+
+                    painter.setPen(QColor(148, 163, 184, 165));
+                    painter.drawText(badgeRect, Qt::AlignCenter, shortcutText);
+                }
+                else
+                {
+                    painter.fillPath(path, QColor(0, 0, 0, 8));
+                    painter.setPen(QPen(QColor(0, 0, 0, 18), 1.0));
+                    painter.drawPath(path);
+
+                    painter.setPen(QColor(120, 135, 155));
+                    painter.drawText(badgeRect, Qt::AlignCenter, shortcutText);
+                }
+            }
+        }
+    }
+};
+
 class WorkbenchComboBox;
 
 /**
@@ -4083,8 +4199,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *appMenuBar = menuBar();
     appMenuBar->setObjectName("appMenuBar");
 
-    auto *fileMenu = appMenuBar->addMenu("File");
+    auto *fileMenu = new WorkbenchMenu("File", appMenuBar);
     fileMenu->setObjectName("fileMenu");
+    appMenuBar->addMenu(fileMenu);
     importProfileAction = fileMenu->addAction("Import Profile…", this, &MainWindow::importProfile);
     importProfileAction->setObjectName("actionImportProfile");
     exportProfileAction = fileMenu->addAction("Export Profile…", this, &MainWindow::exportProfile);
@@ -4093,16 +4210,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *exitAction = fileMenu->addAction("Exit", this, &QWidget::close, QKeySequence::Quit);
     exitAction->setObjectName("actionExit");
 
-    auto *viewMenu = appMenuBar->addMenu("View");
+    auto *viewMenu = new WorkbenchMenu("View", appMenuBar);
     viewMenu->setObjectName("viewMenu");
+    appMenuBar->addMenu(viewMenu);
 
-    auto *toolMenu = appMenuBar->addMenu("Tool");
+    auto *toolMenu = new WorkbenchMenu("Tool", appMenuBar);
     toolMenu->setObjectName("toolMenu");
+    appMenuBar->addMenu(toolMenu);
     auto *settingsAction = toolMenu->addAction("Settings...", settingsDialog, &QDialog::exec, QKeySequence::Preferences);
     settingsAction->setObjectName("actionSettings");
 
-    auto *helpMenu = appMenuBar->addMenu("Help");
+    auto *helpMenu = new WorkbenchMenu("Help", appMenuBar);
     helpMenu->setObjectName("helpMenu");
+    appMenuBar->addMenu(helpMenu);
+    keyboardShortcutsAction = helpMenu->addAction("Keyboard Shortcuts", this, &MainWindow::showKeyboardShortcuts, QKeySequence::HelpContents);
+    keyboardShortcutsAction->setObjectName("actionKeyboardShortcuts");
+    helpMenu->addSeparator();
     checkUpdatesAction = helpMenu->addAction("Check for update...", this, &MainWindow::checkForUpdates);
     checkUpdatesAction->setObjectName("actionCheckUpdates");
     helpMenu->addSeparator();
@@ -4489,7 +4612,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     txTable->setAccessibleName("Transmit message cards");
     txLayout->addWidget(txTable, 1);
-    txMenu = new QMenu(txTable);
+    txMenu = new WorkbenchMenu(txTable);
     txMenu->setObjectName("txMessageMenu");
     configureTranslucentMenu(txMenu);
     txMenu->installEventFilter(this);
@@ -4603,7 +4726,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     inspector->horizontalHeader()->setFixedHeight(36);
     inspector->horizontalHeader()->setMinimumSectionSize(90);
     inspector->setContextMenuPolicy(Qt::CustomContextMenu);
-    auto *valueMenu = new QMenu(inspector);
+    auto *valueMenu = new WorkbenchMenu(inspector);
     valueMenu->setObjectName("inspectorMenu");
     configureTranslucentMenu(valueMenu);
     valueMenu->installEventFilter(this);
@@ -5091,7 +5214,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     connect(runAllButton, &QPushButton::clicked, worker, &SerialWorker::runAll);
     connect(stopAllButton, &QPushButton::clicked, worker, &SerialWorker::stopAll);
-    connect(deleteAllButton, &QPushButton::clicked, worker, &SerialWorker::deleteAll);
+    connect(deleteAllButton, &QPushButton::clicked, this, [this]()
+    {
+        txUndoStack.clear();
+        lastDeletedTxEntry = Mav::TxEntry{};
+        lastDeletedTxRowIndex = -1;
+        if (txUndoToast)
+        {
+            txUndoToast->dismiss();
+        }
+        QMetaObject::invokeMethod(worker, "deleteAll", Qt::QueuedConnection);
+    });
     connect(clear, &QPushButton::clicked, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "clearStatistics", Qt::QueuedConnection);
@@ -5792,6 +5925,13 @@ void MainWindow::importProfile()
         browse->setEnabled(false);
         append->setEnabled(false);
         buttons->setEnabled(false);
+        txUndoStack.clear();
+        lastDeletedTxEntry = Mav::TxEntry{};
+        lastDeletedTxRowIndex = -1;
+        if (txUndoToast)
+        {
+            txUndoToast->dismiss();
+        }
         QMetaObject::invokeMethod(worker, "importProfile", Qt::QueuedConnection,
                                   Q_ARG(QByteArray, data), Q_ARG(bool, append->isChecked()),
                                   Q_ARG(quint64, nextKey));
@@ -5991,10 +6131,115 @@ void MainWindow::checkForUpdates()
     }
 }
 
+/**
+ * @brief Display reference dialog showing available keyboard shortcuts.
+ */
+void MainWindow::showKeyboardShortcuts()
+{
+    QDialog dialog(this);
+    dialog.setObjectName("keyboardShortcutsDialog");
+    dialog.setWindowTitle("Keyboard Shortcuts");
+    dialog.setWindowIcon(appIcon());
+    dialog.setFixedWidth(440);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 16, 20, 16);
+    layout->setSpacing(14);
+    layout = addDialogTitleBar(&dialog, layout);
+    dialog.setSizeGripEnabled(false);
+    if (dialog.layout())
+    {
+        dialog.layout()->setSizeConstraint(QLayout::SetFixedSize);
+    }
+
+    auto *card = new QFrame(&dialog);
+    card->setObjectName("shortcutsCard");
+    card->setFixedWidth(400);
+    auto *cardLayout = new QVBoxLayout(card);
+    cardLayout->setContentsMargins(16, 8, 16, 8);
+    cardLayout->setSpacing(0);
+
+    struct ShortcutRow
+    {
+        QString description;
+        QStringList tokens;
+    };
+
+    const std::vector<ShortcutRow> rows = {
+        {"Toggle transmission", {"Space"}},
+        {"Duplicate message", {"Ctrl", "+", "D"}},
+        {"Delete message", {"Delete", "/", "Ctrl", "+", "X"}},
+        {"Undo delete", {"Ctrl", "+", "Z"}},
+        {"Move message up", {"Ctrl", "+", "↑"}},
+        {"Move message down", {"Ctrl", "+", "↓"}},
+        {"Cancel drag & drop", {"Esc"}},
+        {"Keyboard shortcuts", {"F1"}}
+    };
+
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const auto &row = rows[i];
+        if (i > 0)
+        {
+            auto *divider = new QFrame(card);
+            divider->setObjectName("shortcutRowDivider");
+            divider->setFixedHeight(1);
+            cardLayout->addWidget(divider);
+        }
+
+        auto *rowWidget = new QWidget(card);
+        auto *rowLayout = new QHBoxLayout(rowWidget);
+        rowLayout->setContentsMargins(0, 6, 0, 6);
+        rowLayout->setSpacing(12);
+
+        auto *descLabel = new QLabel(row.description, rowWidget);
+        descLabel->setObjectName("shortcutDesc");
+        rowLayout->addWidget(descLabel, 1);
+
+        auto *badgeRow = new QHBoxLayout;
+        badgeRow->setContentsMargins(0, 0, 0, 0);
+        badgeRow->setSpacing(4);
+
+        for (const auto &token : row.tokens)
+        {
+            if (token == "+" || token == "/")
+            {
+                auto *symbol = new QLabel(token, rowWidget);
+                symbol->setObjectName("shortcutSymbol");
+                badgeRow->addWidget(symbol);
+            }
+            else
+            {
+                auto *badge = new QLabel(token, rowWidget);
+                badge->setObjectName("keycapBadge");
+                badge->setAlignment(Qt::AlignCenter);
+                badgeRow->addWidget(badge);
+            }
+        }
+
+        rowLayout->addLayout(badgeRow);
+        cardLayout->addWidget(rowWidget);
+    }
+
+    layout->addWidget(card);
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
+    auto *closeBtn = buttonBox->button(QDialogButtonBox::Ok);
+    closeBtn->setText("Close");
+    closeBtn->setObjectName("btnCloseShortcuts");
+    closeBtn->setProperty("role", "primary");
+    closeBtn->setFixedHeight(34);
+    closeBtn->setMinimumWidth(80);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    layout->addWidget(buttonBox);
+
+    dialog.exec();
+}
+
 /** @brief Display a popup menu with preset frequencies and custom rate input. */
 void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos)
 {
-    auto *menu = new QMenu(this);
+    auto *menu = new WorkbenchMenu(this);
     menu->setObjectName("quickRateMenu");
     menu->setAttribute(Qt::WA_DeleteOnClose);
     configureTranslucentMenu(menu);
@@ -6686,6 +6931,12 @@ void MainWindow::showTxUndoToast(const Mav::TxEntry &entry, int rowIndex)
 {
     lastDeletedTxEntry = entry;
     lastDeletedTxRowIndex = rowIndex;
+    txUndoStack.push_back({entry, rowIndex});
+    if (txUndoStack.size() > 64)
+    {
+        txUndoStack.erase(txUndoStack.begin());
+    }
+
     if (!txUndoToast)
     {
         txUndoToast = new WorkbenchToast(this);
@@ -6716,7 +6967,7 @@ void MainWindow::executeTxUndo()
 {
     if (txDeleteAnimKey != 0)
     {
-        if (txDeleteAnimKey == lastDeletedTxEntry.key)
+        if (!txUndoStack.empty() && txDeleteAnimKey == txUndoStack.back().entry.key)
         {
             if (txDeleteAnimTimer && txDeleteAnimTimer->isActive())
             {
@@ -6731,8 +6982,9 @@ void MainWindow::executeTxUndo()
             }
             txDeleteAnimKey = 0;
             txDeleteAnimRow = -1;
-            lastDeletedTxEntry = Mav::TxEntry{};
-            lastDeletedTxRowIndex = -1;
+            txUndoStack.pop_back();
+            lastDeletedTxEntry = txUndoStack.empty() ? Mav::TxEntry{} : txUndoStack.back().entry;
+            lastDeletedTxRowIndex = txUndoStack.empty() ? -1 : txUndoStack.back().rowIndex;
             if (txUndoToast)
             {
                 txUndoToast->dismiss();
@@ -6741,19 +6993,28 @@ void MainWindow::executeTxUndo()
         }
         finalizeTxDeleteAnimation();
     }
-    if (lastDeletedTxEntry.id == 0 || lastDeletedTxRowIndex < 0 || !worker)
+
+    if (txUndoStack.empty() || !worker)
     {
         return;
     }
-    const int row = lastDeletedTxRowIndex;
-    pendingDeleteKey = 0;
-    pendingSelectionKey = lastDeletedTxEntry.key;
-    QMetaObject::invokeMethod(worker, "restoreEntry", Qt::QueuedConnection,
-                              Q_ARG(int, row), Q_ARG(Mav::TxEntry, lastDeletedTxEntry));
-    saveTxMessages();
 
-    lastDeletedTxEntry = Mav::TxEntry{};
-    lastDeletedTxRowIndex = -1;
+    const DeletedTxItem item = txUndoStack.back();
+    txUndoStack.pop_back();
+    lastDeletedTxEntry = txUndoStack.empty() ? Mav::TxEntry{} : txUndoStack.back().entry;
+    lastDeletedTxRowIndex = txUndoStack.empty() ? -1 : txUndoStack.back().rowIndex;
+
+    if (item.entry.id == 0 || item.rowIndex < 0)
+    {
+        return;
+    }
+
+    const int row = item.rowIndex;
+    pendingDeleteKey = 0;
+    pendingSelectionKey = item.entry.key;
+    QMetaObject::invokeMethod(worker, "restoreEntry", Qt::QueuedConnection,
+                              Q_ARG(int, row), Q_ARG(Mav::TxEntry, item.entry));
+    saveTxMessages();
 
     if (txUndoToast)
     {
@@ -6965,10 +7226,17 @@ bool MainWindow::handleTxKeyPress(QKeyEvent *event)
         return false;
     }
 
-    // Ctrl+Z: Undo last deleted card if toast is active
+    // F1: Open Keyboard Shortcuts reference dialog
+    if (event->key() == Qt::Key_F1 && event->modifiers() == Qt::NoModifier)
+    {
+        showKeyboardShortcuts();
+        return true;
+    }
+
+    // Ctrl+Z: Undo last deleted card if undo stack has items
     if (event->modifiers() == Qt::ControlModifier && event->key() == Qt::Key_Z)
     {
-        if (txUndoToast && txUndoToast->isVisible())
+        if (!txUndoStack.empty() || txDeleteAnimKey != 0)
         {
             executeTxUndo();
             return true;
@@ -9587,7 +9855,11 @@ void MainWindow::applyTheme()
         "QMenu#serialMenu { background:%6; border:1px solid %4; border-radius:7px; padding:0; }"
         "QFrame#serialAdvanced { background:transparent; border:0; }"
         "QFrame#dashboardPanel { background:%2; border:1px solid %4; border-radius:14px; }"
-        "QFrame#settingsCard { background:%2; border:1px solid %4; border-radius:8px; }"
+        "QFrame#settingsCard,QFrame#shortcutsCard { background:%2; border:1px solid %4; border-radius:8px; }"
+        "QFrame#shortcutRowDivider { background:%4; border:0; }"
+        "QLabel#keycapBadge { background:%6; color:%3; border:1px solid %4; border-radius:4px; padding:2px 7px; font-weight:600; font-size:11px; min-width:18px; }"
+        "QLabel#shortcutDesc { color:%3; font-size:13px; }"
+        "QLabel#shortcutSymbol { color:%5; font-size:12px; font-weight:600; }"
         "QLabel#settingsGroupTitle { font-size:13px; font-weight:700; color:%3; }"
         "QCheckBox { background:transparent; color:%3; font-size:13px; outline:none; }"
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
@@ -9648,7 +9920,7 @@ void MainWindow::applyTheme()
           dark ? "#fca5a5" : "#b91c1c", controlBorder, hintForeground);
     const QString menuStyle = QString(
         "QMenu { background:%1; color:%2; border:1px solid %3; border-radius:8px; padding:6px; font-size:13px; outline:none; }"
-        "QMenu::item { padding:6px 24px 6px 10px; border-radius:5px; }"
+        "QMenu::item { min-width:190px; padding:6px 28px 6px 10px; border-radius:5px; }"
         "QMenu::icon { padding-left:8px; }"
         "QMenu::item:selected { background:#4f46e5; color:white; }"
         "QMenu::item:default { color:%4; }"

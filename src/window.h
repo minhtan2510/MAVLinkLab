@@ -139,6 +139,8 @@ private:
     void exportProfile();
     /** @brief Display the Check for Updates dialog and query GitHub latest release. */
     void checkForUpdates();
+    /** @brief Display reference dialog showing available keyboard shortcuts. */
+    void showKeyboardShortcuts();
     /** @brief Display a popup menu with preset frequencies and custom rate input. */
     void showQuickRateMenu(quint64 key, double currentHz, const QPoint &globalPos);
     /** @brief Display transient confirmation badge and cell flash when copying a field value. */
@@ -189,6 +191,7 @@ private:
     QAction *importProfileAction = nullptr;
     QAction *exportProfileAction = nullptr;
     QAction *checkUpdatesAction = nullptr;
+    QAction *keyboardShortcutsAction = nullptr;
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
@@ -251,6 +254,13 @@ private:
     QPixmap dragGhostNormal;
     QPixmap dragGhostDanger;
     WorkbenchToast *txUndoToast = nullptr;
+    /** @brief Record for an entry deleted from the transmit queue. */
+    struct DeletedTxItem
+    {
+        Mav::TxEntry entry;
+        int rowIndex = -1;
+    };
+    std::vector<DeletedTxItem> txUndoStack;
     Mav::TxEntry lastDeletedTxEntry;
     int lastDeletedTxRowIndex = -1;
     QTimer *txSwapAnimTimer = nullptr;

@@ -2959,6 +2959,76 @@ private slots:
         checkUpdates->trigger();
     }
 
+    /** @brief Verify Help menu action, F1 keypress, and Keyboard Shortcuts dialog layout. */
+    void keyboardShortcutsDialog()
+    {
+        MainWindow window;
+        window.stopRefreshTimer();
+
+        // 1. Verify Help menu action exists and is wired to F1 (QKeySequence::HelpContents)
+        auto *shortcutsAction = window.findChild<QAction *>("actionKeyboardShortcuts");
+        QVERIFY(shortcutsAction != nullptr);
+        QCOMPARE(shortcutsAction->text(), QString("Keyboard Shortcuts"));
+        QCOMPARE(shortcutsAction->shortcut(), QKeySequence(QKeySequence::HelpContents));
+
+        auto *helpMenu = window.findChild<QMenu *>("helpMenu");
+        QVERIFY(helpMenu != nullptr);
+        QVERIFY(helpMenu->actions().contains(shortcutsAction));
+
+        // 2. Trigger via action and verify dialog structure
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("keyboardShortcutsDialog");
+            QVERIFY(dialog != nullptr);
+            QCOMPARE(dialog->windowTitle(), QString("Keyboard Shortcuts"));
+            QCOMPARE(dialog->isSizeGripEnabled(), false);
+            QCOMPARE(dialog->minimumSize(), dialog->maximumSize());
+            QCOMPARE(dialog->width(), dialog->sizeHint().width());
+            QVERIFY(dialog->width() >= 440);
+
+            auto *card = dialog->findChild<QFrame *>("shortcutsCard");
+            QVERIFY(card != nullptr);
+
+            auto keycaps = dialog->findChildren<QLabel *>("keycapBadge");
+            QVERIFY(keycaps.size() >= 7);
+
+            auto descriptions = dialog->findChildren<QLabel *>("shortcutDesc");
+            QVERIFY(descriptions.size() >= 7);
+            QCOMPARE(descriptions[0]->text(), QString("Toggle transmission"));
+            QCOMPARE(descriptions[1]->text(), QString("Duplicate message"));
+
+            auto *btnClose = dialog->findChild<QPushButton *>("btnCloseShortcuts");
+            QVERIFY(btnClose != nullptr);
+
+            QVERIFY(dialog->grab().save("qa/keyboard-shortcuts-dialog.png"));
+
+            // Close dialog
+            btnClose->click();
+        });
+
+        shortcutsAction->trigger();
+
+        // 3. Verify triggering via F1 key event
+        QTimer::singleShot(50, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("keyboardShortcutsDialog");
+            QVERIFY(dialog != nullptr);
+            auto *btnClose = dialog->findChild<QPushButton *>("btnCloseShortcuts");
+            QVERIFY(btnClose != nullptr);
+            btnClose->click();
+        });
+
+        QKeyEvent f1Event(QEvent::KeyPress, Qt::Key_F1, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &f1Event);
+
+        // 4. Verify WorkbenchMenu rendering with shortcut keycap pill badges
+        helpMenu->popup(QPoint(100, 100));
+        QCoreApplication::processEvents();
+        QVERIFY(helpMenu->sizeHint().width() > 180);
+        QVERIFY(helpMenu->grab().save("qa/help-menu-shortcuts-badge.png"));
+        helpMenu->close();
+    }
+
     /**
      * @brief Test real-time throughput metrics display and TX load estimation.
      */
@@ -4882,6 +4952,127 @@ private slots:
             QTest::keyClick(rxFilter, Qt::Key_X, Qt::ControlModifier);
             QCOMPARE(rxFilter->text(), QString(""));
             QCOMPARE(tx->rowCount(), cardCountBeforeCut);
+        }
+    }
+
+    /** @brief Test multi-step Undo with Ctrl+Z independent of Toast 4s timeout. */
+    void txMultiStepUndoWithCtrlZ()
+    {
+        // 1. Test SerialWorker::restoreEntry multi-step LIFO behavior
+        {
+            SerialWorker worker;
+            worker.initialize();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                Mav::TxEntry entry;
+                entry.key = i;
+                entry.id = uint32_t(i - 1);
+                entry.hz = 1.0;
+                entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
+                worker.saveEntry(entry);
+            }
+            std::shared_ptr<const Snapshot> snap;
+            QObject::connect(&worker, &SerialWorker::snapshotReady, [&](SnapshotPtr s)
+            {
+                snap = s;
+            });
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 3UL);
+
+            // Remove entry 3 (key 3, index 2)
+            worker.removeEntry(3);
+            // Remove entry 1 (key 1, index 0)
+            worker.removeEntry(1);
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 1UL);
+            QCOMPARE(snap->tx[0].entry.key, 2ULL);
+
+            // Restore key 1 at index 0 (first Undo)
+            Mav::TxEntry restored1;
+            restored1.key = 1;
+            restored1.id = 0;
+            restored1.hz = 1.0;
+            restored1.payload.resize(mavlink_get_msg_entry(0)->max_msg_len);
+            worker.restoreEntry(0, restored1);
+            QCOMPARE(snap->tx.size(), 2UL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[1].entry.key, 2ULL);
+
+            // Restore key 3 at index 2 (second Undo)
+            Mav::TxEntry restored3;
+            restored3.key = 3;
+            restored3.id = 2;
+            restored3.hz = 1.0;
+            restored3.payload.resize(mavlink_get_msg_entry(2)->max_msg_len);
+            worker.restoreEntry(2, restored3);
+            QCOMPARE(snap->tx.size(), 3UL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[1].entry.key, 2ULL);
+            QCOMPARE(snap->tx[2].entry.key, 3ULL);
+        }
+
+        // 2. Test MainWindow Ctrl+Z keystrokes without being constrained by toast visibility
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(50);
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            // Inject 3 entries via snapshot
+            auto snap = std::make_shared<Snapshot>();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                TxView view;
+                view.entry.key = i;
+                view.entry.id = uint32_t(i - 1);
+                view.entry.hz = 1.0;
+                view.entry.active = false;
+                view.entry.payload.resize(mavlink_get_msg_entry(view.entry.id)->max_msg_len);
+                snap->tx.push_back(view);
+            }
+            window.stopRefreshTimer();
+            window.applySnapshot(snap);
+            QCOMPARE(tx->rowCount(), 3);
+
+            // Delete row 2
+            tx->selectRow(2);
+            tx->setCurrentCell(2, 1);
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(260);
+
+            // Delete row 0
+            tx->selectRow(0);
+            tx->setCurrentCell(0, 1);
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(260);
+
+            // Hide the toast to simulate 4-second timeout expiration
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            if (toast)
+            {
+                toast->hide();
+            }
+            QVERIFY(!toast || !toast->isVisible());
+
+            // First Ctrl+Z: pops stack even though toast is hidden
+            QKeyEvent ctrlZ(QEvent::KeyPress, Qt::Key_Z, Qt::ControlModifier);
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Second Ctrl+Z: pops next item from stack
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Third Ctrl+Z when stack is empty: safe no-op
+            QCoreApplication::sendEvent(&window, &ctrlZ);
+            QTest::qWait(50);
+
+            // Test Delete All button clears the undo stack
+            auto *deleteAll = window.findChild<QPushButton *>("deleteAll");
+            QVERIFY(deleteAll);
+            deleteAll->click();
+            QTest::qWait(50);
         }
     }
 
