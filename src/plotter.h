@@ -308,8 +308,15 @@ protected:
 
 private:
     void rebuildChannelTags();
+    void updateChannelTagValues();
     QColor channelColor(size_t index) const;
 
+    struct TagWidgetEntry
+    {
+        QFrame *frame = nullptr;
+        QLabel *valueLabel = nullptr;
+    };
+    std::vector<TagWidgetEntry> tagWidgets_;
     std::vector<PlotChannel> channels_;
     PlotCanvasWidget *canvas_ = nullptr;
     QWidget *tagsContainer_ = nullptr;

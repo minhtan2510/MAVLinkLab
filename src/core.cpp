@@ -369,14 +369,18 @@ Bytes encode(uint32_t id, uint8_t sysid, uint8_t compid, bool version1,
     return result;
 }
 
-std::vector<mavlink_message_t> Parser::feed(const Bytes &bytes)
+std::vector<mavlink_message_t> Parser::feed(const uint8_t *data, size_t length)
 {
     std::vector<mavlink_message_t> result;
-    for (const uint8_t byte : bytes)
+    if (!data || length == 0)
+    {
+        return result;
+    }
+    for (size_t i = 0; i < length; ++i)
     {
         mavlink_message_t message{};
         mavlink_status_t report{};
-        const auto framing = mavlink_frame_char_buffer(&buffer, &status, byte, &message, &report);
+        const auto framing = mavlink_frame_char_buffer(&buffer, &status, data[i], &message, &report);
         if (framing == MAVLINK_FRAMING_OK)
         {
             result.push_back(message);
@@ -391,6 +395,11 @@ std::vector<mavlink_message_t> Parser::feed(const Bytes &bytes)
         }
     }
     return result;
+}
+
+std::vector<mavlink_message_t> Parser::feed(const Bytes &bytes)
+{
+    return feed(bytes.data(), bytes.size());
 }
 
 void Rate::add(int64_t now)
@@ -692,6 +701,7 @@ void Receiver::accept(const mavlink_message_t &message, int64_t now)
 
             collection.byId[paramName] = item;
             collection.byIndex[packet.param_index] = paramName;
+            ++paramsVersion;
         }
     }
 }

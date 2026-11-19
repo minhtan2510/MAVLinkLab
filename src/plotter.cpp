@@ -747,28 +747,31 @@ void TelemetryPlotWidget::processSnapshot(const Snapshot &snapshot, int64_t nowU
     {
         if (channel.msgid == 22)
         {
-            const auto devKey = std::make_pair(channel.sysid, channel.compid);
-            const auto it = snapshot.params.find(devKey);
-            if (it != snapshot.params.end())
+            if (snapshot.params)
             {
-                const auto paramIt = it->second.byId.find(channel.fieldName.toStdString());
-                if (paramIt != it->second.byId.end())
+                const auto devKey = std::make_pair(channel.sysid, channel.compid);
+                const auto it = snapshot.params->find(devKey);
+                if (it != snapshot.params->end())
                 {
-                    const auto &p = paramIt->second;
-                    double val = 0.0;
-                    if (p.type == MAV_PARAM_TYPE_REAL32 || p.type == MAV_PARAM_TYPE_REAL64)
+                    const auto paramIt = it->second.byId.find(channel.fieldName.toStdString());
+                    if (paramIt != it->second.byId.end())
                     {
-                        val = double(p.value);
+                        const auto &p = paramIt->second;
+                        double val = 0.0;
+                        if (p.type == MAV_PARAM_TYPE_REAL32 || p.type == MAV_PARAM_TYPE_REAL64)
+                        {
+                            val = double(p.value);
+                        }
+                        else
+                        {
+                            mavlink_param_union_t u;
+                            u.param_float = p.value;
+                            val = double(u.param_int32);
+                        }
+                        channel.buffer.push(nowUs, val);
+                        channel.latestValue = val;
+                        channel.hasValue = true;
                     }
-                    else
-                    {
-                        mavlink_param_union_t u;
-                        u.param_float = p.value;
-                        val = double(u.param_int32);
-                    }
-                    channel.buffer.push(nowUs, val);
-                    channel.latestValue = val;
-                    channel.hasValue = true;
                 }
             }
         }
@@ -810,7 +813,7 @@ void TelemetryPlotWidget::processSnapshot(const Snapshot &snapshot, int64_t nowU
  */
 void TelemetryPlotWidget::updateCanvas()
 {
-    rebuildChannelTags();
+    updateChannelTagValues();
     canvas_->update();
 }
 
@@ -824,7 +827,7 @@ void TelemetryPlotWidget::clearAllData()
         c.buffer.clear();
         c.hasValue = false;
     }
-    rebuildChannelTags();
+    updateChannelTagValues();
     canvas_->update();
 }
 
@@ -1076,6 +1079,7 @@ void TelemetryPlotWidget::closeEvent(QCloseEvent *event)
 
 void TelemetryPlotWidget::rebuildChannelTags()
 {
+    tagWidgets_.clear();
     QLayoutItem *child = nullptr;
     while ((child = tagsLayout_->takeAt(0)) != nullptr)
     {
@@ -1117,6 +1121,28 @@ void TelemetryPlotWidget::rebuildChannelTags()
                            .arg(dark_ ? c.color.name() + "22" : c.color.name() + "18",
                                 c.color.name() + "88"));
         tagsLayout_->addWidget(tag);
+        tagWidgets_.push_back({tag, text});
+    }
+}
+
+/**
+ * @brief Update numeric value strings in existing channel tags without rebuilding widgets.
+ */
+void TelemetryPlotWidget::updateChannelTagValues()
+{
+    if (tagWidgets_.size() != channels_.size())
+    {
+        rebuildChannelTags();
+        return;
+    }
+    for (size_t i = 0; i < channels_.size(); ++i)
+    {
+        const auto &c = channels_[i];
+        if (tagWidgets_[i].valueLabel)
+        {
+            const QString valStr = c.hasValue ? QString::number(c.latestValue, 'g', 4) : "--";
+            tagWidgets_[i].valueLabel->setText(QString("%1: %2").arg(c.label, valStr));
+        }
     }
 }
 

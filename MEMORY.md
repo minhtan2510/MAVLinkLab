@@ -82,6 +82,12 @@
   * Status bar displays live measured byte rates (`RX ↓` and `TX ↑`) with tooltips indicating channel capacity utilization and active baudrate.
   * Message Edit Dialog shows pre-flight load estimation badge (`Est. load: ~X B/s (Y.YY% at <baud> <framing>)`) with 2 decimal places and detailed framing tooltip.
   * Message Edit Dialog displays a dedicated schema payload length badge (`X Bytes`) right next to the selected message title (`[ID] NAME`).
+* **Comprehensive Performance & Resource Optimization (Zero-Churn & Dynamic Event Loops):**
+  * **Dynamic 1ms Pacing Timer:** The worker thread 1ms `Qt::PreciseTimer` sleeps automatically when disconnected or when no periodic messages are active (`hasActiveTransmissions() == false`), eliminating 1,000 idle wakeups/second and saving substantial CPU on Linux.
+  * **Zero-Allocation Parser Hot Path:** `Mav::Parser::feed(const uint8_t *data, size_t length)` directly processes raw serial memory slices without constructing intermediate `std::vector<uint8_t>` heap buffers, while `readAvailable()` drains serial chunks in a bounded synchronous loop up to 64 KiB.
+  * **Copy-on-Write Parameter Snapshots (`SnapshotParams`):** Snapshot parameters are encapsulated in a copy-on-write wrapper (`SnapshotParams`) referencing a shared immutable map (`std::shared_ptr<const ParamMap>`). Parameter collections are version-tracked (`receiver.paramsVersion`) and only deep-copied when actual `PARAM_VALUE` frames arrive, eliminating continuous heap allocation churn (thousands of map nodes) during 200 ms snapshot broadcasts.
+  * **Decoupled Card Height & Font Query Caching:** `updateTxHeights()` layout calculations are decoupled from the 200 ms snapshot loop, triggering strictly when card count or titles change (`titleChanged`), eliminating repetitive `QFontMetrics` wrapping calculations. Fixed-pitch fonts are cached via `cachedFixedFont()` to avoid continuous OS font database queries.
+  * **In-Place Telemetry Plotter Channel Tag Updates:** `TelemetryPlotWidget` maintains persistent channel tag components (`tagWidgets_`) and updates numeric value text directly in-place (`updateChannelTagValues()`), entirely eliminating widget destruction and recreation overhead on every 200 ms snapshot.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.

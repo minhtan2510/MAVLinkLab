@@ -56,6 +56,13 @@ struct Parser
     uint64_t signatureErrors = 0;
     /** @brief Parse an arbitrary fragment while preserving frame state. */
     std::vector<mavlink_message_t> feed(const Bytes &bytes);
+    /**
+     * @brief Parse raw bytes directly without intermediate heap allocations.
+     * @param data Pointer to raw byte buffer.
+     * @param length Number of bytes to parse.
+     * @return Decoded valid MAVLink message frames.
+     */
+    std::vector<mavlink_message_t> feed(const uint8_t *data, size_t length);
 };
 
 struct Rate
@@ -227,6 +234,7 @@ struct Receiver
     static constexpr size_t MaxParamsPerDevice = 4096;
     std::map<RxKey, RxEntry> entries;
     std::map<std::pair<uint32_t, uint8_t>, ParamCollection> params;
+    uint64_t paramsVersion = 0;
     uint64_t overflow = 0;
     /** @brief Update an independent system/component/message stream and parameter registry. */
     void accept(const mavlink_message_t &message, int64_t now);

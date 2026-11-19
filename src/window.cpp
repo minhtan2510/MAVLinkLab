@@ -389,6 +389,16 @@ static bool isPluggedPort(const QSerialPortInfo &info)
 }
 
 /**
+ * @brief Return a cached fixed-pitch system font to avoid repetitive font database queries.
+ * @return Cached QFont configured for fixed-width numeric and telemetry display.
+ */
+static const QFont &cachedFixedFont()
+{
+    static const QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    return font;
+}
+
+/**
  * @brief Provide human-readable enum descriptions for common MAVLink fields.
  * @param msgid MAVLink message identity.
  * @param field Field name string.
@@ -2596,7 +2606,7 @@ public:
                 return combo;
             }
 
-            QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFont font = cachedFixedFont();
             font.setPixelSize(13);
             auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
             if (editor)
@@ -2705,7 +2715,7 @@ protected:
     {
         QStyledItemDelegate::initStyleOption(option, index);
         const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
-        option->font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        option->font = cachedFixedFont();
         option->font.setBold(false);
         option->font.setPixelSize(13);
         const bool changed = option->widget && option->widget->objectName() == "inspector" &&
@@ -3769,20 +3779,29 @@ private:
     std::function<void()> m_onUndoClicked;
 };
 
-/** @brief Update a cell without destroying selection or replacing its item. */
-static void cell(QTableWidget *widget, int row, int column, const QString &text)
+/**
+ * @brief Update a cell without destroying selection or replacing its item.
+ * @param widget Target table widget.
+ * @param row Row index.
+ * @param column Column index.
+ * @param text Cell text value.
+ * @return True if cell text was actually updated, false if identical.
+ */
+static bool cell(QTableWidget *widget, int row, int column, const QString &text)
 {
     auto *item = widget->item(row, column);
     if (!item)
     {
         item = new QTableWidgetItem;
-        item->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        item->setFont(cachedFixedFont());
         widget->setItem(row, column, item);
     }
     if (item->text() != text)
     {
         item->setText(text);
+        return true;
     }
+    return false;
 }
 
 /** @brief Resolve a generated message name without fabricating unknown identities. */
@@ -8031,7 +8050,7 @@ void MainWindow::editMessage(bool edit)
         auto *input = new QPlainTextEdit;
         input->setObjectName("arrayValueEditor");
         input->setAccessibleName(QString::fromLatin1(field.name));
-        input->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        input->setFont(cachedFixedFont());
         input->setPlainText(fields->item(row, 2)->text());
         arrayLayout->addWidget(input, 1);
         auto *arrayError = new QLabel;
@@ -8129,7 +8148,7 @@ void MainWindow::editMessage(bool edit)
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(fields, int(i), 1, type);
-            QFont nameFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFont nameFont = cachedFixedFont();
             nameFont.setPixelSize(13);
             fields->item(int(i), 0)->setFont(nameFont);
             nameFont.setPixelSize(12);
@@ -8404,6 +8423,8 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     int dupRow = -1;
     if (!isDraggingTx)
     {
+        const bool rowsChanged = (txTable->rowCount() != int(latest->tx.size()));
+        bool titleChanged = rowsChanged;
         txTable->setRowCount(int(latest->tx.size()));
         for (size_t i = 0; i < latest->tx.size(); ++i)
         {
@@ -8414,9 +8435,15 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             {
                 dupRow = row;
             }
-            cell(txTable, row, 0, QString::number(entry.id));
+            if (cell(txTable, row, 0, QString::number(entry.id)))
+            {
+                titleChanged = true;
+            }
             txTable->item(row, 0)->setData(Qt::UserRole, qulonglong(entry.key));
-            cell(txTable, row, 1, messageName(entry.id));
+            if (cell(txTable, row, 1, messageName(entry.id)))
+            {
+                titleChanged = true;
+            }
             // Cards use the interface font rather than the numeric cell font.
             txTable->item(row, 1)->setFont(txTable->font());
             cell(txTable, row, 2, QString("%1 / %2").arg(entry.sysid).arg(entry.compid));
@@ -8437,7 +8464,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 txTable->verticalScrollBar()->setValue(scroll);
             }
         }
-        updateTxHeights();
+        if (titleChanged)
+        {
+            updateTxHeights();
+        }
         if (dupRow >= 0)
         {
             startTxDuplicateAnimation(dupRow);
@@ -8463,7 +8493,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     }
     if (!paused)
     {
-        const auto fixedFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        const auto &fixedFont = cachedFixedFont();
 
         for (const auto &entry : latest->rx)
         {
@@ -8531,11 +8561,11 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             item->setText(2, QString::number(qulonglong(entry.count)));
             item->setData(2, Qt::UserRole, qulonglong(entry.count));
             item->setData(0, Qt::UserRole + 2, entry.age);
-            if (message.msgid == 22 && latest)
+            if (message.msgid == 22 && latest && latest->params)
             {
                 const auto devKey = std::make_pair(sysid, compid);
-                const auto paramIt = latest->params.find(devKey);
-                if (paramIt != latest->params.end() && paramIt->second.totalCount > 0)
+                const auto paramIt = latest->params->find(devKey);
+                if (paramIt != latest->params->end() && paramIt->second.totalCount > 0)
                 {
                     item->setToolTip(0, QString("Parameters: %1 / %2 loaded · %3")
                                             .arg(paramIt->second.byId.size())
@@ -8838,8 +8868,8 @@ void MainWindow::updateInspector()
         }
 
         const auto devKey = std::make_pair(system, component);
-        const auto it = latest->params.find(devKey);
-        const auto &collection = (it != latest->params.end()) ? it->second : Mav::ParamCollection{};
+        const auto it = (latest && latest->params) ? latest->params->find(devKey) : Snapshot::ParamMap::const_iterator{};
+        const auto &collection = (latest && latest->params && it != latest->params->end()) ? it->second : Mav::ParamCollection{};
         const uint16_t loaded = static_cast<uint16_t>(collection.byId.size());
         const uint16_t total = collection.totalCount;
 
@@ -8881,7 +8911,7 @@ void MainWindow::updateInspector()
             cell(inspector, i, 2, valStr);
             cell(inspector, i, 3, QString("#%1").arg(p->index));
 
-            QFont identityFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFont identityFont = cachedFixedFont();
             identityFont.setPixelSize(13);
             inspector->item(i, 0)->setFont(identityFont);
             identityFont.setPixelSize(12);
@@ -8944,7 +8974,7 @@ void MainWindow::updateInspector()
                 type += QString("[%1]").arg(field.array_length);
             }
             cell(inspector, int(i), 1, type);
-            QFont identityFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            QFont identityFont = cachedFixedFont();
             identityFont.setPixelSize(13);
             inspector->item(int(i), 0)->setFont(identityFont);
             identityFont.setPixelSize(12);
@@ -8991,12 +9021,18 @@ void MainWindow::filterRx()
             auto *item = device->child(j);
             const QString identity = device->text(0) + " " + item->text(0);
             const bool visible = identity.contains(query, Qt::CaseInsensitive);
-            item->setHidden(!visible);
+            if (item->isHidden() == visible)
+            {
+                item->setHidden(!visible);
+            }
             ++total;
             matched += visible;
             deviceVisible |= visible;
         }
-        device->setHidden(!deviceVisible);
+        if (device->isHidden() == deviceVisible)
+        {
+            device->setHidden(!deviceVisible);
+        }
     }
     rxSummary->setText(query.isEmpty() ? QString("%1 %2").arg(total).arg(total == 1 ? "stream" : "streams") :
                        QString("%1 / %2 streams").arg(matched).arg(total));
