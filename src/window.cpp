@@ -3074,9 +3074,9 @@ public:
     {
         setObjectName("trashDropCard");
         setAttribute(Qt::WA_Hover, true);
-        setFixedHeight(28);
-        setMinimumWidth(28);
-        setMaximumWidth(240);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setMinimumSize(28, 28);
+        setMaximumSize(500, 36);
         resize(28, 28);
         m_animTimer = new QTimer(this);
         m_animTimer->setTimerType(Qt::PreciseTimer);
@@ -3087,21 +3087,30 @@ public:
     }
 
     /**
-     * @brief Start animated width expansion from the origin position.
+     * @brief Start animated expansion with leftward translation towards targetLeft and expansion to targetWidth.
      * @param originPos Base coordinates of the delete button to expand from.
+     * @param centerY Vertical center coordinate for expansion.
+     * @param targetLeft Calculated left boundary after sliding left towards the Stop all button.
+     * @param targetWidth Calculated target width spanning towards the Add message button.
      */
-    void startExpand(const QPoint &originPos)
+    void startExpandFromLeft(const QPoint &originPos, int centerY, int targetLeft, int targetWidth)
     {
         m_basePos = originPos;
+        m_originX = originPos.x();
+        m_centerY = centerY;
+        m_targetLeft = targetLeft;
+        m_targetWidth = std::max(targetWidth, 120);
         m_expanding = true;
         m_collapsing = false;
         m_hovered = false;
         m_hoverProgress = 0.0;
         m_expandProgress = 0.0;
+        m_currentX = m_originX;
         m_currentWidth = 28;
+        m_currentHeight = 28;
         m_onCollapseFinished = nullptr;
         m_expandTimer.restart();
-        setGeometry(m_basePos.x(), m_basePos.y(), 28, 28);
+        setGeometry(m_originX, m_centerY - 14, 28, 28);
         show();
         raise();
         if (!m_animTimer->isActive())
@@ -3112,7 +3121,16 @@ public:
     }
 
     /**
-     * @brief Start animated width collapse back to 28px and invoke completion callback.
+     * @brief Start animated expansion using default width parameters.
+     * @param originPos Base coordinates of the delete button to expand from.
+     */
+    void startExpand(const QPoint &originPos)
+    {
+        startExpandFromLeft(originPos, originPos.y() + 14, originPos.x(), 190);
+    }
+
+    /**
+     * @brief Start animated collapse back to 28x28 and invoke completion callback.
      * @param onFinished Optional callback invoked after collapse completes and widget hides.
      */
     void startCollapse(std::function<void()> onFinished = nullptr)
@@ -3121,7 +3139,9 @@ public:
         m_expanding = false;
         m_collapsing = true;
         m_hovered = false;
+        m_collapseStartX = x();
         m_collapseStartWidth = width();
+        m_collapseStartHeight = height();
         m_collapseTimer.restart();
         if (!m_animTimer->isActive())
         {
@@ -3157,11 +3177,20 @@ public:
 
     /**
      * @brief Query the full expanded target width.
-     * @return Full target width in pixels (190px).
+     * @return Full target width in pixels.
      */
     int fullWidth() const
     {
-        return 190;
+        return m_targetWidth;
+    }
+
+    /**
+     * @brief Query the full expanded target height.
+     * @return Full target height in pixels (32px).
+     */
+    int fullHeight() const
+    {
+        return 32;
     }
 
     /**
@@ -3184,7 +3213,7 @@ public:
 
 protected:
     /**
-     * @brief Render the drop card with thin solid border, smooth color lerp, glow, and clipped text.
+     * @brief Render the drop card with frosted glass background, subtle top highlight, glow, and clipped text.
      * @param event Paint event parameters.
      */
     void paintEvent(QPaintEvent *) override
@@ -3203,11 +3232,12 @@ protected:
                 c1.alphaF() + (c2.alphaF() - c1.alphaF()) * t);
         };
 
-        const QColor idleBg = dark ? QColor("#2d151c") : QColor("#fef2f2");
-        const QColor hoverBg = dark ? QColor("#521c28") : QColor("#fee2e2");
+        // Translucent frosted glass burgundy (dark) / rose milk (light)
+        const QColor idleBg = dark ? QColor(45, 18, 24, 175) : QColor(254, 242, 242, 185);
+        const QColor hoverBg = dark ? QColor(85, 24, 38, 225) : QColor(254, 226, 226, 230);
 
-        const QColor idleBorder = dark ? QColor("#8c3041") : QColor("#fca5a5");
-        const QColor hoverBorder = dark ? QColor("#fb7185") : QColor("#dc2626");
+        const QColor idleBorder = dark ? QColor(244, 63, 94, 90) : QColor(252, 165, 165, 140);
+        const QColor hoverBorder = dark ? QColor(251, 113, 133, 210) : QColor(239, 68, 68, 220);
 
         const QColor idleFg = dark ? QColor("#f87171") : QColor("#dc2626");
         const QColor hoverFg = dark ? QColor("#fda4af") : QColor("#b91c1c");
@@ -3216,30 +3246,49 @@ protected:
         const QColor border = lerpColor(idleBorder, hoverBorder, m_hoverProgress);
         const QColor fg = lerpColor(idleFg, hoverFg, m_hoverProgress);
 
-        // 1. Soft red glow on hover
+        const QRect cardRect = rect().adjusted(1, 1, -1, -2);
+
+        // 1. Soft drop shadow on expansion (elevation above adjacent controls)
+        if (m_expandProgress > 0.01)
+        {
+            QPainterPath shadowPath;
+            shadowPath.addRoundedRect(QRectF(cardRect).translated(0, 1.5), 6, 6);
+            const QColor shadowColor = dark ? QColor(0, 0, 0, int(75 * m_expandProgress))
+                                            : QColor(15, 23, 42, int(25 * m_expandProgress));
+            painter.fillPath(shadowPath, shadowColor);
+        }
+
+        // 2. Soft red glow on hover
         if (m_hoverProgress > 0.02)
         {
             QPainterPath glowPath;
-            glowPath.addRoundedRect(QRectF(rect()).adjusted(-1.5, -1.5, 1.5, 1.5), 7, 7);
+            glowPath.addRoundedRect(QRectF(cardRect).adjusted(-1.5, -1.5, 1.5, 1.5), 7, 7);
             const QColor glowColor = dark ? QColor(251, 113, 133, int(45 * m_hoverProgress))
                                           : QColor(220, 38, 38, int(35 * m_hoverProgress));
             painter.fillPath(glowPath, glowColor);
         }
 
-        // 2. Card background and thin solid border (1.0px -> 1.5px on hover)
-        const QRect cardRect = rect().adjusted(1, 1, -1, -1);
+        // 3. Frosted glass plate and thin solid border (1.0px -> 1.5px on hover)
         QPen pen(border, 1.0 + 0.5 * m_hoverProgress, Qt::SolidLine);
 
         painter.setPen(pen);
         painter.setBrush(bg);
         painter.drawRoundedRect(cardRect, 6, 6);
 
-        // 3. Trash icon
+        // 4. Subtle frosted glass top reflection highlight
+        if (width() > 36)
+        {
+            QPen highlightPen(QColor(255, 255, 255, dark ? 25 : 65), 1.0);
+            painter.setPen(highlightPen);
+            painter.drawLine(cardRect.left() + 6, cardRect.top() + 1, cardRect.right() - 6, cardRect.top() + 1);
+        }
+
+        // 5. Trash icon (anchored at left edge, centered vertically)
         const QIcon icon = actionIcon("deleteAll", fg);
         const int iconY = (height() - 16) / 2;
         painter.drawPixmap(6, iconY, icon.pixmap(16, 16));
 
-        // 4. Smooth text fade-in clipped to expanding card width
+        // 6. Smooth text fade-in clipped to expanding card width
         if (width() > 36)
         {
             const double textAlpha = std::clamp((m_expandProgress - 0.15) / 0.85, 0.0, 1.0);
@@ -3261,7 +3310,7 @@ protected:
 
 private:
     /**
-     * @brief Advance width expansion/collapse and hover color interpolation.
+     * @brief Advance width/height expansion/collapse and hover color interpolation.
      */
     void onAnimStep()
     {
@@ -3274,15 +3323,20 @@ private:
             const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
             const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             m_expandProgress = ease;
-            m_currentWidth = int(28 + (190 - 28) * ease);
-            setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
+            m_currentX = int(m_originX + (m_targetLeft - m_originX) * ease);
+            m_currentWidth = int(28 + (m_targetWidth - 28) * ease);
+            m_currentHeight = int(28 + (32 - 28) * ease);
+            setGeometry(m_currentX, m_centerY - m_currentHeight / 2,
+                        m_currentWidth, m_currentHeight);
 
             if (t >= 1.0)
             {
                 m_expanding = false;
                 m_expandProgress = 1.0;
-                m_currentWidth = 190;
-                setGeometry(m_basePos.x(), m_basePos.y(), 190, 28);
+                m_currentX = m_targetLeft;
+                m_currentWidth = m_targetWidth;
+                m_currentHeight = 32;
+                setGeometry(m_targetLeft, m_centerY - 16, m_targetWidth, 32);
             }
             else
             {
@@ -3296,15 +3350,20 @@ private:
             const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
             const double ease = 1.0 - std::pow(1.0 - t, 2.0);
             m_expandProgress = 1.0 - ease;
+            m_currentX = int(m_collapseStartX + (m_originX - m_collapseStartX) * ease);
             m_currentWidth = int(m_collapseStartWidth + (28 - m_collapseStartWidth) * ease);
-            setGeometry(m_basePos.x(), m_basePos.y(), m_currentWidth, 28);
+            m_currentHeight = int(m_collapseStartHeight + (28 - m_collapseStartHeight) * ease);
+            setGeometry(m_currentX, m_centerY - m_currentHeight / 2,
+                        m_currentWidth, m_currentHeight);
 
             if (t >= 1.0)
             {
                 m_collapsing = false;
                 m_expandProgress = 0.0;
+                m_currentX = m_originX;
                 m_currentWidth = 28;
-                setGeometry(m_basePos.x(), m_basePos.y(), 28, 28);
+                m_currentHeight = 28;
+                setGeometry(m_originX, m_centerY - 14, 28, 28);
                 hide();
                 if (m_onCollapseFinished)
                 {
@@ -3346,8 +3405,16 @@ private:
     }
 
     QPoint m_basePos;
+    int m_originX = 0;
+    int m_centerY = 0;
+    int m_targetLeft = 0;
+    int m_targetWidth = 190;
+    int m_currentX = 0;
     int m_currentWidth = 28;
+    int m_currentHeight = 28;
+    int m_collapseStartX = 0;
     int m_collapseStartWidth = 190;
+    int m_collapseStartHeight = 32;
     double m_expandProgress = 0.0;
     double m_hoverProgress = 0.0;
     bool m_hovered = false;
@@ -6071,7 +6138,26 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
         QWidget *parent = deleteAllButton->parentWidget();
         const QPoint pos = parent ? deleteAllButton->mapTo(parent, QPoint(0, 0)) : deleteAllButton->pos();
         trashDropCard->setParent(parent);
-        trashDropCard->startExpand(pos);
+
+        auto *stopBtn = findChild<QPushButton *>("stopAll");
+        auto *addBtn = findChild<QPushButton *>("addMessage");
+        if (stopBtn && addBtn)
+        {
+            const QPoint stopPos = parent ? stopBtn->mapTo(parent, QPoint(0, 0)) : stopBtn->pos();
+            const QPoint addPos = parent ? addBtn->mapTo(parent, QPoint(0, 0)) : addBtn->pos();
+            const int initialGap = std::max(pos.x() - (stopPos.x() + stopBtn->width()), 6);
+            const int shiftLeft = initialGap / 2;
+            const int finalGap = initialGap - shiftLeft;
+            const int targetLeft = pos.x() - shiftLeft;
+            const int targetRight = addPos.x() - finalGap;
+            const int targetWidth = std::max(targetRight - targetLeft, 120);
+            const int centerY = pos.y() + deleteAllButton->height() / 2;
+            trashDropCard->startExpandFromLeft(pos, centerY, targetLeft, targetWidth);
+        }
+        else
+        {
+            trashDropCard->startExpand(pos);
+        }
         deleteAllButton->hide();
     }
 
@@ -6215,7 +6301,9 @@ void MainWindow::updateTxDrag(const QPoint &globalPos, const QPoint &viewportPos
     if (trashDropCard && trashDropCard->isVisible())
     {
         const int effectiveW = std::max(trashDropCard->width(), trashDropCard->fullWidth());
-        const QRect trashGlobal(trashDropCard->mapToGlobal(QPoint(0, 0)), QSize(effectiveW, trashDropCard->height()));
+        const int effectiveH = std::max(trashDropCard->height(), trashDropCard->fullHeight());
+        const QPoint globalTopLeft = trashDropCard->mapToGlobal(QPoint(0, (trashDropCard->height() - effectiveH) / 2));
+        const QRect trashGlobal(globalTopLeft, QSize(effectiveW, effectiveH));
         hoveringTrash = trashGlobal.contains(globalPos);
     }
 
@@ -6356,7 +6444,7 @@ void MainWindow::finishTxDrag(bool commit)
         {
             pendingDeleteKey = key;
             dragDeleteStartRect = dragGhostLabel->geometry();
-            dragDeleteTargetCenter = trashDropCard->mapToGlobal(QPoint(15, 14));
+            dragDeleteTargetCenter = trashDropCard->mapToGlobal(QPoint(14, trashDropCard->height() / 2));
             dragDeleteShrinkStep = 0;
             dragDeleteShrinkTimerElapsed.restart();
             if (!dragDeleteShrinkTimer)

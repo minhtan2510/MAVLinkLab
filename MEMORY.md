@@ -39,7 +39,7 @@
     1. **TX Duplicate Slide-Down (`startTxDuplicateAnimation`):** 220 ms slide-out from under source card with vertical offset $-rowHeight \to 0$ and alpha fade-in $0.0 \to 1.0$.
     2. **TX Card Keyboard Swap (`startTxSwapAnimation`, `Ctrl+Up`/`Ctrl+Down`):** 180 ms isochronous vertical translation swap between rows with continuous quadratic deceleration.
     3. **TX Undo Toast Entrance/Exit (`TxUndoToast`):** 180 ms slide-up entrance with quadratic ease-out; 150 ms slide-down fade exit with quadratic ease-in ($t^2$).
-    4. **Trash Drop Zone (`TrashDropCard`):** 220 ms width expansion ($28\text{px} \to 190\text{px}$) and 180 ms collapse ($190\text{px} \to 28\text{px}$) with continuous quadratic easing.
+    4. **Trash Drop Zone (`TrashDropCard`):** Frosted glass acrylic plate starting from `deleteAllButton` and smoothly sliding left by $\text{initialGap}/2$ towards `stopAllButton` while expanding rightward towards `addButton`, maintaining equal rhythm spacing on both sides ($\text{gapRight} = \text{gapLeft} = \text{finalGap} \approx 10\text{--}12\text{px}$); height expands $28\text{px} \to 32\text{px}$ in 220 ms with translucent burgundy/rose glass tint, 1.0px border and frosted reflection highlight; collapses in 180 ms; 120 FPS `Qt::PreciseTimer`.
     5. **Drag-and-Drop Slot Displacement (`dragAnimTimer`):** 8 ms decay step `offset *= 0.74` (derived from $\sqrt{0.55}$ at 16 ms) preserving natural visual pace while doubling smoothness.
     6. **Trash Ghost Card Shrink (`dragDeleteShrinkTimer`):** 220 ms 120 FPS scale and translation into trash drop target.
 * **TX Message Duplication (`Duplicate message` Context Action & `Ctrl+D`):**

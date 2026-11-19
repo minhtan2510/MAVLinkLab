@@ -4690,6 +4690,10 @@ private slots:
             QVERIFY(!trashCard->isVisible());
             QVERIFY(deleteAll->isVisible());
             const int summaryXBeforeDrag = txSummary->geometry().x();
+            auto *stopAll = window.findChild<QPushButton *>("stopAll");
+            auto *addBtn = window.findChild<QPushButton *>("addMessage");
+            QVERIFY(stopAll);
+            QVERIFY(addBtn);
 
             // C. Test Drag to Trash Drop Card to Delete Message
             QTest::mousePress(tx->viewport(), Qt::LeftButton, Qt::NoModifier, handle0);
@@ -4698,6 +4702,15 @@ private slots:
             QVERIFY(tx->property("isDragging").toBool());
             QVERIFY(trashCard->isVisible());
             QVERIFY(trashCard->width() > 140);
+            QCOMPARE(trashCard->height(), 32);
+            const int initialGap = deleteAll->x() - (stopAll->x() + stopAll->width());
+            const int shiftLeft = initialGap / 2;
+            const int finalGap = initialGap - shiftLeft;
+            QCOMPARE(trashCard->x(), deleteAll->x() - shiftLeft);
+            const int gapLeft = trashCard->x() - (stopAll->x() + stopAll->width());
+            const int gapRight = addBtn->x() - (trashCard->x() + trashCard->width());
+            QCOMPARE(gapLeft, finalGap);
+            QCOMPARE(gapRight, gapLeft);
             QVERIFY(!deleteAll->isVisible());
             QCOMPARE(txSummary->geometry().x(), summaryXBeforeDrag);
 
