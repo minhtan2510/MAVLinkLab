@@ -1,0 +1,772 @@
+/**
+ * @file workbench_delegates.h
+ * @brief Item view delegates for TX cards, decoded fields, message catalog, and RX tree.
+ */
+
+#pragma once
+
+#include "workbench_common.h"
+#include "workbench_controls.h"
+
+/** @brief Present each TX entry as a readable card backed by the existing row model. */
+class TxCardDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Paint state-specific cards with a compact target-rate badge and distinct actions. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
+        const QColor panelBg(dark ? "#1b2333" : "#ffffff");
+        const bool isDragging = option.widget ? option.widget->property("isDragging").toBool() : false;
+        const int dragSource = option.widget ? option.widget->property("dragSourceRow").toInt() : -1;
+        const int dragTarget = option.widget ? option.widget->property("dragTargetRow").toInt() : -1;
+        const int sourceRow = isDragging ? txVisualToSourceRow(index.row(), dragSource, dragTarget) : index.row();
+
+        if (sourceRow == -1)
+        {
+            painter->save();
+            painter->fillRect(option.rect, panelBg);
+            painter->setRenderHint(QPainter::Antialiasing);
+            const QRect card = MainWindow::txCardRect(option.rect);
+            const QColor placeholderBorder(dark ? "#60a5fa" : "#3b82f6");
+            const QColor placeholderBg(dark ? "#172338" : "#f0f6ff");
+            painter->setPen(QPen(placeholderBorder, 1.0, Qt::SolidLine));
+            painter->setBrush(placeholderBg);
+            painter->drawRoundedRect(card, 8, 8);
+            painter->restore();
+            return;
+        }
+
+        const auto value = [&index, sourceRow](int column)
+        {
+            return index.sibling(sourceRow, column).data().toString();
+        };
+        const bool selected = (option.state & QStyle::State_Selected) && !isDragging;
+        const bool hovered = (option.state & QStyle::State_MouseOver) && !isDragging;
+        const QString text = value(6);
+        const bool running = text == "Running";
+        const bool error = text != "Stopped" && !running;
+        const QColor foreground(dark ? "#edf0fa" : "#20263b");
+        const QColor muted(dark ? "#aab4cd" : "#626c84");
+        painter->save();
+        painter->fillRect(option.rect, panelBg);
+        painter->setRenderHint(QPainter::Antialiasing);
+
+        const double animOffset = (isDragging && option.widget) ? option.widget->property("dragAnimOffset").toDouble() : 0.0;
+        const int animFrom = (isDragging && option.widget) ? option.widget->property("dragAnimFrom").toInt() : -1;
+        const int animTo = (isDragging && option.widget) ? option.widget->property("dragAnimTo").toInt() : -1;
+        int animDy = 0;
+        if (isDragging && std::abs(animOffset) > 0.01 && animFrom >= 0 && animTo >= 0)
+        {
+            const int minRow = std::min(animFrom, animTo);
+            const int maxRow = std::max(animFrom, animTo);
+            if (index.row() >= minRow && index.row() <= maxRow)
+            {
+                animDy = int(std::round(animOffset));
+            }
+        }
+        const int swapRowA = option.widget ? option.widget->property("swapRowA").toInt() : -1;
+        const int swapRowB = option.widget ? option.widget->property("swapRowB").toInt() : -1;
+        const double swapOffset = option.widget ? option.widget->property("swapOffset").toDouble() : 0.0;
+        if (swapRowA >= 0 && swapRowB >= 0 && std::abs(swapOffset) > 0.1)
+        {
+            if (index.row() == swapRowA)
+            {
+                animDy += int(std::round(swapOffset));
+            }
+            else if (index.row() == swapRowB)
+            {
+                animDy -= int(std::round(swapOffset));
+            }
+        }
+        const int dupRow = option.widget ? option.widget->property("duplicateAnimRow").toInt() : -1;
+        const double dupOffset = option.widget ? option.widget->property("duplicateAnimOffset").toDouble() : 0.0;
+        const double dupProgress = option.widget ? option.widget->property("duplicateAnimProgress").toDouble() : 1.0;
+        if (dupRow >= 0 && std::abs(dupOffset) > 0.1)
+        {
+            if (index.row() == dupRow)
+            {
+                animDy += int(std::round(dupOffset));
+                painter->setClipRect(option.rect.adjusted(0, 0, 0, 10000), Qt::IntersectClip);
+                painter->setOpacity(std::clamp(dupProgress, 0.0, 1.0));
+            }
+            else if (index.row() > dupRow)
+            {
+                animDy += int(std::round(dupOffset));
+            }
+        }
+        const int delRow = option.widget ? option.widget->property("deleteAnimRow").toInt() : -1;
+        const double delOffset = option.widget ? option.widget->property("deleteAnimOffset").toDouble() : 0.0;
+        const double delProgress = option.widget ? option.widget->property("deleteAnimProgress").toDouble() : 0.0;
+        if (delRow >= 0)
+        {
+            if (index.row() == delRow)
+            {
+                animDy += int(std::round(delOffset));
+                painter->setClipRect(option.rect.adjusted(0, 0, 0, 10000), Qt::IntersectClip);
+                painter->setOpacity(std::clamp(1.0 - delProgress, 0.0, 1.0));
+            }
+            else if (index.row() > delRow && std::abs(delOffset) > 0.1)
+            {
+                animDy += int(std::round(delOffset));
+            }
+        }
+        const QRect card = MainWindow::txCardRect(option.rect, animDy);
+        const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
+                                   running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#3d506e" : "#b8c8dc");
+        QColor surface = panelBg;
+        if (hovered)
+        {
+            surface = dark ? surface.lighter(112) : QColor("#f8fafc");
+        }
+        const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
+        const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
+        painter->setPen(QPen(cardBorder, (selected && !isDeletingThis) ? 1.5 : 1.2));
+        painter->setBrush(surface);
+        painter->drawRoundedRect(card, 8, 8);
+
+        // Refined slim 3px state capsule pill inset along left edge
+        const QRectF accentPill(card.left() + 8, card.top() + 10, 3, card.height() - 20);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(stateAccent);
+        painter->drawRoundedRect(accentPill, 1.5, 1.5);
+
+        // Status badge button on top right
+        const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+        const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                               running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#253144" : "#edf1f7");
+        const QColor badgeBorder = error ? QColor(dark ? "#7a3749" : "#f8b4bc") :
+                                   running ? QColor(dark ? "#2e685a" : "#bfe6d3") : QColor(dark ? "#3b4d6a" : "#d0d9e6");
+        const QColor badgeFg = error ? QColor(dark ? "#ffb3bd" : "#b42340") :
+                               running ? QColor(dark ? "#94e5bd" : "#17613e") : muted;
+        painter->setPen(QPen(badgeBorder, 1));
+        painter->setBrush(badgeBg);
+        painter->drawRoundedRect(badge, 5, 5);
+        if (error)
+        {
+            painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setWeight(QFont::Medium);
+            painter->setFont(badgeFont);
+            painter->drawText(badge, Qt::AlignCenter, "Error");
+        }
+        else if (running)
+        {
+            painter->fillRect(QRect(badge.left() + 8, badge.center().y() - 3, 7, 7), badgeFg);
+            painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setWeight(QFont::Medium);
+            painter->setFont(badgeFont);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Running");
+        }
+        else
+        {
+            QPolygonF play;
+            play << QPointF(badge.left() + 9, badge.center().y() - 4)
+                 << QPointF(badge.left() + 15, badge.center().y())
+                 << QPointF(badge.left() + 9, badge.center().y() + 4);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(badgeFg);
+            painter->drawPolygon(play);
+            painter->setPen(badgeFg);
+            QFont badgeFont = option.font;
+            badgeFont.setPixelSize(11);
+            badgeFont.setBold(false);
+            painter->setFont(badgeFont);
+            painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
+        }
+
+        // Line 1: Title and Target Rate pill
+        const int textLeft = card.left() + 24;
+        QFont titleFont = option.font;
+        titleFont.setPixelSize(13);
+        titleFont.setWeight(QFont::Normal);
+        painter->setFont(titleFont);
+        painter->setPen(foreground);
+        const int maxTitleWidth = badge.left() - textLeft - 8;
+        const QString title = QString("[%1] %2").arg(value(0), value(1));
+        const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
+        const int extra = lines.size() > 1 ? 16 : 0;
+        if (lines.size() > 1)
+        {
+            painter->drawText(QRect(textLeft, badge.top(), maxTitleWidth, badge.height() + extra),
+                              Qt::AlignVCenter | Qt::AlignLeft, lines.join('\n'));
+        }
+        else
+        {
+            const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
+            painter->drawText(QRect(textLeft, badge.top(), titleAdvance, badge.height()),
+                              Qt::AlignVCenter | Qt::AlignLeft, title);
+        }
+
+        // Draw compact interactive Target Hz pill with dropdown chevron
+        const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
+        if (pillRect.isValid())
+        {
+            const QString rateText = value(3) + " Hz";
+            QFont pillFont = option.font;
+            pillFont.setPixelSize(11);
+            pillFont.setWeight(QFont::Medium);
+            painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+            painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
+            painter->drawRoundedRect(pillRect, 4, 4);
+            painter->setFont(pillFont);
+            painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
+            painter->drawText(pillRect.adjusted(6, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
+
+            // Draw crisp vector down-chevron indicating dropdown switcher
+            painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const int cx = pillRect.right() - 8;
+            const int cy = pillRect.center().y();
+            painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
+            painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
+        }
+
+        // Draw schema payload wire length badge if space permits
+        const uint32_t msgId = value(0).toUInt();
+        const auto *metadata = mavlink_get_msg_entry(msgId);
+        const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+        const QString payloadText = QString("%1 B").arg(payloadLen);
+        QFont payloadFont = option.font;
+        payloadFont.setPixelSize(10);
+        payloadFont.setWeight(QFont::Medium);
+        const int payloadAdvance = QFontMetrics(payloadFont).horizontalAdvance(payloadText);
+        const int payloadWidth = payloadAdvance + 10;
+        const int payloadX = pillRect.isValid() ? (pillRect.right() + 6) : (textLeft + (lines.size() > 1 ? maxTitleWidth : QFontMetrics(titleFont).horizontalAdvance(title)) + 8);
+        if (payloadX + payloadWidth <= badge.left() - 6)
+        {
+            const QRect payloadRect(payloadX, badge.top() + (badge.height() - 18) / 2, payloadWidth, 18);
+            painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+            painter->setBrush(QColor(dark ? "#1a2536" : "#f1f5f9"));
+            painter->drawRoundedRect(payloadRect, 4, 4);
+            painter->setFont(payloadFont);
+            painter->setPen(QColor(dark ? "#8ca0be" : "#475569"));
+            painter->drawText(payloadRect, Qt::AlignCenter, payloadText);
+        }
+
+        // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
+        const int line2Y = card.top() + 36 + extra;
+        const int line2Height = 18;
+        int curX = textLeft;
+        QFont metaFont = option.font;
+        metaFont.setPixelSize(12);
+        metaFont.setBold(false);
+        QFont emphasisFont = metaFont;
+        emphasisFont.setWeight(QFont::Medium);
+
+        const auto drawPart = [&](const QString &txt, const QColor &col, bool emphasized)
+        {
+            painter->setFont(emphasized ? emphasisFont : metaFont);
+            painter->setPen(col);
+            const int adv = QFontMetrics(painter->font()).horizontalAdvance(txt);
+            if (curX + adv <= card.right() - 8)
+            {
+                painter->drawText(QRect(curX, line2Y, adv, line2Height), Qt::AlignVCenter | Qt::AlignLeft, txt);
+                curX += adv;
+            }
+        };
+
+        const QColor dotColor(dark ? "#4a5a74" : "#adbcd0");
+        const QString sysComp = QString("Sys %1 · Comp %2").arg(value(2).section('/', 0, 0).trimmed(),
+                                                                value(2).section('/', 1, 1).trimmed());
+        drawPart(sysComp, muted, false);
+        drawPart("   ·   ", dotColor, false);
+        drawPart("Actual: ", muted, false);
+        drawPart(value(4) + " Hz", running ? QColor(dark ? "#57c99a" : "#178255") : foreground, true);
+        drawPart("   ·   ", dotColor, false);
+        drawPart("Frames: ", muted, false);
+        drawPart(value(5), foreground, true);
+        painter->restore();
+    }
+};
+
+
+/** @brief Align catalog IDs and names on a soft selected surface in either theme. */
+class CatalogDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Draw two text columns with independent metadata and selection emphasis. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const bool dark = option.palette.color(QPalette::Window).lightness() < 128;
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->fillRect(option.rect, option.palette.color(QPalette::Base));
+        if (selected || hovered)
+        {
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(selected ? (dark ? "#303454" : "#eeedff") : (dark ? "#252d40" : "#f3f5fa")));
+            painter->drawRoundedRect(option.rect.adjusted(2, 1, -2, -1), 4, 4);
+        }
+        QFont font = option.font;
+        font.setPixelSize(12);
+        painter->setFont(font);
+        painter->setPen(QColor(dark ? "#aab4cd" : "#626c84"));
+        painter->drawText(option.rect.adjusted(9, 0, -4, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                          QString::number(index.data(Qt::UserRole).toUInt()));
+        font.setPixelSize(13);
+        painter->setFont(font);
+        painter->setPen(QColor(selected ? (dark ? "#dddafe" : "#4338a5") : (dark ? "#edf0fa" : "#20263b")));
+        const QRect nameRect = option.rect.adjusted(65, 0, -8, 0);
+        painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(font).elidedText(index.data(Qt::UserRole + 3).toString(), Qt::ElideRight, nameRect.width()));
+        if (option.state & QStyle::State_HasFocus)
+        {
+            painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(option.rect.adjusted(2, 1, -2, -1), 4, 4);
+        }
+        painter->restore();
+    }
+
+    /** @brief Provide compact desktop rows with a stable keyboard target. */
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override
+    {
+        return QSize(180, 30);
+    }
+};
+
+
+/** @brief Paint payload identities with quieter type metadata and consistent row separators. */
+class PayloadIdentityDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Keep parameter names readable and type annotations visually secondary. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem styled(option);
+        initStyleOption(&styled, index);
+        const bool isInspector = option.widget && option.widget->objectName() == "inspector";
+        const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
+        const bool selected = !isInspector && (option.state & QStyle::State_Selected);
+        painter->save();
+        painter->fillRect(option.rect, selected ? styled.palette.color(QPalette::Highlight) :
+                          styled.palette.color(QPalette::Base));
+        painter->setPen(QColor(dark ? "#2d384b" : "#e8ecf3"));
+        painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        painter->setFont(styled.font);
+        painter->setPen(index.column() == 1 ? QColor(dark ? "#aab4cd" : "#626c84") :
+                        styled.palette.color(QPalette::Text));
+        const QRect textRect = option.rect.adjusted(10, 0, -10, 0);
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
+        if (!isInspector && (option.state & QStyle::State_HasFocus))
+        {
+            painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRect(option.rect.adjusted(1, 1, -2, -2));
+        }
+        painter->restore();
+    }
+};
+
+
+/** @brief Give decoded and editable values a distinct visual column without changing data. */
+class ValueDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    /** @brief Keep editable payload values and decoded view-only cells visible and cleanly styled. */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const bool isPayload = option.widget && option.widget->objectName() == "payloadFields";
+        const bool isInspector = option.widget && option.widget->objectName() == "inspector";
+        if (!isPayload && !isInspector)
+        {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem styled(option);
+        initStyleOption(&styled, index);
+        const bool dark = styled.palette.color(QPalette::Window).lightness() < 128;
+        const bool invalid = isPayload && index.data(Qt::UserRole + 1).toBool();
+        const bool selected = isPayload && (option.state & QStyle::State_Selected);
+        const bool editable = isPayload && (index.flags() & Qt::ItemIsEditable);
+        const bool hovered = isPayload && (option.state & QStyle::State_MouseOver);
+        const bool changed = isInspector && index.data(Qt::UserRole + 5).toBool();
+        const bool copied = isInspector && index.data(Qt::UserRole + 6).toBool();
+        const QColor rowSurface = styled.palette.color(QPalette::Base);
+        const QColor border(dark ? "#2d3a4e" : "#e5eaf2");
+        const QRect input(option.rect.left() + 8, option.rect.top() + 6, option.rect.width() - 16, 28);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->fillRect(option.rect, rowSurface);
+        painter->setPen(QPen(QColor(dark ? "#2d384b" : "#e8ecf3"), 1));
+        painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+
+        // Draw input box (either editable for payload or clean view-only pill for inspector/readonly)
+        const QColor outline = invalid ? QColor(dark ? "#ef8799" : "#bd405b") :
+                               copied ? QColor(dark ? "#34d399" : "#059669") :
+                               changed ? QColor(dark ? "#388bfd" : "#0969da") :
+                               selected || hovered ? QColor("#939bf0") : border;
+        painter->setPen(QPen(outline, selected || invalid || changed || copied ? 1.5 : 1.0));
+        const QColor boxBg = invalid ? QColor(dark ? "#482e3f" : "#fff0f1") :
+                             copied ? QColor(dark ? "#0f2e24" : "#ecfdf5") :
+                             selected ? QColor(dark ? "#293451" : "#f2f1ff") :
+                             editable ? QColor(dark ? "#1e293b" : "#fafbfd") :
+                             QColor(dark ? "#1b283d" : "#f4f7fb");
+        painter->setBrush(boxBg);
+        painter->drawRoundedRect(input, 5, 5);
+
+        painter->setFont(styled.font);
+        const QColor textColor = copied ? QColor(dark ? "#6ee7b7" : "#065f46") :
+                                 changed ? QColor(dark ? "#58a6ff" : "#0969da") :
+                                 isInspector ? QColor(dark ? "#c9d8eb" : "#24324a") :
+                                 styled.palette.color(QPalette::Text);
+        painter->setPen(textColor);
+        const int rightPadding = copied ? 75 : 8;
+        const QRect textRect = input.adjusted(8, 0, -rightPadding, 0);
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(styled.font).elidedText(styled.text, Qt::ElideRight, textRect.width()));
+
+        if (invalid)
+        {
+            QFont errorFont = styled.font;
+            errorFont.setPixelSize(11);
+            painter->setFont(errorFont);
+            painter->drawText(option.rect.adjusted(16, 35, -10, -2), Qt::AlignLeft | Qt::AlignVCenter,
+                              QFontMetrics(errorFont).elidedText(index.data(Qt::UserRole + 4).toString(), Qt::ElideRight,
+                                                                option.rect.width() - 26));
+        }
+        if (!editable && !isInspector && (option.state & QStyle::State_HasFocus))
+        {
+            painter->setPen(QPen(QColor("#939bf0"), 1, Qt::DotLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(input, 5, 5);
+        }
+        painter->restore();
+    }
+
+    /** @brief Align the native payload editor with the painted input surface. */
+    void updateEditorGeometry(QWidget *editor, const QStyleOptionViewItem &option,
+                              const QModelIndex &index) const override
+    {
+        if (option.widget && option.widget->objectName() == "payloadFields")
+        {
+            editor->setGeometry(QRect(option.rect.left() + 8, option.rect.top() + 4, option.rect.width() - 16, 32));
+            return;
+        }
+        QStyledItemDelegate::updateEditorGeometry(editor, option, index);
+    }
+
+    /** @brief Forward return/enter key from combo line edit to commit the active editor. */
+    bool eventFilter(QObject *object, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress)
+        {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            {
+                if (auto *line = qobject_cast<QLineEdit *>(object))
+                {
+                    if (auto *combo = qobject_cast<QComboBox *>(line->parentWidget()))
+                    {
+                        emit commitData(combo);
+                        emit closeEditor(combo, QAbstractItemDelegate::SubmitModelCache);
+                        return true;
+                    }
+                }
+            }
+        }
+        return QStyledItemDelegate::eventFilter(object, event);
+    }
+
+    /** @brief Create a standard text editor or editable dropdown for enum fields. */
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override
+    {
+        if (option.widget && option.widget->objectName() == "inspector")
+        {
+            return nullptr;
+        }
+        if (option.widget && option.widget->objectName() == "payloadFields")
+        {
+            const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
+            if (!suggestions.isEmpty())
+            {
+                auto *combo = new WorkbenchComboBox(parent);
+                combo->setObjectName("payloadValueCombo");
+                combo->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+
+                QFont comboFont = parent ? parent->window()->font() : QApplication::font();
+                if (parent && parent->window())
+                {
+                    if (const auto *compid = parent->window()->findChild<QComboBox *>("messageCompId"))
+                    {
+                        comboFont = compid->font();
+                    }
+                }
+                combo->setFont(comboFont);
+                combo->setEditable(true);
+                const QVariantList tooltips = index.data(Qt::UserRole + 8).toList();
+                for (int sIdx = 0; sIdx < suggestions.size(); ++sIdx)
+                {
+                    const QString &sName = suggestions[sIdx];
+                    combo->addItem(sName);
+                    if (sIdx < tooltips.size())
+                    {
+                        combo->setItemData(sIdx, tooltips[sIdx].toString(), Qt::ToolTipRole);
+                    }
+                    else
+                    {
+                        const auto valOpt = Mav::lookupEnumValue(sName.toStdString());
+                        if (valOpt.has_value())
+                        {
+                            combo->setItemData(sIdx, QString::number(*valOpt), Qt::ToolTipRole);
+                        }
+                    }
+                }
+                if (auto *line = combo->lineEdit())
+                {
+                    line->setObjectName("payloadValueEditor");
+                    line->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+                    line->setFont(comboFont);
+                    line->setTextMargins(0, 0, 18, 0);
+                    auto *completer = new QCompleter(suggestions, line);
+                    completer->setCaseSensitivity(Qt::CaseInsensitive);
+                    completer->setFilterMode(Qt::MatchContains);
+                    line->setCompleter(completer);
+                    line->installEventFilter(const_cast<ValueDelegate *>(this));
+                }
+                if (combo->view())
+                {
+                    combo->view()->setFont(comboFont);
+                }
+                QObject::connect(combo, QOverload<int>::of(&QComboBox::activated), combo, [this, combo](int)
+                {
+                    const_cast<ValueDelegate *>(this)->commitData(combo);
+                    const_cast<ValueDelegate *>(this)->closeEditor(combo, QAbstractItemDelegate::SubmitModelCache);
+                });
+                return combo;
+            }
+
+            QFont font = cachedFixedFont();
+            font.setPixelSize(13);
+            auto *editor = QStyledItemDelegate::createEditor(parent, option, index);
+            if (editor)
+            {
+                editor->setObjectName("payloadValueEditor");
+                editor->setAccessibleName(index.sibling(index.row(), 0).data().toString());
+                editor->setFont(font);
+            }
+            return editor;
+        }
+        return QStyledItemDelegate::createEditor(parent, option, index);
+    }
+
+    /** @brief Prepopulate the editor with the current table value. */
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox *>(editor);
+        if (!combo && editor)
+        {
+            combo = qobject_cast<QComboBox *>(editor->parentWidget());
+        }
+        if (combo)
+        {
+            const QString current = index.data(Qt::EditRole).toString().trimmed();
+            int found = combo->findText(current, Qt::MatchFixedString);
+            if (found < 0)
+            {
+                for (int i = 0; i < combo->count(); ++i)
+                {
+                    const QString itemText = combo->itemText(i);
+                    if (itemText == current || itemText.startsWith(current + " ") || itemText.startsWith(current + "("))
+                    {
+                        found = i;
+                        break;
+                    }
+                }
+            }
+            if (found >= 0)
+            {
+                combo->setCurrentIndex(found);
+            }
+            else
+            {
+                combo->setEditText(current);
+            }
+            if (combo->lineEdit())
+            {
+                combo->lineEdit()->selectAll();
+            }
+            return;
+        }
+        QStyledItemDelegate::setEditorData(editor, index);
+    }
+
+    /** @brief Write the chosen or typed value back to the payload model. */
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox *>(editor);
+        if (!combo && editor)
+        {
+            combo = qobject_cast<QComboBox *>(editor->parentWidget());
+        }
+        if (combo)
+        {
+            QString text = combo->currentText().trimmed();
+            const int paren = text.indexOf('(');
+            if (paren > 0)
+            {
+                const QString symbol = text.left(paren).trimmed();
+                if (Mav::lookupEnumValue(symbol.toStdString()).has_value())
+                {
+                    text = symbol;
+                }
+            }
+
+            // Auto-convert numeric value to enum symbol so the table cell displays pure enum names
+            const QStringList suggestions = index.data(Qt::UserRole + 7).toStringList();
+            if (!suggestions.isEmpty() && !text.isEmpty())
+            {
+                bool ok = false;
+                const qulonglong numVal = text.toULongLong(&ok, 0);
+                if (ok)
+                {
+                    for (const auto &item : suggestions)
+                    {
+                        const QString symbol = item.section('(', 0, 0).trimmed();
+                        const auto valOpt = Mav::lookupEnumValue(symbol.toStdString());
+                        if (valOpt.has_value() && *valOpt == numVal)
+                        {
+                            text = symbol;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            model->setData(index, text, Qt::EditRole);
+            return;
+        }
+        QStyledItemDelegate::setModelData(editor, model, index);
+    }
+
+protected:
+    /** @brief Emphasize values while leaving native selection, focus and editing intact. */
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        option->font = cachedFixedFont();
+        option->font.setBold(false);
+        option->font.setPixelSize(13);
+        const bool changed = option->widget && option->widget->objectName() == "inspector" &&
+                             index.data(Qt::UserRole + 5).toBool();
+        option->palette.setColor(QPalette::Text, QColor(changed ? (dark ? "#58a6ff" : "#0969da") :
+                                                                 (dark ? "#b2c8e2" : "#3f628b")));
+        option->backgroundBrush = QColor(dark ? "#1b2b3e" : "#f4f7fc");
+        if (option->widget && option->widget->objectName() == "payloadFields")
+        {
+            option->font.setPixelSize(13);
+            option->text.replace('\n', QString::fromUtf8(" ↵ "));
+            if (!(index.flags() & Qt::ItemIsEditable))
+            {
+                option->text += "  · Read-only";
+                option->palette.setColor(QPalette::Text, QColor(dark ? "#aab4cd" : "#626c84"));
+                option->backgroundBrush = option->palette.color(QPalette::AlternateBase);
+            }
+            if (index.data(Qt::UserRole + 1).toBool())
+            {
+                option->palette.setColor(QPalette::Text, QColor(dark ? "#ffb3bd" : "#b42340"));
+                option->palette.setColor(QPalette::HighlightedText, QColor(dark ? "#ffb3bd" : "#b42340"));
+                option->backgroundBrush = QColor(dark ? "#482e3f" : "#fff0f1");
+            }
+        }
+    }
+};
+
+
+/** @brief Paint a status dot as a scalable vector decoration. */
+class RxStatusIcon : public QIconEngine
+{
+public:
+    /** @brief Retain the theme-aware dot color. */
+    explicit RxStatusIcon(const QColor &color) : color(color)
+    {
+    }
+
+    /** @brief Clone the icon engine for Qt icon ownership. */
+    QIconEngine *clone() const override
+    {
+        return new RxStatusIcon(color);
+    }
+
+    /** @brief Draw a small antialiased dot at the requested icon size. */
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State) override
+    {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        QColor fill = color;
+        if (mode == QIcon::Disabled)
+        {
+            fill.setAlpha(100);
+        }
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(fill);
+        const qreal radius = qMin(rect.width(), rect.height()) / 3.0;
+        painter->drawEllipse(QPointF(rect.center()), radius, radius);
+        painter->restore();
+    }
+
+private:
+    QColor color;
+};
+
+
+/**
+ * @brief Delegate for RX tree items preventing focus rectangle outlines.
+ */
+class RxItemDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    /**
+     * @brief Paint cells while suppressing dotted focus outlines.
+     * @param painter Active painter.
+     * @param option Style options.
+     * @param index Model index.
+     */
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem opt(option);
+        opt.state &= ~QStyle::State_HasFocus;
+        QStyledItemDelegate::paint(painter, opt, index);
+    }
+
+protected:
+    /** @brief Decorate Message with a theme-aware status dot while retaining native text layout. */
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        if (index.column() != 0 || !index.data(Qt::UserRole + 2).isValid())
+        {
+            return;
+        }
+        static const QIcon icons[] =
+        {
+            QIcon(new RxStatusIcon(QColor("#1a7f37"))),
+            QIcon(new RxStatusIcon(QColor("#9a6700"))),
+            QIcon(new RxStatusIcon(QColor("#6e7781"))),
+            QIcon(new RxStatusIcon(QColor("#3fb950"))),
+            QIcon(new RxStatusIcon(QColor("#d29922"))),
+            QIcon(new RxStatusIcon(QColor("#8b949e")))
+        };
+        const double age = index.data(Qt::UserRole + 2).toDouble();
+        const int status = age <= 1.2 ? 0 : age <= 3.0 ? 1 : 2;
+        const bool dark = option->palette.color(QPalette::Window).lightness() < 128;
+        option->icon = icons[(dark ? 3 : 0) + status];
+        option->decorationSize = QSize(12, 12);
+        option->features |= QStyleOptionViewItem::HasDecoration;
+    }
+};
+

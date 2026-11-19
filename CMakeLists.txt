@@ -50,7 +50,12 @@ if(BUILD_GUI)
     add_library(mavdesktop
         src/worker.cpp
         src/window.cpp
-        src/window/window_widgets.cpp
+        src/window/workbench_common.cpp
+        src/window/workbench_controls.cpp
+        src/window/workbench_status_widgets.cpp
+        src/window/workbench_delegates.cpp
+        src/window/workbench_dialogs.cpp
+        src/window/workbench_panels.cpp
         src/window/window_tx.cpp
         src/window/window_rx.cpp
         src/window/window_editor.cpp
