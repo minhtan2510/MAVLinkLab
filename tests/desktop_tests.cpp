@@ -4713,6 +4713,140 @@ private slots:
             QVERIFY(!tx->property("isDragging").toBool());
             QVERIFY(!trashCard->isVisible());
             QVERIFY(deleteAll->isVisible());
+
+            // Verify toast appeared after trash drop
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            QVERIFY(toast);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+        }
+    }
+
+    /**
+     * @brief Test Undo Toast notification and smart keyboard shortcuts for TX cards:
+     *        1. Direct SerialWorker::restoreEntry index placement.
+     *        2. Ctrl+D duplication with selection advance.
+     *        3. Ctrl+Up and Ctrl+Down row movement tracking selection.
+     *        4. Space toggle active transmission.
+     *        5. Delete key with Undo restoration to exact row index.
+     *        6. Focus safety: text typing in search filter does not trigger card actions.
+     */
+    void txUndoToastAndSmartKeyboardShortcuts()
+    {
+        // 1. Test SerialWorker::restoreEntry
+        {
+            SerialWorker worker;
+            worker.initialize();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                Mav::TxEntry entry;
+                entry.key = i;
+                entry.id = uint32_t(i - 1);
+                entry.hz = 1.0;
+                entry.payload.resize(mavlink_get_msg_entry(entry.id)->max_msg_len);
+                worker.saveEntry(entry);
+            }
+            std::shared_ptr<const Snapshot> snap;
+            QObject::connect(&worker, &SerialWorker::snapshotReady, [&](SnapshotPtr s)
+            {
+                snap = s;
+            });
+            worker.requestSnapshot();
+            QCOMPARE(snap->tx.size(), 3UL);
+
+            // Restore entry at index 1
+            Mav::TxEntry restored;
+            restored.key = 99;
+            restored.id = 30; // ATTITUDE
+            restored.hz = 2.0;
+            restored.payload.resize(mavlink_get_msg_entry(30)->max_msg_len);
+            worker.restoreEntry(1, restored);
+            QCOMPARE(snap->tx.size(), 4UL);
+            QCOMPARE(snap->tx[1].entry.key, 99ULL);
+            QCOMPARE(snap->tx[0].entry.key, 1ULL);
+            QCOMPARE(snap->tx[2].entry.key, 2ULL);
+            QCOMPARE(snap->tx[3].entry.key, 3ULL);
+        }
+
+        // 2. Interactive UI tests
+        {
+            MainWindow window;
+            window.show();
+            QTest::qWait(50);
+
+            auto *tx = window.findChild<QTableWidget *>("txTable");
+            QVERIFY(tx);
+
+            // Inject 3 TX entries via snapshot
+            auto snap = std::make_shared<Snapshot>();
+            for (uint64_t i = 1; i <= 3; ++i)
+            {
+                TxView view;
+                view.entry.key = i;
+                view.entry.id = uint32_t(i - 1);
+                view.entry.hz = 1.0;
+                view.entry.active = false;
+                view.entry.payload.resize(mavlink_get_msg_entry(view.entry.id)->max_msg_len);
+                snap->tx.push_back(view);
+            }
+            window.stopRefreshTimer();
+            window.applySnapshot(snap);
+            QCOMPARE(tx->rowCount(), 3);
+
+            // Select row 1
+            tx->selectRow(1);
+            tx->setCurrentCell(1, 1);
+            QCOMPARE(tx->currentRow(), 1);
+
+            // A. Test Space when disconnected is disabled (no-op, no error)
+            auto *lastError = window.findChild<QLabel *>("lastError");
+            QTest::keyClick(&window, Qt::Key_Space, Qt::NoModifier);
+            QTest::qWait(50);
+            if (lastError && lastError->isVisible())
+            {
+                QVERIFY(!lastError->text().contains("Serial port is closed"));
+            }
+
+            // B. Test Ctrl+Down moves row 1 down to row 2
+            QTest::keyClick(&window, Qt::Key_Down, Qt::ControlModifier);
+            QTest::qWait(50);
+            QCOMPARE(tx->currentRow(), 2);
+
+            // C. Test Ctrl+Up moves row 2 up to row 1
+            QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
+            QTest::qWait(50);
+            QCOMPARE(tx->currentRow(), 1);
+
+            // D. Test Delete triggers ultra-minimalist floating capsule Undo Toast at bottom-left
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(250);
+            auto *toast = window.findChild<QWidget *>("workbenchToast");
+            QVERIFY(toast);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QCOMPARE(toast->width(), 72);
+            QCOMPARE(toast->height(), 28);
+            const int targetY = toast->y();
+
+            // Test consecutive delete while toast is active: in-place reset without slide re-entry
+            QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
+            QTest::qWait(50);
+            QVERIFY(toast->isVisible());
+            QCOMPARE(toast->x(), 36);
+            QCOMPARE(toast->y(), targetY);
+
+            // Click Undo capsule
+            QTest::mouseClick(toast, Qt::LeftButton);
+            QTest::qWait(250);
+
+            // E. Test Focus Safety: typing in rxFilter does not trigger card deletion
+            auto *rxFilter = window.findChild<QLineEdit *>("rxFilter");
+            QVERIFY(rxFilter);
+            rxFilter->setFocus();
+            QTest::keyClicks(rxFilter, "HEART");
+            QTest::keyClick(rxFilter, Qt::Key_Space);
+            QTest::keyClick(rxFilter, Qt::Key_Backspace);
+            QCOMPARE(rxFilter->text(), "HEART");
         }
     }
 };

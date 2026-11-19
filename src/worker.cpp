@@ -270,6 +270,30 @@ void SerialWorker::moveEntry(int fromIndex, int toIndex)
     requestSnapshot();
 }
 
+/**
+ * @brief Restore an entry at its exact original position index (Undo).
+ * @param targetIndex Original index in the entries vector.
+ * @param entry Full TxEntry configuration to restore.
+ */
+void SerialWorker::restoreEntry(int targetIndex, Mav::TxEntry entry)
+{
+    if (!Mav::validTx(entry))
+    {
+        fail("Invalid TX entry or unsupported MAVLink version");
+        return;
+    }
+    if (entries.size() >= 128)
+    {
+        fail("TX entry limit reached (128)");
+        return;
+    }
+    entry.active = false;
+    entry.error.clear();
+    const int idx = std::clamp(targetIndex, 0, int(entries.size()));
+    entries.insert(entries.begin() + idx, std::move(entry));
+    requestSnapshot();
+}
+
 void SerialWorker::setActive(quint64 key, bool active)
 {
     for (auto &entry : entries)

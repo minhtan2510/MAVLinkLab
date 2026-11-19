@@ -39,6 +39,7 @@ class ConnectionStatusWidget;
 class StatusBarMetricsWidget;
 class StatusBarMessageWidget;
 class TrashDropCard;
+class WorkbenchToast;
 
 #include "plotter.h"
 
@@ -80,8 +81,10 @@ protected:
     void closeEvent(QCloseEvent *event) override;
     /** @brief Track theme/input changes and clip the UART popup to its rounded boundary. */
     bool eventFilter(QObject *watched, QEvent *event) override;
-    /** @brief Cancel drag-and-drop operations on Escape. */
+    /** @brief Cancel drag-and-drop operations on Escape and dispatch smart TX shortcuts. */
     void keyPressEvent(QKeyEvent *event) override;
+    /** @brief Keep overlays such as the undo toast properly positioned on resize. */
+    void resizeEvent(QResizeEvent *event) override;
 private:
     /** @brief Re-enumerate ports while retaining an explicitly typed PTY/device path. */
     void refreshPorts();
@@ -159,6 +162,18 @@ private:
     void cancelTxDrag();
     /** @brief Execute one frame of the shrink-and-fade ghost deletion animation. */
     void stepTxDeleteShrink();
+    /** @brief Display a transient undo toast at the bottom-left corner when an entry is deleted. */
+    void showTxUndoToast(const Mav::TxEntry &entry, int rowIndex);
+    /** @brief Restore the last deleted TX entry at its original row position. */
+    void executeTxUndo();
+    /** @brief Reposition the undo toast anchored to the bottom-left of the window. */
+    void repositionTxUndoToast();
+    /** @brief Delete a TX message card at the specified row and trigger the undo toast. */
+    void deleteTxCardAt(int row);
+    /** @brief Handle keyboard navigation and manipulation shortcuts for TX cards. */
+    bool handleTxKeyPress(QKeyEvent *event);
+    /** @brief Trigger smooth vertical swap slide animation between two rows. */
+    void startTxSwapAnimation(int newRow, int oldRow);
     bool profileBusy = false;
     QString profileExportPath;
     QAction *importProfileAction = nullptr;
@@ -225,6 +240,12 @@ private:
     uint64_t pendingDeleteKey = 0;
     QPixmap dragGhostNormal;
     QPixmap dragGhostDanger;
+    WorkbenchToast *txUndoToast = nullptr;
+    Mav::TxEntry lastDeletedTxEntry;
+    int lastDeletedTxRowIndex = -1;
+    QTimer *txSwapAnimTimer = nullptr;
+    QElapsedTimer txSwapAnimElapsed;
+    double txSwapAnimStartOffset = 0.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;

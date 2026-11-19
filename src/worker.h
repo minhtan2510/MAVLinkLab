@@ -117,6 +117,12 @@ public slots:
      * @param toIndex Destination index where the entry should be placed.
      */
     void moveEntry(int fromIndex, int toIndex);
+    /**
+     * @brief Restore an entry at its exact original position index (Undo).
+     * @param targetIndex Original index in the entries vector.
+     * @param entry Full TxEntry configuration to restore.
+     */
+    void restoreEntry(int targetIndex, Mav::TxEntry entry);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
     /**

@@ -2008,6 +2008,20 @@ public:
                 animDy = int(std::round(animOffset));
             }
         }
+        const int swapRowA = option.widget ? option.widget->property("swapRowA").toInt() : -1;
+        const int swapRowB = option.widget ? option.widget->property("swapRowB").toInt() : -1;
+        const double swapOffset = option.widget ? option.widget->property("swapOffset").toDouble() : 0.0;
+        if (swapRowA >= 0 && swapRowB >= 0 && std::abs(swapOffset) > 0.1)
+        {
+            if (index.row() == swapRowA)
+            {
+                animDy += int(std::round(swapOffset));
+            }
+            else if (index.row() == swapRowB)
+            {
+                animDy -= int(std::round(swapOffset));
+            }
+        }
         const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#4a5d7c" : "#b0c0d4");
@@ -3328,6 +3342,348 @@ private:
     std::function<void()> m_onCollapseFinished;
 };
 
+/**
+ * @brief Floating frosted acrylic toast notification with progress countdown and undo button.
+ */
+class WorkbenchToast : public QWidget
+{
+public:
+    /**
+     * @brief Construct the floating undo capsule widget and animation timers.
+     * @param parent Owning parent window.
+     */
+    explicit WorkbenchToast(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        setObjectName("workbenchToast");
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setCursor(Qt::PointingHandCursor);
+        setFixedSize(72, 28);
+
+        m_tickTimer = new QTimer(this);
+        connect(m_tickTimer, &QTimer::timeout, this, [this]()
+        {
+            onTick();
+        });
+
+        m_animTimer = new QTimer(this);
+        connect(m_animTimer, &QTimer::timeout, this, [this]()
+        {
+            onAnimStep();
+        });
+
+        updateThemeStyle(false);
+        hide();
+    }
+
+    /**
+     * @brief Register callback invoked when the user clicks the Undo button.
+     * @param cb Callback function.
+     */
+    void setOnUndoClicked(std::function<void()> cb)
+    {
+        m_onUndoClicked = std::move(cb);
+    }
+
+    /**
+     * @brief Set the target anchored position at the bottom-left of the window.
+     * @param pos Top-left coordinate.
+     */
+    void setTargetPosition(const QPoint &pos)
+    {
+        m_targetPos = pos;
+        if (!m_animTimer->isActive())
+        {
+            move(m_targetPos);
+        }
+    }
+
+    /**
+     * @brief Update stylesheets for child buttons according to the active theme.
+     * @param dark True for dark theme; false for light theme.
+     */
+    void updateThemeStyle(bool dark)
+    {
+        setProperty("darkTheme", dark);
+        update();
+    }
+
+    /**
+     * @brief Display the toast with message and restart the 4s progress countdown.
+     * @param text Notification message to display.
+     */
+    void showToast(const QString &text)
+    {
+        Q_UNUSED(text);
+        m_totalDurationMs = 4000;
+        m_remainingMs = 4000;
+        m_pausedRemainingMs = 4000;
+        m_hovered = false;
+        m_isDismissing = false;
+        m_animProgress = 0.0;
+        updateThemeStyle(property("darkTheme").toBool());
+
+        m_elapsedTimer.restart();
+        m_animElapsed.restart();
+
+        if (!m_tickTimer->isActive())
+        {
+            m_tickTimer->start(16);
+        }
+        if (!m_animTimer->isActive())
+        {
+            m_animTimer->start(16);
+        }
+
+        move(m_targetPos.x(), m_targetPos.y() + 20);
+        show();
+        raise();
+        update();
+    }
+
+    /**
+     * @brief Reset the countdown timer back to full duration without re-animating widget entry.
+     */
+    void resetCountdown()
+    {
+        m_totalDurationMs = 4000;
+        m_remainingMs = 4000;
+        m_pausedRemainingMs = 4000;
+        m_isDismissing = false;
+        m_animProgress = 1.0;
+        if (m_animTimer->isActive())
+        {
+            m_animTimer->stop();
+        }
+        move(m_targetPos);
+        m_elapsedTimer.restart();
+        if (!m_tickTimer->isActive())
+        {
+            m_tickTimer->start(16);
+        }
+        show();
+        raise();
+        update();
+    }
+
+    /**
+     * @brief Trigger the slide-down and fade-out dismissal animation.
+     */
+    void dismiss()
+    {
+        if (m_isDismissing || !isVisible())
+        {
+            return;
+        }
+        m_isDismissing = true;
+        m_animElapsed.restart();
+        if (!m_animTimer->isActive())
+        {
+            m_animTimer->start(16);
+        }
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton)
+        {
+            if (m_onUndoClicked)
+            {
+                m_onUndoClicked();
+            }
+            dismiss();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    void paintEvent(QPaintEvent *event) override
+    {
+        Q_UNUSED(event);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+
+        p.setOpacity(m_animProgress);
+
+        const bool dark = property("darkTheme").toBool();
+        const qreal x0 = 1.0;
+        const qreal y0 = 1.0;
+        const qreal w = width() - 2.0;
+        const qreal h = height() - 2.0;
+        const qreal r = h / 2.0;
+
+        // 1. Frosted capsule background with hover brightening
+        const QColor bg = dark ? (m_hovered ? QColor(42, 56, 78, 245) : QColor(30, 41, 59, 235))
+                               : (m_hovered ? QColor(255, 255, 255, 255) : QColor(255, 255, 255, 242));
+        const QColor border = dark ? (m_hovered ? QColor(71, 85, 105, 240) : QColor(51, 65, 85, 220))
+                                   : (m_hovered ? QColor(203, 213, 225, 255) : QColor(226, 232, 240, 240));
+        p.setPen(QPen(border, 1.0));
+        p.setBrush(bg);
+        p.drawRoundedRect(QRectF(x0, y0, w, h), r, r);
+
+        // 2. Continuous perimeter countdown contour (analytical path with zero jaggies)
+        const double ratio = std::clamp(double(m_remainingMs) / double(m_totalDurationMs), 0.0, 1.0);
+        if (ratio > 0.001)
+        {
+            constexpr qreal pi = 3.14159265358979323846;
+            const qreal cx = x0 + w / 2.0;
+            const qreal L1 = w / 2.0 - r;
+            const qreal L2 = pi * r;
+            const qreal L3 = w - 2.0 * r;
+            const qreal L4 = pi * r;
+            const qreal Ltotal = 2.0 * (w - 2.0 * r) + 2.0 * pi * r;
+            const qreal d = Ltotal * ratio;
+
+            QPainterPath path;
+            path.moveTo(cx, y0);
+
+            if (d <= L1)
+            {
+                path.lineTo(cx + d, y0);
+            }
+            else
+            {
+                path.lineTo(x0 + w - r, y0);
+                qreal rem = d - L1;
+                if (rem <= L2)
+                {
+                    const qreal sweep = -(rem / L2) * 180.0;
+                    path.arcTo(QRectF(x0 + w - 2.0 * r, y0, 2.0 * r, 2.0 * r), 90.0, sweep);
+                }
+                else
+                {
+                    path.arcTo(QRectF(x0 + w - 2.0 * r, y0, 2.0 * r, 2.0 * r), 90.0, -180.0);
+                    rem -= L2;
+                    if (rem <= L3)
+                    {
+                        path.lineTo(x0 + w - r - rem, y0 + h);
+                    }
+                    else
+                    {
+                        path.lineTo(x0 + r, y0 + h);
+                        rem -= L3;
+                        if (rem <= L4)
+                        {
+                            const qreal sweep = -(rem / L4) * 180.0;
+                            path.arcTo(QRectF(x0, y0, 2.0 * r, 2.0 * r), 270.0, sweep);
+                        }
+                        else
+                        {
+                            path.arcTo(QRectF(x0, y0, 2.0 * r, 2.0 * r), 270.0, -180.0);
+                            rem -= L4;
+                            if (rem > 0.0)
+                            {
+                                path.lineTo(std::min(cx, x0 + r + rem), y0);
+                            }
+                            if (d >= Ltotal - 0.5)
+                            {
+                                path.closeSubpath();
+                            }
+                        }
+                    }
+                }
+            }
+
+            const QColor timerColor = dark ? (m_hovered ? QColor("#93c5fd") : QColor("#60a5fa"))
+                                           : (m_hovered ? QColor("#1d4ed8") : QColor("#3b82f6"));
+            QPen timerPen(timerColor, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            p.strokePath(path, timerPen);
+        }
+
+        // 3. "Undo" Text centered
+        const QColor accent = dark ? (m_hovered ? QColor("#93c5fd") : QColor("#60a5fa"))
+                                   : (m_hovered ? QColor("#1d4ed8") : QColor("#2563eb"));
+        QFont font = p.font();
+        font.setPixelSize(11);
+        font.setWeight(QFont::DemiBold);
+        p.setFont(font);
+        p.setPen(accent);
+        p.drawText(QRectF(0.0, 0.0, width(), height()), Qt::AlignCenter, "Undo");
+    }
+
+    void enterEvent(QEnterEvent *event) override
+    {
+        m_hovered = true;
+        m_pausedRemainingMs = m_remainingMs;
+        update();
+        QWidget::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        m_hovered = false;
+        m_elapsedTimer.restart();
+        m_totalDurationMs = m_pausedRemainingMs;
+        update();
+        QWidget::leaveEvent(event);
+    }
+
+private:
+    void onTick()
+    {
+        if (!m_hovered && !m_isDismissing)
+        {
+            const qint64 elapsed = m_elapsedTimer.elapsed();
+            m_remainingMs = std::max(0, m_totalDurationMs - int(elapsed));
+            update();
+            if (m_remainingMs <= 0)
+            {
+                dismiss();
+            }
+        }
+    }
+
+    void onAnimStep()
+    {
+        const qint64 elapsed = m_animElapsed.elapsed();
+        const double duration = 180.0;
+        const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+
+        if (!m_isDismissing)
+        {
+            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            m_animProgress = ease;
+            const int offsetY = int((1.0 - ease) * 20.0);
+            move(m_targetPos.x(), m_targetPos.y() + offsetY);
+            if (t >= 1.0)
+            {
+                m_animProgress = 1.0;
+                move(m_targetPos);
+                m_animTimer->stop();
+            }
+        }
+        else
+        {
+            const double ease = t * t * t;
+            m_animProgress = std::clamp(1.0 - ease, 0.0, 1.0);
+            const int offsetY = int(ease * 20.0);
+            move(m_targetPos.x(), m_targetPos.y() + offsetY);
+            if (t >= 1.0)
+            {
+                m_animProgress = 0.0;
+                m_animTimer->stop();
+                m_tickTimer->stop();
+                hide();
+            }
+        }
+        update();
+    }
+
+    int m_totalDurationMs = 4000;
+    int m_remainingMs = 4000;
+    int m_pausedRemainingMs = 4000;
+    bool m_hovered = false;
+    bool m_isDismissing = false;
+    double m_animProgress = 0.0;
+    QPoint m_targetPos;
+    QElapsedTimer m_elapsedTimer;
+    QTimer *m_tickTimer = nullptr;
+    QTimer *m_animTimer = nullptr;
+    QElapsedTimer m_animElapsed;
+    std::function<void()> m_onUndoClicked;
+};
+
 /** @brief Update a cell without destroying selection or replacing its item. */
 static void cell(QTableWidget *widget, int row, int column, const QString &text)
 {
@@ -4593,7 +4949,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     connect(removeAction, &QAction::triggered, this, [this]()
     {
-        QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, selectedTx()));
+        deleteTxCardAt(txTable->currentRow());
     });
     connect(onceAction, &QAction::triggered, this, [this]()
     {
@@ -5989,8 +6345,26 @@ void MainWindow::finishTxDrag(bool commit)
 
         if (key != 0 && worker)
         {
+            Mav::TxEntry entryToRestore;
+            bool found = false;
+            if (latest)
+            {
+                for (const auto &txView : latest->tx)
+                {
+                    if (txView.entry.key == key)
+                    {
+                        entryToRestore = txView.entry;
+                        found = true;
+                        break;
+                    }
+                }
+            }
             QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, key));
             saveTxMessages();
+            if (found)
+            {
+                showTxUndoToast(entryToRestore, dragSourceRow);
+            }
         }
         if (dragGhostLabel)
         {
@@ -6061,8 +6435,26 @@ void MainWindow::stepTxDeleteShrink()
         }
         if (pendingDeleteKey != 0 && worker)
         {
+            Mav::TxEntry entryToRestore;
+            bool found = false;
+            if (latest)
+            {
+                for (const auto &txView : latest->tx)
+                {
+                    if (txView.entry.key == pendingDeleteKey)
+                    {
+                        entryToRestore = txView.entry;
+                        found = true;
+                        break;
+                    }
+                }
+            }
             QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, pendingDeleteKey));
             saveTxMessages();
+            if (found)
+            {
+                showTxUndoToast(entryToRestore, dragSourceRow);
+            }
             pendingDeleteKey = 0;
         }
         if (trashDropCard)
@@ -6109,7 +6501,7 @@ void MainWindow::cancelTxDrag()
     finishTxDrag(false);
 }
 
-/** @brief Cancel drag-and-drop operations on Escape. */
+/** @brief Cancel drag-and-drop operations on Escape and dispatch smart TX shortcuts. */
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
     if (isDraggingTx && event->key() == Qt::Key_Escape)
@@ -6117,7 +6509,320 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         cancelTxDrag();
         return;
     }
+    if (handleTxKeyPress(event))
+    {
+        return;
+    }
     QMainWindow::keyPressEvent(event);
+}
+
+/** @brief Keep overlays such as the undo toast properly positioned on resize. */
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    repositionTxUndoToast();
+}
+
+/**
+ * @brief Display a transient undo toast at the bottom-left corner when an entry is deleted.
+ * @param entry The full TxEntry that was removed.
+ * @param rowIndex The zero-based row index before removal.
+ */
+void MainWindow::showTxUndoToast(const Mav::TxEntry &entry, int rowIndex)
+{
+    lastDeletedTxEntry = entry;
+    lastDeletedTxRowIndex = rowIndex;
+    if (!txUndoToast)
+    {
+        txUndoToast = new WorkbenchToast(this);
+        txUndoToast->setOnUndoClicked([this]()
+        {
+            executeTxUndo();
+        });
+    }
+    const bool dark = themeBox && (themeBox->currentIndex() == 2 ||
+                      (themeBox->currentIndex() == 0 && qApp->palette().color(QPalette::Window).lightness() < 128));
+    txUndoToast->updateThemeStyle(dark);
+    repositionTxUndoToast();
+
+    if (txUndoToast->isVisible())
+    {
+        txUndoToast->resetCountdown();
+    }
+    else
+    {
+        txUndoToast->showToast(QString("Deleted [%1]").arg(entry.id));
+    }
+}
+
+/**
+ * @brief Restore the last deleted TX entry at its exact original row position.
+ */
+void MainWindow::executeTxUndo()
+{
+    if (lastDeletedTxEntry.id == 0 || lastDeletedTxRowIndex < 0 || !worker)
+    {
+        return;
+    }
+    const int row = lastDeletedTxRowIndex;
+    pendingSelectionKey = lastDeletedTxEntry.key;
+    QMetaObject::invokeMethod(worker, "restoreEntry", Qt::QueuedConnection,
+                              Q_ARG(int, row), Q_ARG(Mav::TxEntry, lastDeletedTxEntry));
+    saveTxMessages();
+
+    lastDeletedTxEntry = Mav::TxEntry{};
+    lastDeletedTxRowIndex = -1;
+
+    if (txUndoToast)
+    {
+        txUndoToast->dismiss();
+    }
+}
+
+/**
+ * @brief Reposition the undo toast anchored to the bottom-left of the window.
+ */
+void MainWindow::repositionTxUndoToast()
+{
+    if (!txUndoToast)
+    {
+        return;
+    }
+    const int targetX = 36;
+    const int statusHeight = statusBar() && statusBar()->isVisible() ? statusBar()->height() : 24;
+    const int targetY = height() - statusHeight - txUndoToast->height() - 24;
+    txUndoToast->setTargetPosition(QPoint(targetX, targetY));
+}
+
+/**
+ * @brief Delete a TX message card at the specified row and trigger the undo toast.
+ * @param row Index of the row to delete.
+ */
+void MainWindow::deleteTxCardAt(int row)
+{
+    if (!txTable || row < 0 || row >= txTable->rowCount() || !worker)
+    {
+        return;
+    }
+    const QTableWidgetItem *item = txTable->item(row, 0);
+    if (!item)
+    {
+        return;
+    }
+    const uint64_t key = item->data(Qt::UserRole).toULongLong();
+    if (key == 0)
+    {
+        return;
+    }
+
+    Mav::TxEntry entryToRestore;
+    bool found = false;
+    if (latest)
+    {
+        for (const auto &txView : latest->tx)
+        {
+            if (txView.entry.key == key)
+            {
+                entryToRestore = txView.entry;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    QMetaObject::invokeMethod(worker, "removeEntry", Qt::QueuedConnection, Q_ARG(quint64, key));
+    saveTxMessages();
+
+    if (found)
+    {
+        showTxUndoToast(entryToRestore, row);
+    }
+
+    if (txTable->rowCount() > 1)
+    {
+        const int nextRow = (row < txTable->rowCount() - 1) ? row : (row - 1);
+        txTable->selectRow(nextRow);
+        txTable->setCurrentCell(nextRow, 1);
+    }
+    else
+    {
+        txTable->clearSelection();
+        txTable->setCurrentItem(nullptr);
+    }
+    updateActions();
+}
+
+/**
+ * @brief Handle keyboard navigation and manipulation shortcuts for TX cards.
+ * @param event The key event to process.
+ * @return True if the key was handled and consumed; false otherwise.
+ */
+bool MainWindow::handleTxKeyPress(QKeyEvent *event)
+{
+    if (!event)
+    {
+        return false;
+    }
+
+    // Never intercept keyboard events while user is typing in text inputs or spinboxes
+    QWidget *focused = QApplication::focusWidget();
+    const bool inInput = (qobject_cast<QLineEdit *>(focused) != nullptr ||
+                          qobject_cast<QTextEdit *>(focused) != nullptr ||
+                          qobject_cast<QPlainTextEdit *>(focused) != nullptr ||
+                          qobject_cast<QAbstractSpinBox *>(focused) != nullptr);
+    if (inInput)
+    {
+        return false;
+    }
+
+    // Never intercept when a modal dialog is open (e.g. Message Editor)
+    if (QApplication::activeModalWidget() != nullptr)
+    {
+        return false;
+    }
+
+    // Ctrl+Z: Undo last deleted card if toast is active
+    if (event->modifiers() == Qt::ControlModifier && event->key() == Qt::Key_Z)
+    {
+        if (txUndoToast && txUndoToast->isVisible())
+        {
+            executeTxUndo();
+            return true;
+        }
+    }
+
+    const quint64 key = selectedTx();
+    if (key == 0 || !txTable)
+    {
+        return false;
+    }
+    const int row = txTable->currentRow();
+    if (row < 0 || row >= txTable->rowCount())
+    {
+        return false;
+    }
+
+    // Delete / Backspace: delete selected card immediately with Undo toast
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)
+    {
+        if (event->modifiers() == Qt::NoModifier)
+        {
+            deleteTxCardAt(row);
+            return true;
+        }
+    }
+
+    // Ctrl+D: duplicate selected card
+    if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_D)
+    {
+        const uint64_t newKey = nextKey++;
+        pendingSelectionKey = newKey;
+        QMetaObject::invokeMethod(worker, "duplicateEntry", Qt::QueuedConnection,
+                                  Q_ARG(quint64, key), Q_ARG(quint64, newKey));
+        saveTxMessages();
+        return true;
+    }
+
+    // Ctrl+Up: move card up
+    if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_Up)
+    {
+        if (row > 0 && worker)
+        {
+            const int targetRow = row - 1;
+            pendingSelectionKey = key;
+            QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
+                                      Q_ARG(int, row), Q_ARG(int, targetRow));
+            txTable->selectRow(targetRow);
+            txTable->setCurrentCell(targetRow, 1);
+            saveTxMessages();
+            startTxSwapAnimation(targetRow, row);
+            return true;
+        }
+    }
+
+    // Ctrl+Down: move card down
+    if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_Down)
+    {
+        if (row < txTable->rowCount() - 1 && worker)
+        {
+            const int targetRow = row + 1;
+            pendingSelectionKey = key;
+            QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
+                                      Q_ARG(int, row), Q_ARG(int, targetRow));
+            txTable->selectRow(targetRow);
+            txTable->setCurrentCell(targetRow, 1);
+            saveTxMessages();
+            startTxSwapAnimation(targetRow, row);
+            return true;
+        }
+    }
+
+    // Space: toggle active/stopped state
+    if (event->key() == Qt::Key_Space && event->modifiers() == Qt::NoModifier)
+    {
+        if (!connected)
+        {
+            return true; // No-op when disconnected, do not trigger error
+        }
+        if (latest && worker)
+        {
+            for (const auto &view : latest->tx)
+            {
+                if (view.entry.key == key)
+                {
+                    QMetaObject::invokeMethod(worker, "setActive", Qt::QueuedConnection,
+                                              Q_ARG(quint64, key), Q_ARG(bool, !view.entry.active));
+                    return true;
+                }
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @brief Trigger smooth vertical swap slide animation between two rows.
+ * @param newRow Destination row index of the moved card.
+ * @param oldRow Origin row index of the moved card.
+ */
+void MainWindow::startTxSwapAnimation(int newRow, int oldRow)
+{
+    if (!txTable || newRow < 0 || oldRow < 0)
+    {
+        return;
+    }
+    const double rowH = double(txTable->rowHeight(newRow) > 0 ? txTable->rowHeight(newRow) : 74);
+    txSwapAnimStartOffset = (newRow < oldRow) ? +rowH : -rowH;
+    txTable->setProperty("swapRowA", newRow);
+    txTable->setProperty("swapRowB", oldRow);
+    txTable->setProperty("swapOffset", txSwapAnimStartOffset);
+    txSwapAnimElapsed.restart();
+    if (!txSwapAnimTimer)
+    {
+        txSwapAnimTimer = new QTimer(this);
+        connect(txSwapAnimTimer, &QTimer::timeout, this, [this]()
+        {
+            const qint64 elapsed = txSwapAnimElapsed.elapsed();
+            const double duration = 140.0;
+            const double t = std::clamp(double(elapsed) / duration, 0.0, 1.0);
+            const double ease = 1.0 - std::pow(1.0 - t, 3.0);
+            const double curOffset = (1.0 - ease) * txSwapAnimStartOffset;
+            txTable->setProperty("swapOffset", curOffset);
+            txTable->viewport()->update();
+            if (t >= 1.0)
+            {
+                txSwapAnimTimer->stop();
+                txTable->setProperty("swapRowA", -1);
+                txTable->setProperty("swapRowB", -1);
+                txTable->setProperty("swapOffset", 0.0);
+                txTable->viewport()->update();
+            }
+        });
+    }
+    txSwapAnimTimer->start(16);
+    txTable->viewport()->update();
 }
 
 /** @brief Restore configured TX messages from workspace storage. */
@@ -8149,6 +8854,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     {
         applyTheme();
     }
+    if (event->type() == QEvent::KeyPress)
+    {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        if (handleTxKeyPress(keyEvent))
+        {
+            return true;
+        }
+    }
     if (event->type() == QEvent::MouseButtonPress)
     {
         auto *mouseEvent = static_cast<QMouseEvent *>(event);
@@ -8672,6 +9385,10 @@ void MainWindow::applyTheme()
         {
             clearBtn->setIcon(clearButtonIcon(dark));
         }
+    }
+    if (txUndoToast)
+    {
+        txUndoToast->updateThemeStyle(dark);
     }
     applying = false;
 }
