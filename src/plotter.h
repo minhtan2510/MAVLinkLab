@@ -181,6 +181,12 @@ public:
     void removeChannelAt(size_t index);
 
     /**
+     * @brief Toggle visibility of the channel at specified zero-based index.
+     * @param index Index of channel to toggle.
+     */
+    void toggleChannelVisibility(size_t index);
+
+    /**
      * @brief Check whether a specific channel key is already plotted.
      * @param sysid MAVLink System ID.
      * @param compid MAVLink Component ID.
@@ -309,12 +315,14 @@ protected:
 private:
     void rebuildChannelTags();
     void updateChannelTagValues();
+    void updateChannelTagStyle(size_t index);
     QColor channelColor(size_t index) const;
 
     struct TagWidgetEntry
     {
         QFrame *frame = nullptr;
         QLabel *valueLabel = nullptr;
+        QLabel *dotLabel = nullptr;
     };
     std::vector<TagWidgetEntry> tagWidgets_;
     std::vector<PlotChannel> channels_;
