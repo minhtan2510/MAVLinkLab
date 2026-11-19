@@ -2096,7 +2096,7 @@ public:
             painter->save();
             painter->fillRect(option.rect, panelBg);
             painter->setRenderHint(QPainter::Antialiasing);
-            const QRect card = option.rect.adjusted(1, 5, -2, -5);
+            const QRect card = MainWindow::txCardRect(option.rect);
             const QColor placeholderBorder(dark ? "#60a5fa" : "#3b82f6");
             const QColor placeholderBg(dark ? "#172338" : "#f0f6ff");
             painter->setPen(QPen(placeholderBorder, 1.0, Qt::SolidLine));
@@ -2180,7 +2180,7 @@ public:
                 animDy += int(std::round(delOffset));
             }
         }
-        const QRect card = option.rect.adjusted(1, 5 + animDy, -2, -5 + animDy);
+        const QRect card = MainWindow::txCardRect(option.rect, animDy);
         const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                    running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#3d506e" : "#b8c8dc");
         QColor surface = panelBg;
@@ -4168,6 +4168,17 @@ static QString messageName(uint32_t id)
 {
     const auto *info = mavlink_get_message_info_by_id(id);
     return info ? QString::fromLatin1(info->name) : "Unknown dialect message";
+}
+
+/**
+ * @brief Compute the visual bounding rectangle for a TX message card inside a table cell.
+ * @param cellRect The raw geometry of the table cell (column 1).
+ * @param animDy Optional vertical animation translation offset in pixels.
+ * @return Padded card rectangle with 6px left margin and 8px right breathing room.
+ */
+QRect MainWindow::txCardRect(const QRect &cellRect, int animDy)
+{
+    return cellRect.adjusted(6, 5 + animDy, -8, -5 + animDy);
 }
 
 /**
@@ -6621,7 +6632,7 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
     }
     const QModelIndex idx = txTable->model()->index(row, 1);
     const QRect cellRect = txTable->visualRect(idx);
-    const QRect cardRect = cellRect.adjusted(1, 5, -2, -5);
+    const QRect cardRect = txCardRect(cellRect);
 
     // Grab the fully-rendered card content BEFORE setting dragging state
     txTable->setProperty("isDragging", false);
@@ -9788,7 +9799,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 else if (index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect card = txCardRect(rect);
                     const QRect handleRect = txDragHandleRect(card);
                     if (handleRect.contains(mouseEvent->pos()))
                     {
@@ -9858,7 +9869,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (index.isValid() && index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect card = txCardRect(rect);
                     const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                     const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
                                                           txTable->item(index.row(), 1)->text(),
@@ -9891,7 +9902,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (index.isValid() && index.column() == 1)
                 {
                     const QRect rect = txTable->visualRect(index);
-                    const QRect card = rect.adjusted(1, 5, -2, -5);
+                    const QRect card = txCardRect(rect);
                     const QRect handleRect = txDragHandleRect(card);
                     const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                     const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
@@ -9928,7 +9939,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (index.isValid() && index.column() == 1)
             {
                 const QRect rect = txTable->visualRect(index);
-                const QRect card = rect.adjusted(1, 5, -2, -5);
+                const QRect card = txCardRect(rect);
                 const QRect handleRect = txDragHandleRect(card);
                 const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
                 const QRect ratePill = txRatePillRect(card, txTable->item(index.row(), 0)->text(),
@@ -10035,6 +10046,9 @@ void MainWindow::applyTheme()
     const QString border = dark ? "#40506a" : "#d0d9e7";
     const QString alternate = dark ? "#212c40" : "#f7f8fc";
     const QString controlBorder = dark ? "#667595" : "#929db3";
+    const QString scrollNormal = dark ? "rgba(255, 255, 255, 0.18)" : "rgba(0, 0, 0, 0.18)";
+    const QString scrollHover = dark ? "rgba(255, 255, 255, 0.36)" : "rgba(0, 0, 0, 0.36)";
+    const QString scrollPressed = dark ? "rgba(255, 255, 255, 0.52)" : "rgba(0, 0, 0, 0.52)";
     QPalette colors = qApp->palette();
     colors.setColor(QPalette::Window, QColor(background));
     colors.setColor(QPalette::WindowText, QColor(foreground));
@@ -10155,10 +10169,15 @@ void MainWindow::applyTheme()
         "QComboBox QLineEdit#payloadValueEditor { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QSplitter::handle { background:transparent; }"
         "QFrame#statusBarCard { background:transparent; border:0; min-height:26px; }"
-        "QScrollBar:vertical { background:%6; width:6px; } QScrollBar:horizontal { background:%6; height:6px; }"
-        "QScrollBar::handle { background:%8; border-radius:3px; }"
-        "QScrollBar::handle:vertical { min-height:24px; } QScrollBar::handle:horizontal { min-width:24px; }"
-        "QScrollBar::handle:hover { background:#818cf8; } QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; }"
+        "QScrollBar:vertical { background:transparent; width:6px; margin:4px 0px 4px 0px; }"
+        "QScrollBar:horizontal { background:transparent; height:6px; margin:0px 4px 0px 4px; }"
+        "QScrollBar::handle { background:" + scrollNormal + "; border-radius:3px; }"
+        "QScrollBar::handle:vertical { min-height:24px; }"
+        "QScrollBar::handle:horizontal { min-width:24px; }"
+        "QScrollBar::handle:hover { background:" + scrollHover + "; }"
+        "QScrollBar::handle:pressed { background:" + scrollPressed + "; }"
+        "QScrollBar::add-line,QScrollBar::sub-line { width:0px; height:0px; background:transparent; border:none; }"
+        "QScrollBar::add-page,QScrollBar::sub-page { background:transparent; border:none; }"
         "QLabel#validationError, QLabel#profileError { color:%7; }"
     ).arg(background, surface, foreground, border, muted, alternate,
           dark ? "#fca5a5" : "#b91c1c", controlBorder, hintForeground);

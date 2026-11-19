@@ -80,6 +80,13 @@ public:
     void togglePlotField(uint32_t sysid, uint8_t compid, uint32_t msgid, const QString &fieldName, const QString &label);
     /** @brief Return the application icon containing multi-resolution raster assets. */
     static QIcon appIcon();
+    /**
+     * @brief Compute the visual bounding rectangle for a TX message card inside a table cell.
+     * @param cellRect The raw geometry of the table cell (column 1).
+     * @param animDy Optional vertical animation translation offset in pixels.
+     * @return Padded card rectangle with 6px left margin and 8px right breathing room.
+     */
+    static QRect txCardRect(const QRect &cellRect, int animDy = 0);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;

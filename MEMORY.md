@@ -86,6 +86,10 @@
 * **TX Card Inset Capsule Accent Pill & Payload Wire Size Badge (`TxCardDelegate`):**
   * Refined slim 3px state capsule pill: inset at `card.left() + 8`, vertically centered (`card.top() + 10`, `card.height() - 20`), fully rounded ($r = 1.5\text{px}$), clearly reflecting `Running` (Emerald `#57c99a`), `Error` (Rose `#ef8799`), and `Stopped` (Muted Slate `#3d506e` / `#b8c8dc`) states without breaking the continuous card rounded border ($r = 8\text{px}$).
   * Payload wire size badge: schema payload length (`mavlink_get_msg_entry(msgId)->max_msg_len`) formatted as `X B` (e.g. `9 B`, `28 B`), rendered as a crisp 10px pill badge adjacent to the Target Hz pill.
+* **TX Card Geometry Centralization & Minimalist Scrollbar Harmonization:**
+  * TX Card bounding geometry is centralized in authoritative static helper `MainWindow::txCardRect(cellRect, animDy)` with 6px left margin and 8px right margin (`adjusted(6, 5 + animDy, -8, -5 + animDy)`), replacing hardcoded offsets across painting, drag-and-drop, and mouse event dispatching.
+  * Provides an 8px breathing gap between the card right perimeter and the vertical scrollbar, eliminating cramped visual collision.
+  * Global scrollbar styling refined to Swiss / macOS minimalist specifications: slim 6px width/height, fully transparent track (`background: transparent;`), 4px top/bottom margin preventing end-cap truncation, and capsule handle with 3px radius using soft neutral translucency (Dark: `rgba(255, 255, 255, 0.18)` / Hover `0.36` / Pressed `0.52`; Light: `rgba(0, 0, 0, 0.18)` / Hover `0.36` / Pressed `0.52`).
 * **Real-time Throughput Monitoring & Link Load Estimation:**
   * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
   * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.

@@ -1561,7 +1561,7 @@ private slots:
         QCOMPARE(tx->item(0, 6)->text(), QString("Running"));
         tx->setCurrentCell(0, 1);
         // Test inline toggle directly on the card badge.
-        const QRect card0 = tx->visualItemRect(tx->item(0, 1)).adjusted(4, 6, -8, -6);
+        const QRect card0 = MainWindow::txCardRect(tx->visualItemRect(tx->item(0, 1)));
         const QPoint badgePos(card0.right() - 50, card0.top() + 18);
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgePos);
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Stopped"));
@@ -2271,7 +2271,7 @@ private slots:
 
             // Locate rate pill position on card 0
             const QRect rect = tx->visualRect(tx->model()->index(0, 0));
-            const QRect card = rect.adjusted(1, 5, -2, -5);
+            const QRect card = MainWindow::txCardRect(rect);
             QFont titleFont = tx->font();
             titleFont.setPixelSize(13);
             titleFont.setWeight(QFont::Normal);
@@ -3330,7 +3330,7 @@ private slots:
         QTRY_COMPARE(tx->rowCount(), 2);
 
         // 1. Direct status badge click when DISCONNECTED -> should remain Stopped
-        const QRect card0Rect = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect card0Rect = MainWindow::txCardRect(tx->visualRect(tx->model()->index(0, 1)));
         const QRect badge0(card0Rect.right() - 88, card0Rect.top() + 8, 80, 24);
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge0.center());
         QTest::qWait(100);
@@ -3409,7 +3409,7 @@ private slots:
         QTRY_COMPARE(tx->rowCount(), 1);
 
         // 5. Test removeAction on RUNNING message
-        const QRect cardRemRect = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect cardRemRect = MainWindow::txCardRect(tx->visualRect(tx->model()->index(0, 1)));
         const QRect badgeRem(cardRemRect.right() - 88, cardRemRect.top() + 8, 80, 24);
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badgeRem.center());
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
@@ -3469,7 +3469,7 @@ private slots:
         QCOMPARE(tx->item(0, 3)->text(), QString("1"));
 
         const QRect rect = tx->visualRect(tx->model()->index(0, 0));
-        const QRect card = rect.adjusted(1, 5, -2, -5);
+        const QRect card = MainWindow::txCardRect(rect);
         QFont titleFont = tx->font();
         titleFont.setPixelSize(13);
         titleFont.setWeight(QFont::Normal);
@@ -3663,7 +3663,7 @@ private slots:
         addBtn->click();
         QTRY_COMPARE(tx->rowCount(), 1);
 
-        const QRect card = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
+        const QRect card = MainWindow::txCardRect(tx->visualRect(tx->model()->index(0, 1)));
         const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
         QTest::mouseClick(tx->viewport(), Qt::LeftButton, Qt::NoModifier, badge.center());
         QTRY_COMPARE(tx->item(0, 6)->text(), QString("Running"));
@@ -4713,8 +4713,8 @@ private slots:
             QCOMPARE(tx->item(1, 0)->text(), QString("1"));
             QCOMPARE(tx->item(2, 0)->text(), QString("2"));
 
-            const QRect card0 = tx->visualRect(tx->model()->index(0, 1)).adjusted(1, 5, -2, -5);
-            const QRect card2 = tx->visualRect(tx->model()->index(2, 1)).adjusted(1, 5, -2, -5);
+            const QRect card0 = MainWindow::txCardRect(tx->visualRect(tx->model()->index(0, 1)));
+            const QRect card2 = MainWindow::txCardRect(tx->visualRect(tx->model()->index(2, 1)));
             const QPoint handle0(card0.left() + 8, card0.center().y());
             const QPoint target2(card2.center());
 
