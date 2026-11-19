@@ -112,12 +112,12 @@
   * Refactored monolithic `src/window.cpp` (formerly 10,331 lines) into dedicated domain compilation units and 6 decoupled Workbench UI modules housed under `src/window/`:
     1. `src/window.h` & `src/window.cpp` (~1,830 lines): `MainWindow` public API and core lifecycle, central layout, toolbar actions, splitters, window events, and event filter.
     2. `src/window/window_private.h` (~15 lines): Clean Master Header aggregating the 6 Workbench UI modules.
-    3. `src/window/workbench_common.h/.cpp` (~520 lines): Common helper utilities (`cachedFixedFont`, `cell`, `messageName`, `isPluggedPort`, `txRatePillRect`, `actionIcon`).
-    4. `src/window/workbench_controls.h/.cpp` (~690 lines): Form controls (`WorkbenchComboBox`, `WorkbenchCheckBox`, `WorkbenchSpinBox`, `WorkbenchLineEdit`, `WorkbenchMenu`).
-    5. `src/window/workbench_status_widgets.h/.cpp` (~820 lines): Status & metric indicators (`TxSummaryWidget`, `ConnectionStatusWidget`, `StatusBarMetricsWidget`, `StatusBarMessageWidget`).
-    6. `src/window/workbench_delegates.h/.cpp` (~770 lines): Item delegates (`TxCardDelegate`, `ValueDelegate`, `CatalogDelegate`, `RxItemDelegate`, `PayloadIdentityDelegate`).
-    7. `src/window/workbench_dialogs.h/.cpp` (~310 lines): Frameless modal dialogs (`DialogTitleBar`, `ConnectionErrorDialog`, `ProfileImportDialog`).
-    8. `src/window/workbench_panels.h/.cpp` (~1,130 lines): Interactive widgets (`TxTableWidget`, `RxTreeWidget`, `TrashDropCard`, `WorkbenchToast`, `CatalogSearch`).
+    3. `src/window/workbench_common.h` (131 lines) & `workbench_common.cpp` (485 lines): Common helper utilities (`cachedFixedFont`, `cell`, `messageName`, `isPluggedPort`, `txRatePillRect`, `actionIcon`).
+    4. `src/window/workbench_controls.h` (146 lines) & `workbench_controls.cpp` (630 lines): Form controls (`WorkbenchComboBox`, `WorkbenchCheckBox`, `WorkbenchSpinBox`, `WorkbenchLineEdit`, `WorkbenchMenu`).
+    5. `src/window/workbench_status_widgets.h` (126 lines) & `workbench_status_widgets.cpp` (760 lines): Status & metric indicators (`TxSummaryWidget`, `ConnectionStatusWidget`, `StatusBarMetricsWidget`, `StatusBarMessageWidget`).
+    6. `src/window/workbench_delegates.h` (116 lines) & `workbench_delegates.cpp` (745 lines): Item delegates (`TxCardDelegate`, `ValueDelegate`, `CatalogDelegate`, `RxItemDelegate`, `PayloadIdentityDelegate`).
+    7. `src/window/workbench_dialogs.h` (94 lines) & `workbench_dialogs.cpp` (285 lines): Frameless modal dialogs (`DialogTitleBar`, `ConnectionErrorDialog`, `ProfileImportDialog`).
+    8. `src/window/workbench_panels.h` (180 lines) & `workbench_panels.cpp` (1,085 lines): Interactive widgets (`TxTableWidget`, `RxTreeWidget`, `TrashDropCard`, `WorkbenchToast`, `CatalogSearch`).
     9. `src/window/window_tx.cpp` (~1,225 lines): TX message dashboard, drag-and-drop, animations, and multi-step undo system.
     10. `src/window/window_rx.cpp` (~625 lines): RX stream tree, snapshot processing, inspector, and parameter editor.
     11. `src/window/window_editor.cpp` (~1,150 lines): MAVLink message catalog search dialog and payload field editor.
