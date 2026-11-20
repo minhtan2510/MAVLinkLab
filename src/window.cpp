@@ -767,7 +767,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxActions->setSpacing(4);
     rxFilter = new CatalogSearch;
     rxFilter->setObjectName("rxFilter");
-    rxFilter->setFixedHeight(32);
+    rxFilter->setFixedHeight(34);
     rxFilter->setPlaceholderText("Search messages or sender…");
     rxFilter->setClearButtonEnabled(true);
     rxFilter->setMinimumWidth(140);
@@ -775,11 +775,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxActions->addWidget(rxFilter);
     auto *pause = button("", "pauseDisplay", rxActions);
     pause->setCheckable(true);
-    pause->setFixedSize(32, 32);
+    pause->setFixedSize(34, 34);
     pause->setAccessibleName("Pause display");
     pause->setToolTip("Pause display (Ctrl+P)");
     auto *clear = button("", "clearStatistics", rxActions);
-    clear->setFixedSize(32, 32);
+    clear->setFixedSize(34, 34);
     clear->setAccessibleName("Clear received messages");
     clear->setToolTip("Clear received messages and statistics (Ctrl+L)");
     rxLayout->addLayout(rxActions);
@@ -1354,6 +1354,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             ? (dark ? QColor("#fbbf24") : QColor("#d97706"))
             : (dark ? QColor("#e2e8f0") : QColor("#334155"));
         pause->setIcon(actionIcon(checked ? "resumeDisplay" : "pauseDisplay", activeColor));
+        pause->setIconSize(QSize(18, 18));
         pausedLabel->setVisible(checked);
     });
     connect(rxFilter, &QLineEdit::textChanged, this, &MainWindow::filterRx);

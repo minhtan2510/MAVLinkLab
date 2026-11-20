@@ -153,6 +153,7 @@ void MainWindow::applyTheme()
         "QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus { border:1px solid #4f46e5; outline:none; }"
         "QPushButton[keyboardFocus=true],QPushButton[role=primary][keyboardFocus=true],QPushButton[role=success][keyboardFocus=true] { border:2px solid #818cf8; padding:6px 9px; outline:none; }"
         "QLineEdit,QSpinBox,QDoubleSpinBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:7px; }"
+        "QLineEdit#rxFilter { padding:4px 8px; }"
         "QComboBox { background:%2; color:%3; border:1px solid %8; border-radius:7px; padding:4px 28px 4px 10px; min-height:22px; outline:none; }"
         "QComboBox:editable { padding:4px 28px 4px 7px; }"
         "QComboBox:hover { background:%6; border-color:#818cf8; }"
@@ -295,18 +296,19 @@ void MainWindow::applyTheme()
                 ? (dark ? QColor("#fbbf24") : QColor("#d97706"))
                 : foreground;
             QIcon icon = actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", pauseColor);
-            icon.addPixmap(actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", QColor(muted)).pixmap(16, 16), QIcon::Disabled);
+            icon.addPixmap(actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", QColor(muted)).pixmap(18, 18), QIcon::Disabled);
             control->setIcon(icon);
-            control->setIconSize(QSize(16, 16));
+            control->setIconSize(QSize(18, 18));
             continue;
         }
         const QString role = control->property("role").toString();
         const QColor iconColor(role == "primary" || role == "success" ? "#ffffff" :
                                role == "danger" ? (dark ? "#fca5a5" : "#b91c1c") : foreground);
         QIcon icon = actionIcon(name, iconColor);
-        icon.addPixmap(actionIcon(name, QColor(muted)).pixmap(16, 16), QIcon::Disabled);
+        const QSize iconSize(QString(name) == "clearStatistics" ? QSize(18, 18) : QSize(16, 16));
+        icon.addPixmap(actionIcon(name, QColor(muted)).pixmap(iconSize.width(), iconSize.height()), QIcon::Disabled);
         control->setIcon(icon);
-        control->setIconSize(QSize(16, 16));
+        control->setIconSize(iconSize);
     }
     const QColor disabledIconColor(dark ? "#526079" : "#94a3b8");
     const QColor dangerColor(dark ? "#fca5a5" : "#b91c1c");

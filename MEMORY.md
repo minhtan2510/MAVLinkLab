@@ -222,8 +222,8 @@
   * Inline Status Dots: `RxItemDelegate` uses `RxStatusIcon` vector decorations before Message text on leaf rows only. Freshness is stored in column0 at `Qt::UserRole + 2`, leaving identity roles untouched. Green Active at age<=1.2s, amber Stale through3.0s, muted Inactive afterward; no visible age or separate Status column. Device groups are identity-only.
   * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
 * **RX Dashboard Compact Action Toolbar (`pauseDisplay` & `clearStatistics`):**
-  * Modernized from bulky text buttons to compact 32x32 px icon-only controls aligned with `rxFilter` (32 px height, 4 px spacing, border-radius 6 px) to maximize search input width.
-  * Vector Icons via `actionIcon()`:
+  * Modernized from bulky text buttons to compact 34x34 px icon-only controls aligned with `rxFilter` (34 px height matching `rxTree` item rows, `padding: 4px 8px` preventing descender clipping on letters like 'g', 4 px spacing, border-radius 6 px) to maximize search input width.
+  * Vector Icons via `actionIcon()` (scaled to 18x18 px):
     * `pauseDisplay`: Dynamic `❚❚` (Pause) ↔ `▶` (Resume). When paused, applies an Amber alert badge style (`#f59e0b` / theme tokens) with instant visual feedback.
     * `clearStatistics`: Backspace erase tag vector icon (left-pointing polygon with `✕` inside) with subtle danger hover highlight (`#ef4444` / `#dc2626`).
   * Keyboard Shortcuts: `Ctrl+P` for Pause/Resume Display and `Ctrl+L` for Clear Received Messages, bound to View menu actions and listed in the F1 Keyboard Shortcuts cheatsheet dialog.
