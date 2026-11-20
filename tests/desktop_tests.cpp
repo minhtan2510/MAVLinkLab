@@ -1,5 +1,6 @@
 #include "window.h"
 #include "version.h"
+#include "workbench_common.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QDialog>
@@ -2270,14 +2271,11 @@ private slots:
             QCOMPARE(tx->item(0, 3)->text(), QString("1"));
 
             // Locate rate pill position on card 0
-            const QRect rect = tx->visualRect(tx->model()->index(0, 0));
+            const QRect rect = tx->visualRect(tx->model()->index(0, 1));
             const QRect card = MainWindow::txCardRect(rect);
-            QFont titleFont = tx->font();
-            titleFont.setPixelSize(13);
-            titleFont.setWeight(QFont::Normal);
-            const int advance = QFontMetrics(titleFont).horizontalAdvance("[0] HEARTBEAT");
-            const int pillLeft = card.left() + 24 + advance + 8;
-            const QPoint pillClickPos(pillLeft + 10, card.top() + 8 + 3 + 9);
+            const QRect ratePill = txRatePillRect(card, tx->item(0, 0)->text(), tx->item(0, 1)->text(),
+                                                  tx->item(0, 3)->text(), tx->font());
+            const QPoint pillClickPos = ratePill.center();
 
             QTimer::singleShot(100, [&window, mode]()
             {
@@ -3468,14 +3466,11 @@ private slots:
         QTRY_COMPARE(tx->rowCount(), 1);
         QCOMPARE(tx->item(0, 3)->text(), QString("1"));
 
-        const QRect rect = tx->visualRect(tx->model()->index(0, 0));
+        const QRect rect = tx->visualRect(tx->model()->index(0, 1));
         const QRect card = MainWindow::txCardRect(rect);
-        QFont titleFont = tx->font();
-        titleFont.setPixelSize(13);
-        titleFont.setWeight(QFont::Normal);
-        const int advance = QFontMetrics(titleFont).horizontalAdvance("[0] HEARTBEAT");
-        const int pillLeft = card.left() + 24 + advance + 8;
-        const QPoint pillClickPos(pillLeft + 10, card.top() + 8 + 3 + 9);
+        const QRect ratePill = txRatePillRect(card, tx->item(0, 0)->text(), tx->item(0, 1)->text(),
+                                              tx->item(0, 3)->text(), tx->font());
+        const QPoint pillClickPos = ratePill.center();
 
         // 1. Test Cancel on custom rate dialog
         QTimer::singleShot(100, &window, [&window]()
@@ -5391,6 +5386,59 @@ private slots:
             auto *txGroupWidget = txTable->parentWidget();
             txGroupWidget->grab(QRect(0, 0, txGroupWidget->width(), 100)).save("qa/tx-heading-sort-pills.png");
         }
+    }
+
+    /** @brief Verify long TX card titles stay on single line, fixed 74px height, and display tooltip when elided. */
+    void txCardLongTitleElideAndTooltip()
+    {
+        MainWindow window;
+        window.show();
+        QTest::qWait(50);
+
+        auto *txTable = window.findChild<QTableWidget *>("txTable");
+        auto *addBtn = window.findChild<QPushButton *>("addMessage");
+        QVERIFY(txTable && addBtn);
+
+        // Add message ID 89: LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET
+        QTimer::singleShot(30, &window, [&window]()
+        {
+            auto *dialog = window.findChild<QDialog *>("messageDialog");
+            QVERIFY(dialog);
+            auto *catalog = dialog->findChild<QListWidget *>("messageCatalog");
+            QVERIFY(catalog);
+            for (int i = 0; i < catalog->count(); ++i)
+            {
+                if (catalog->item(i)->data(Qt::UserRole).toUInt() == 89)
+                {
+                    catalog->setCurrentRow(i);
+                    break;
+                }
+            }
+            dialog->findChild<QDoubleSpinBox *>()->setValue(1.0);
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        });
+        addBtn->click();
+
+        QTRY_COMPARE(txTable->rowCount(), 1);
+        QCOMPARE(txTable->item(0, 0)->text(), QString("89"));
+        QCOMPARE(txTable->rowHeight(0), 74);
+
+        // Verify tooltip on hover
+        const QRect cellRect = txTable->visualRect(txTable->model()->index(0, 1));
+        const QPoint mousePos = cellRect.center();
+        QHelpEvent helpEv(QEvent::ToolTip, mousePos, txTable->viewport()->mapToGlobal(mousePos));
+        auto *delegate = txTable->itemDelegateForColumn(1);
+        QVERIFY(delegate);
+        QStyleOptionViewItem opt;
+        opt.initFrom(txTable->viewport());
+        opt.rect = cellRect;
+        const bool tipHandled = delegate->helpEvent(&helpEv, txTable, opt, txTable->model()->index(0, 1));
+        QVERIFY(tipHandled);
+
+        // Visual capture of the elided card
+        QPixmap cardPix = txTable->viewport()->grab(cellRect);
+        QDir().mkpath("qa");
+        cardPix.save("qa/tx-card-long-title-elided.png");
     }
 };
 

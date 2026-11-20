@@ -8,6 +8,7 @@
 #include <QStyledItemDelegate>
 #include <QIconEngine>
 #include <QColor>
+#include <QHelpEvent>
 
 /** @brief Present each TX entry as a readable card backed by the existing row model. */
 class TxCardDelegate : public QStyledItemDelegate
@@ -17,6 +18,10 @@ public:
 
     /** @brief Paint state-specific cards with a compact target-rate badge and distinct actions. */
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+
+    /** @brief Display full message title in tooltip when the card title is elided. */
+    bool helpEvent(QHelpEvent *event, QAbstractItemView *view,
+                   const QStyleOptionViewItem &option, const QModelIndex &index) override;
 };
 
 

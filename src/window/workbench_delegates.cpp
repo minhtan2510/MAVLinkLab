@@ -15,6 +15,7 @@
 #include <QPainterPath>
 #include <QKeyEvent>
 #include <QCompleter>
+#include <QToolTip>
 #include <cmath>
 #include <algorithm>
 
@@ -140,7 +141,7 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
     painter->drawRoundedRect(accentPill, 1.5, 1.5);
 
     // Status badge button on top right
-    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+    const QRect badge(card.right() - 88, card.top() + 9, 80, 22);
     const QColor badgeBg = error ? QColor(dark ? "#482e3f" : "#fff0f1") :
                            running ? QColor(dark ? "#1d3d36" : "#e7f6ee") : QColor(dark ? "#253144" : "#edf1f7");
     const QColor badgeBorder = error ? QColor(dark ? "#7a3749" : "#f8b4bc") :
@@ -186,43 +187,58 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
     }
 
-    // Line 1: Title and Target Rate pill
+    // Line 1: Title -> Target Rate pill -> Payload badge -> [gap] -> Status badge
     const int textLeft = card.left() + 24;
+
+    // Calculate pill metrics
+    const uint32_t msgId = value(0).toUInt();
+    const auto *metadata = mavlink_get_msg_entry(msgId);
+    const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+    const QString payloadText = QString("%1 B").arg(payloadLen);
+    QFont payloadFont = option.font;
+    payloadFont.setPixelSize(11);
+    payloadFont.setWeight(QFont::Medium);
+    const int payloadWidth = QFontMetrics(payloadFont).horizontalAdvance(payloadText) + 14;
+
+    const QString rateText = value(3) + " Hz";
+    QFont pillFont = option.font;
+    pillFont.setPixelSize(11);
+    pillFont.setWeight(QFont::Medium);
+    const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
+
+    const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
+    const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);
+
+    // Title text: strictly single line, elided if necessary
     QFont titleFont = option.font;
     titleFont.setPixelSize(13);
     titleFont.setWeight(QFont::Normal);
     painter->setFont(titleFont);
     painter->setPen(foreground);
-    const int maxTitleWidth = badge.left() - textLeft - 8;
-    const QString title = QString("[%1] %2").arg(value(0), value(1));
-    const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
-    const int extra = lines.size() > 1 ? 16 : 0;
-    if (lines.size() > 1)
-    {
-        painter->drawText(QRect(textLeft, badge.top(), maxTitleWidth, badge.height() + extra),
-                          Qt::AlignVCenter | Qt::AlignLeft, lines.join('\n'));
-    }
-    else
-    {
-        const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
-        painter->drawText(QRect(textLeft, badge.top(), titleAdvance, badge.height()),
-                          Qt::AlignVCenter | Qt::AlignLeft, title);
-    }
 
-    // Draw compact interactive Target Hz pill with dropdown chevron
+    const QString title = QString("[%1] %2").arg(value(0), value(1));
+    const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
+
+    QString displayTitle = title;
+    int actualTitleAdvance = titleAdvance;
+    if (titleAdvance > maxTitleWidth)
+    {
+        displayTitle = QFontMetrics(titleFont).elidedText(title, Qt::ElideRight, maxTitleWidth);
+        actualTitleAdvance = QFontMetrics(titleFont).horizontalAdvance(displayTitle);
+    }
+    painter->drawText(QRect(textLeft, badge.top(), actualTitleAdvance, badge.height()),
+                      Qt::AlignVCenter | Qt::AlignLeft, displayTitle);
+
+    // Draw compact interactive Target Hz pill with dropdown chevron (adjacent to title)
     const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
     if (pillRect.isValid())
     {
-        const QString rateText = value(3) + " Hz";
-        QFont pillFont = option.font;
-        pillFont.setPixelSize(11);
-        pillFont.setWeight(QFont::Medium);
         painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
         painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
-        painter->drawRoundedRect(pillRect, 4, 4);
+        painter->drawRoundedRect(pillRect, 5, 5);
         painter->setFont(pillFont);
         painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
-        painter->drawText(pillRect.adjusted(6, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
+        painter->drawText(pillRect.adjusted(7, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
 
         // Draw crisp vector down-chevron indicating dropdown switcher
         painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -232,30 +248,21 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
     }
 
-    // Draw schema payload wire length badge if space permits
-    const uint32_t msgId = value(0).toUInt();
-    const auto *metadata = mavlink_get_msg_entry(msgId);
-    const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
-    const QString payloadText = QString("%1 B").arg(payloadLen);
-    QFont payloadFont = option.font;
-    payloadFont.setPixelSize(10);
-    payloadFont.setWeight(QFont::Medium);
-    const int payloadAdvance = QFontMetrics(payloadFont).horizontalAdvance(payloadText);
-    const int payloadWidth = payloadAdvance + 10;
-    const int payloadX = pillRect.isValid() ? (pillRect.right() + 6) : (textLeft + (lines.size() > 1 ? maxTitleWidth : QFontMetrics(titleFont).horizontalAdvance(title)) + 8);
-    if (payloadX + payloadWidth <= badge.left() - 6)
+    // Draw schema payload wire length badge (adjacent to Target Rate pill)
+    const int payloadLeft = pillRect.isValid() ? (pillRect.right() + 8) : (textLeft + actualTitleAdvance + 8);
+    if (payloadLeft + payloadWidth <= badge.left() - 8)
     {
-        const QRect payloadRect(payloadX, badge.top() + (badge.height() - 18) / 2, payloadWidth, 18);
+        const QRect payloadRect(payloadLeft, badge.top(), payloadWidth, 22);
         painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
         painter->setBrush(QColor(dark ? "#1a2536" : "#f1f5f9"));
-        painter->drawRoundedRect(payloadRect, 4, 4);
+        painter->drawRoundedRect(payloadRect, 5, 5);
         painter->setFont(payloadFont);
         painter->setPen(QColor(dark ? "#8ca0be" : "#475569"));
         painter->drawText(payloadRect, Qt::AlignCenter, payloadText);
     }
 
     // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
-    const int line2Y = card.top() + 36 + extra;
+    const int line2Y = card.top() + 36;
     const int line2Height = 18;
     int curX = textLeft;
     QFont metaFont = option.font;
@@ -287,6 +294,60 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
     drawPart("Frames: ", muted, false);
     drawPart(value(5), foreground, true);
     painter->restore();
+}
+
+/**
+ * @brief Display full message title in tooltip when the card title is elided.
+ * @param event Help event containing mouse coordinates and trigger type.
+ * @param view Owning abstract item view.
+ * @param option Style options for the target item.
+ * @param index Model index being hovered.
+ * @return True if tooltip was handled/shown, false otherwise.
+ */
+bool TxCardDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
+                               const QStyleOptionViewItem &option, const QModelIndex &index)
+{
+    if (event && event->type() == QEvent::ToolTip && index.isValid())
+    {
+        const QString idStr = index.sibling(index.row(), 0).data().toString();
+        const QString nameStr = index.sibling(index.row(), 1).data().toString();
+        const QString hzStr = index.sibling(index.row(), 3).data().toString();
+        const QString fullTitle = QString("[%1] %2").arg(idStr, nameStr);
+
+        const QRect card = MainWindow::txCardRect(option.rect);
+        const int textLeft = card.left() + 24;
+        const QRect badge(card.right() - 88, card.top() + 9, 80, 22);
+
+        const uint32_t msgId = idStr.toUInt();
+        const auto *metadata = mavlink_get_msg_entry(msgId);
+        const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+        const QString payloadText = QString("%1 B").arg(payloadLen);
+        QFont payloadFont = option.font;
+        payloadFont.setPixelSize(11);
+        payloadFont.setWeight(QFont::Medium);
+        const int payloadWidth = QFontMetrics(payloadFont).horizontalAdvance(payloadText) + 14;
+
+        const QString rateText = hzStr + " Hz";
+        QFont pillFont = option.font;
+        pillFont.setPixelSize(11);
+        pillFont.setWeight(QFont::Medium);
+        const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
+
+        const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
+        const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);
+
+        QFont titleFont = option.font;
+        titleFont.setPixelSize(13);
+        titleFont.setWeight(QFont::Normal);
+
+        if (QFontMetrics(titleFont).horizontalAdvance(fullTitle) > maxTitleWidth)
+        {
+            QToolTip::showText(event->globalPos(), fullTitle, view, card);
+            return true;
+        }
+        QToolTip::hideText();
+    }
+    return QStyledItemDelegate::helpEvent(event, view, option, index);
 }
 
 // --- CatalogDelegate ---

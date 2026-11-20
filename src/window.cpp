@@ -1469,25 +1469,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setFocus(Qt::OtherFocusReason);
 }
 
-/** @brief Fit TX card titles after model updates or viewport width changes. */
-
+/** @brief Maintain stable card height across all TX entries. */
 void MainWindow::updateTxHeights()
 {
     const int scroll = txTable->verticalScrollBar()->value();
-    QFont font = txTable->font();
-    font.setPixelSize(13);
-    font.setWeight(QFont::Normal);
     for (int row = 0; row < txTable->rowCount(); ++row)
     {
-        if (!txTable->item(row, 0) || !txTable->item(row, 1))
+        if (txTable->rowHeight(row) != 74)
         {
-            continue;
-        }
-        const QString title = QString("[%1] %2").arg(txTable->item(row, 0)->text(), txTable->item(row, 1)->text());
-        const int height = txTitleLines(title, font, txTable->columnWidth(1) - 120).size() > 1 ? 90 : 74;
-        if (txTable->rowHeight(row) != height)
-        {
-            txTable->setRowHeight(row, height);
+            txTable->setRowHeight(row, 74);
         }
     }
     txTable->verticalScrollBar()->setValue(scroll);

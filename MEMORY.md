@@ -48,6 +48,28 @@
   * The clone strictly starts in the `Stopped` state with zero counters (`count = 0`), preserving the active transmission state of the original card without triggering mutual exclusion stops.
   * Focus and selection automatically transition to the newly duplicated card for rapid inline inspection and editing.
   * **Slide-down Insert Animation (220 ms, High-FPS Smoothness):** Cloned card smoothly slides out from beneath the original card (vertical offset $-rowHeight \to 0$ with quadratic ease-out $1 - (1-t)^2$) and fades in from $0.0 \to 1.0$ opacity. Paced by a high-resolution `Qt::PreciseTimer` (8 ms intervals) over 220 ms to guarantee stutter-free 120 FPS rendering and eliminate Linux timer jitter. The top boundary of the new cell geometry serves as a clip boundary, preventing overlap with the source card above, while all rows below simultaneously push down by $-rowHeight \to 0$. Rapid successive duplications gracefully restart the animation for the newest card without coordinate desynchronization.
+* **TX Card Message Presentation & Single-Line Layout:**
+  * Fixed row height strictly at 74px (`defaultSectionSize = 74`).
+  * **Title-Adjacent Control Flow (Title → Rate → Payload → [gap] → Status):** Badges on Line 1 are positioned immediately following the message title for maximum context association, sharing an identical height of 22px, radius 5px, font 11px Medium, and an airy 8px inter-pill spacing:
+    1. Title text: starts at `card.left() + 24`. If longer than available space, it elides with ellipsis (`...`).
+    2. Target Rate pill (`X Hz ⌵`): placed immediately adjacent to the title ($8\text{ px}$ spacing, $22\text{ px}$ height, 5px radius).
+    3. Payload length badge (`XX B`): placed immediately adjacent to the Rate pill ($8\text{ px}$ spacing, horizontal padding $+14\text{ px}$, $22\text{ px}$ height, 5px radius).
+    4. Status badge (`Running` / `Stopped`): pinned at `card.right() - 88` ($80 \times 22\text{ px}$, 5px radius).
+  * **Pill Preservation on Long Titles:** Available title width is calculated to always reserve space for both pills before the status button:
+    $$\text{maxTitleWidth} = \text{badge.left}() - 8 - (\text{rateWidth} + 8 + \text{payloadWidth} + 8) - \text{textLeft}$$
+    Long titles (e.g. `[89] LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET`) are elided with ellipsis (`Qt::ElideRight`), allowing both pills to remain fully visible without pushing down or overlapping. Hovering over an elided card/title displays a tooltip (`QHelpEvent`) showing the complete `[ID] MESSAGE_NAME`.
+  * **Guaranteed Bottom Breathing Room:** Metadata row 2 (`Sys · Comp · Actual · Frames`) is fixed at `card.top() + 36` (height 18px), leaving a generous 13px padding before the card bottom border (`y = 68-69`) and completely eliminating any border clipping or overlap.
+* **TX Card Message Presentation & Single-Line Layout:**
+  * Fixed row height strictly at 74px (`defaultSectionSize = 74`).
+  * **Title-Adjacent Control Flow (Title → Rate → Payload → [gap] → Status):** Badges on Line 1 are positioned immediately following the message title for maximum context association, sharing an identical height of 22px, radius 5px, font 11px Medium, and an airy 8px inter-pill spacing:
+    1. Title text: starts at `card.left() + 24`. If longer than available space, it elides with ellipsis (`...`).
+    2. Target Rate pill (`X Hz ⌵`): placed immediately adjacent to the title ($8\text{ px}$ spacing, $22\text{ px}$ height, 5px radius).
+    3. Payload length badge (`XX B`): placed immediately adjacent to the Rate pill ($8\text{ px}$ spacing, horizontal padding $+14\text{ px}$, $22\text{ px}$ height, 5px radius).
+    4. Status badge (`Running` / `Stopped`): pinned at `card.right() - 88` ($80 \times 22\text{ px}$, 5px radius).
+  * **Pill Preservation on Long Titles:** Available title width is calculated to always reserve space for both pills before the status button:
+    $$\text{maxTitleWidth} = \text{badge.left}() - 8 - (\text{rateWidth} + 8 + \text{payloadWidth} + 8) - \text{textLeft}$$
+    Long titles (e.g. `[89] LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET`) are elided with ellipsis (`Qt::ElideRight`), allowing both pills to remain fully visible without pushing down or overlapping. Hovering over an elided card/title displays a tooltip (`QHelpEvent`) showing the complete `[ID] MESSAGE_NAME`.
+  * **Guaranteed Bottom Breathing Room:** Metadata row 2 (`Sys · Comp · Actual · Frames`) is fixed at `card.top() + 36` (height 18px), leaving a generous 13px padding before the card bottom border (`y = 68-69`) and completely eliminating any border clipping or overlap.
 * **TX Card Message Sorting (`sortMessages` Ghost Button & `sortMenu` Popup):**
   * Dedicated 28x28 px frameless ghost button `sortButton` located at Row 0, Column 4 in a 5-column `txHeading` grid layout, vertically aligned flush to the right edge directly above `addButton` (which spans Columns 3-4 in Row 1).
   * **Dual-Pill Status Display (`TxSummaryWidget`):** Streamlined from 3 pills into 2 elegant rounded chips:

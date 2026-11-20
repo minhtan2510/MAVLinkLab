@@ -227,41 +227,44 @@ int txVisualToSourceRow(int visualRow, int sourceRow, int targetRow)
  */
 QRect txRatePillRect(const QRect &card, const QString &idStr, const QString &nameStr, const QString &hzStr, const QFont &baseFont)
 {
-    const QRect badge(card.right() - 88, card.top() + 8, 80, 24);
+    const QRect badge(card.right() - 88, card.top() + 9, 80, 22);
     const int textLeft = card.left() + 24;
-    QFont titleFont = baseFont;
-    titleFont.setPixelSize(13);
-    titleFont.setWeight(QFont::Normal);
-    const int maxTitleWidth = badge.left() - textLeft - 8;
-    const QString title = QString("[%1] %2").arg(idStr, nameStr);
-    const QStringList lines = txTitleLines(title, titleFont, maxTitleWidth);
+
+    const uint32_t msgId = idStr.toUInt();
+    const auto *metadata = mavlink_get_msg_entry(msgId);
+    const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+    const QString payloadText = QString("%1 B").arg(payloadLen);
+    QFont payloadFont = baseFont;
+    payloadFont.setPixelSize(11);
+    payloadFont.setWeight(QFont::Medium);
+    const int payloadWidth = QFontMetrics(payloadFont).horizontalAdvance(payloadText) + 14;
 
     QFont pillFont = baseFont;
     pillFont.setPixelSize(11);
     pillFont.setWeight(QFont::Medium);
     const QString rateText = hzStr + " Hz";
-    const int rateAdvance = QFontMetrics(pillFont).horizontalAdvance(rateText);
-    const int pillWidth = rateAdvance + 22;
+    const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
 
-    if (lines.size() > 1)
-    {
-        int maxLineAdvance = 0;
-        for (const QString &line : lines)
-        {
-            maxLineAdvance = std::max(maxLineAdvance, QFontMetrics(titleFont).horizontalAdvance(line));
-        }
-        const int pillLeft = textLeft + maxLineAdvance + 8;
-        if (pillLeft + pillWidth <= badge.left() - 8)
-        {
-            return QRect(pillLeft, badge.top() + 11, pillWidth, 18);
-        }
-        return {};
-    }
+    const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
+    const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);
+
+    QFont titleFont = baseFont;
+    titleFont.setPixelSize(13);
+    titleFont.setWeight(QFont::Normal);
+    const QString title = QString("[%1] %2").arg(idStr, nameStr);
     const int titleAdvance = QFontMetrics(titleFont).horizontalAdvance(title);
-    const int pillLeft = textLeft + titleAdvance + 8;
+
+    int actualTitleAdvance = titleAdvance;
+    if (titleAdvance > maxTitleWidth)
+    {
+        const QString elided = QFontMetrics(titleFont).elidedText(title, Qt::ElideRight, maxTitleWidth);
+        actualTitleAdvance = QFontMetrics(titleFont).horizontalAdvance(elided);
+    }
+
+    const int pillLeft = textLeft + actualTitleAdvance + 8;
     if (pillLeft + pillWidth <= badge.left() - 8)
     {
-        return QRect(pillLeft, badge.top() + 3, pillWidth, 18);
+        return QRect(pillLeft, badge.top(), pillWidth, 22);
     }
     return {};
 }
