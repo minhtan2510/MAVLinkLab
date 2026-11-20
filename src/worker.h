@@ -212,6 +212,12 @@ public slots:
      * @param entry Full TxEntry configuration to restore.
      */
     void restoreEntry(int targetIndex, Mav::TxEntry entry);
+    /**
+     * @brief Sort entries by specified criteria and sort order.
+     * @param criteria Attribute used for comparison (0: Id, 1: Status, 2: PayloadSize, 3: TargetHz, 4: SysComp).
+     * @param ascending True for ascending order, false for descending.
+     */
+    void sortEntries(int criteria, bool ascending);
     /** @brief Start or stop one periodic message. */
     void setActive(quint64 key, bool active);
     /**

@@ -181,6 +181,22 @@ private:
     void executeTxUndo();
     /** @brief Reposition the undo toast anchored to the bottom-left of the window. */
     void repositionTxUndoToast();
+    /** @brief Initialize the sort popup menu and context submenu with criteria actions. */
+    void setupSortMenu();
+    /** @brief Update checkmarks, indicators, and text labels across sort menu actions. */
+    void updateSortMenuActions();
+    /**
+     * @brief Apply sorting on TX message cards by criteria and toggle sort order.
+     * @param criteria Target sort criteria (0: Id, 1: Name, 2: Status, 3: PayloadSize, 4: TargetHz, 5: SysComp).
+     */
+    void applySort(int criteria);
+    /** @brief Reset sort state indicator to custom when cards are manually rearranged. */
+    void resetSortIndicator();
+    /**
+     * @brief Update the sort button icon based on theme, hover, and enabled states.
+     * @param hovered True if the mouse pointer is currently hovering over the button.
+     */
+    void updateSortButtonIcon(bool hovered = false);
     /** @brief Delete a TX message card at the specified row and trigger the undo toast. */
     void deleteTxCardAt(int row);
     /**
@@ -299,6 +315,11 @@ private:
     QPushButton *runAllButton = nullptr;
     QPushButton *stopAllButton = nullptr;
     QPushButton *deleteAllButton = nullptr;
+    QPushButton *sortButton = nullptr;
+    QMenu *sortMenu = nullptr;
+    std::vector<QAction *> sortActions;
+    int currentSortCriteria = -1;
+    bool currentSortAscending = true;
     QLabel *serialSummary = nullptr;
     TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;

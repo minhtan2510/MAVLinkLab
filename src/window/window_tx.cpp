@@ -585,6 +585,7 @@ void MainWindow::finishTxDrag(bool commit)
 
         if (commit && from >= 0 && to >= 0 && from != to && worker)
         {
+            resetSortIndicator();
             QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
                                       Q_ARG(int, from), Q_ARG(int, to));
             saveTxMessages();
@@ -1040,6 +1041,7 @@ bool MainWindow::handleTxKeyPress(QKeyEvent *event)
         {
             const int targetRow = row - 1;
             pendingSelectionKey = key;
+            resetSortIndicator();
             QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
                                       Q_ARG(int, row), Q_ARG(int, targetRow));
             txTable->selectRow(targetRow);
@@ -1057,6 +1059,7 @@ bool MainWindow::handleTxKeyPress(QKeyEvent *event)
         {
             const int targetRow = row + 1;
             pendingSelectionKey = key;
+            resetSortIndicator();
             QMetaObject::invokeMethod(worker, "moveEntry", Qt::QueuedConnection,
                                       Q_ARG(int, row), Q_ARG(int, targetRow));
             txTable->selectRow(targetRow);
@@ -1222,4 +1225,154 @@ void MainWindow::setTxSummaryStats(int total, int running, double estimatedBps, 
         txSummary->setStats(total, running, estimatedBps, utilization);
     }
 }
+
+/**
+ * @brief Initialize the sort popup menu with criteria actions.
+ */
+void MainWindow::setupSortMenu()
+{
+    if (!sortMenu)
+    {
+        sortMenu = new WorkbenchMenu(this);
+        sortMenu->setObjectName("sortMenu");
+        configureTranslucentMenu(sortMenu);
+        sortMenu->installEventFilter(this);
+    }
+    sortMenu->clear();
+    sortActions.clear();
+
+    static const struct
+    {
+        const char *name;
+        const char *label;
+    } kSortDefs[] = {
+        {"sortById", "ID"},
+        {"sortByStatus", "Status"},
+        {"sortByPayloadSize", "Payload Size"},
+        {"sortByTargetHz", "Target Rate"},
+        {"sortBySysComp", "Sys / Comp ID"}
+    };
+
+    for (int criteria = 0; criteria < 5; ++criteria)
+    {
+        auto *action = new QAction(kSortDefs[criteria].label, sortMenu);
+        action->setObjectName(kSortDefs[criteria].name);
+        action->setCheckable(true);
+        connect(action, &QAction::triggered, this, [this, criteria]()
+        {
+            applySort(criteria);
+        });
+        sortMenu->addAction(action);
+        sortActions.push_back(action);
+    }
+
+    updateSortMenuActions();
+
+    if (sortButton)
+    {
+        connect(sortButton, &QPushButton::clicked, this, [this]()
+        {
+            if (!sortMenu || (txTable && txTable->rowCount() == 0))
+            {
+                return;
+            }
+            updateSortMenuActions();
+            const QPoint pos = sortButton->mapToGlobal(QPoint(0, sortButton->height() + 2));
+            sortMenu->popup(pos);
+        });
+    }
+}
+
+/**
+ * @brief Update vector arrow icons and checked states across sort menu actions.
+ */
+void MainWindow::updateSortMenuActions()
+{
+    const bool isDark = sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true;
+    const QColor arrowColor = isDark ? QColor("#818cf8") : QColor("#4f46e5");
+
+    for (size_t i = 0; i < sortActions.size(); ++i)
+    {
+        auto *action = sortActions[i];
+        if (!action)
+        {
+            continue;
+        }
+        const int criteria = static_cast<int>(i);
+        const bool active = (currentSortCriteria == criteria);
+
+        action->setChecked(active);
+        if (active)
+        {
+            const QString iconName = currentSortAscending ? "sortArrowUp" : "sortArrowDown";
+            action->setIcon(actionIcon(iconName, arrowColor));
+        }
+        else
+        {
+            action->setIcon(actionIcon("transparent16", Qt::transparent));
+        }
+    }
+}
+
+/**
+ * @brief Apply sorting on TX message cards by criteria and toggle sort order.
+ * @param criteria Target sort criteria (0: Id, 1: Status, 2: PayloadSize, 3: TargetHz, 4: SysComp).
+ */
+void MainWindow::applySort(int criteria)
+{
+    if (currentSortCriteria == criteria)
+    {
+        currentSortAscending = !currentSortAscending;
+    }
+    else
+    {
+        currentSortCriteria = criteria;
+        currentSortAscending = true;
+    }
+
+    if (worker)
+    {
+        QMetaObject::invokeMethod(worker, "sortEntries", Qt::QueuedConnection,
+                                  Q_ARG(int, currentSortCriteria),
+                                  Q_ARG(bool, currentSortAscending));
+    }
+    updateSortMenuActions();
+    saveTxMessages();
+}
+
+/**
+ * @brief Reset sort state indicator to custom when cards are manually rearranged.
+ */
+void MainWindow::resetSortIndicator()
+{
+    if (currentSortCriteria != -1)
+    {
+        currentSortCriteria = -1;
+        currentSortAscending = true;
+        updateSortMenuActions();
+    }
+}
+
+/**
+ * @brief Update the sort button icon based on theme, hover, and enabled states.
+ * @param hovered True if the mouse pointer is currently hovering over the button.
+ */
+void MainWindow::updateSortButtonIcon(bool hovered)
+{
+    if (!sortButton)
+    {
+        return;
+    }
+    const bool dark = property("darkTheme").toBool();
+    const bool isHovered = hovered && sortButton->isEnabled();
+    const QColor normalColor = dark ? QColor("#8895ad") : QColor("#64748b");
+    const QColor hoverColor = dark ? QColor("#edf0fa") : QColor("#20263b");
+    const QColor disabledColor = dark ? QColor("#526079") : QColor("#94a3b8");
+
+    QIcon icon = actionIcon("sortMessages", isHovered ? hoverColor : normalColor);
+    icon.addPixmap(actionIcon("sortMessages", disabledColor).pixmap(16, 16), QIcon::Disabled);
+    sortButton->setIcon(icon);
+    sortButton->setIconSize(QSize(16, 16));
+}
+
 

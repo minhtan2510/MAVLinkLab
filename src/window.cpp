@@ -574,7 +574,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->setChildrenCollapsible(false);
     dashboards->setHandleWidth(12);
     auto *txGroup = new QFrame;
-    txGroup->setMinimumWidth(340);
+    txGroup->setMinimumWidth(465);
     txGroup->setObjectName("dashboardPanel");
     auto *txLayout = new QVBoxLayout(txGroup);
     txLayout->setContentsMargins(16, 16, 16, 12);
@@ -591,6 +591,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txSummary = new TxSummaryWidget;
     txSummary->setObjectName("txSummary");
     txHeading->addWidget(txSummary, 0, 1, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
+
+    sortButton = button("", "sortMessages", nullptr);
+    sortButton->setFixedSize(28, 28);
+    sortButton->setAccessibleName("Sort messages");
+    sortButton->installEventFilter(this);
+    txHeading->addWidget(sortButton, 0, 4, Qt::AlignRight | Qt::AlignVCenter);
 
     auto *batchActions = new QHBoxLayout;
     batchActions->setContentsMargins(0, 0, 0, 0);
@@ -623,7 +629,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *addButton = new QPushButton("Add message");
     addButton->setObjectName("addMessage");
     addButton->setProperty("role", "primary");
-    txHeading->addWidget(addButton, 1, 3, Qt::AlignRight | Qt::AlignVCenter);
+    txHeading->addWidget(addButton, 1, 3, 1, 2, Qt::AlignRight | Qt::AlignVCenter);
 
     txLayout->addLayout(txHeading);
 
@@ -723,6 +729,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     duplicateAction = addTxAction("Duplicate message", "duplicateMessage");
     removeAction = addTxAction("Remove message", "removeMessage");
     txMenu->setDefaultAction(removeAction);
+    setupSortMenu();
     txTable->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(txTable, &QWidget::customContextMenuRequested, this, [this](const QPoint &position)
     {
@@ -740,7 +747,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     dashboards->addWidget(txGroup);
 
     auto *rxGroup = new QFrame;
-    rxGroup->setMinimumWidth(540);
+    rxGroup->setMinimumWidth(480);
     rxGroup->setObjectName("dashboardPanel");
     auto *rxLayout = new QVBoxLayout(rxGroup);
     rxLayout->setContentsMargins(16, 16, 16, 12);
@@ -1296,6 +1303,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         const uint64_t newKey = nextKey++;
         pendingSelectionKey = newKey;
         pendingDuplicateKey = newKey;
+        resetSortIndicator();
         QMetaObject::invokeMethod(worker, "duplicateEntry", Qt::QueuedConnection,
                                   Q_ARG(quint64, currentKey), Q_ARG(quint64, newKey));
         saveTxMessages();
@@ -1623,6 +1631,17 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         themeBox && themeBox->currentIndex() == 0)
     {
         applyTheme();
+    }
+    if (watched == sortButton)
+    {
+        if (event->type() == QEvent::Enter && sortButton->isEnabled())
+        {
+            updateSortButtonIcon(true);
+        }
+        else if (event->type() == QEvent::Leave)
+        {
+            updateSortButtonIcon(false);
+        }
     }
     if (event->type() == QEvent::KeyPress)
     {

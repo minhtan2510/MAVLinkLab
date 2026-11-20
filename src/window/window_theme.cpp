@@ -140,6 +140,7 @@ void MainWindow::applyTheme()
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
         "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll,QPushButton#pauseDisplay,QPushButton#clearStatistics { padding:0; border-radius:6px; }"
+        "QPushButton#sortMessages,QPushButton#sortMessages:hover,QPushButton#sortMessages:pressed,QPushButton#sortMessages:disabled { background:transparent; border:none; padding:0; border-radius:6px; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
         "QPushButton[role=primary] { background:#4f46e5; color:white; border-color:#4f46e5; }"
@@ -202,6 +203,11 @@ void MainWindow::applyTheme()
     const QString menuStyle = QString(
         "QMenu { background:%1; color:%2; border:1px solid %3; border-radius:8px; padding:6px; font-size:13px; outline:none; }"
         "QMenu::item { min-width:190px; padding:6px 28px 6px 10px; border-radius:5px; }"
+        "QMenu#sortMenu { min-width:130px; padding:4px; }"
+        "QMenu#sortMenu::item { min-width:125px; padding:5px 12px 5px 6px; border-radius:5px; }"
+        "QMenu#sortMenu::indicator { width:0px; height:0px; }"
+        "QMenu#sortMenu::item:checked { background:%7; font-weight:500; }"
+        "QMenu#sortMenu::item:checked:selected { background:#4f46e5; color:white; }"
         "QMenu::icon { padding-left:8px; }"
         "QMenu::item:selected { background:#4f46e5; color:white; }"
         "QMenu::item:default { color:%4; }"
@@ -212,7 +218,8 @@ void MainWindow::applyTheme()
     ).arg(surface, foreground, border,
           dark ? "#fca5a5" : "#b91c1c",
           dark ? "#381e26" : "#fee2e2",
-          hintForeground);
+          hintForeground,
+          dark ? "rgba(255, 255, 255, 0.09)" : "rgba(0, 0, 0, 0.06)");
     const QString connectionStyle = QString(
         "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
         "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
@@ -282,7 +289,7 @@ void MainWindow::applyTheme()
           dark ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.20)",
           dark ? "#dc2626" : "#b91c1c");
     setStyleSheet(baseStyle + menuStyle + connectionStyle + selectionStyle + dataStyle + rxButtonStyle);
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "duplicateMessage", "removeMessage", "runAll", "stopAll", "deleteAll", "pauseDisplay", "clearStatistics"})
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "duplicateMessage", "removeMessage", "runAll", "stopAll", "deleteAll", "sortMessages", "pauseDisplay", "clearStatistics"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)
@@ -299,6 +306,11 @@ void MainWindow::applyTheme()
             icon.addPixmap(actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", QColor(muted)).pixmap(18, 18), QIcon::Disabled);
             control->setIcon(icon);
             control->setIconSize(QSize(18, 18));
+            continue;
+        }
+        if (QString(name) == "sortMessages")
+        {
+            updateSortButtonIcon(sortButton && sortButton->underMouse());
             continue;
         }
         const QString role = control->property("role").toString();

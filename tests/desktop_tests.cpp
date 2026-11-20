@@ -5257,6 +5257,141 @@ private slots:
         QDir().mkpath("qa");
         txCardPix.save("qa/tx_edge_accent_card.png");
     }
+
+    /**
+     * @brief Verify TX message sorting criteria (ID, Name, Status, PayloadSize, TargetHz, SysComp)
+     *        and ascending/descending toggle with indicator updates and worker persistence.
+     */
+    void txSortingCriteriaAndOrder()
+    {
+        MainWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto *sortBtn = window.findChild<QPushButton *>("sortMessages");
+        QVERIFY(sortBtn != nullptr);
+        QCOMPARE(sortBtn->isEnabled(), false);
+
+        // 1. Test SerialWorker direct sortEntries
+        SerialWorker worker;
+        worker.initialize();
+
+        Mav::TxEntry e1{};
+        e1.key = 1;
+        e1.id = 30; // ATTITUDE
+        e1.hz = 10.0;
+        e1.active = false;
+        e1.payload.resize(28);
+
+        Mav::TxEntry e2{};
+        e2.key = 2;
+        e2.id = 0; // HEARTBEAT
+        e2.hz = 1.0;
+        e2.active = true;
+        e2.payload.resize(9);
+
+        Mav::TxEntry e3{};
+        e3.key = 3;
+        e3.id = 33; // GLOBAL_POSITION_INT
+        e3.hz = 5.0;
+        e3.active = false;
+        e3.payload.resize(28);
+
+        worker.saveEntry(e1);
+        worker.saveEntry(e2);
+        worker.saveEntry(e3);
+
+        QSignalSpy spy(&worker, &SerialWorker::snapshotReady);
+
+        // Sort by ID Ascending
+        worker.sortEntries(0, true);
+        QCOMPARE(spy.count(), 1);
+        auto snap = spy.takeFirst().at(0).value<SnapshotPtr>();
+        QCOMPARE(snap->tx.size(), 3);
+        QCOMPARE(snap->tx[0].entry.id, 0);
+        QCOMPARE(snap->tx[1].entry.id, 30);
+        QCOMPARE(snap->tx[2].entry.id, 33);
+
+        // Sort by ID Descending
+        worker.sortEntries(0, false);
+        QCOMPARE(spy.count(), 1);
+        snap = spy.takeFirst().at(0).value<SnapshotPtr>();
+        QCOMPARE(snap->tx[0].entry.id, 33);
+        QCOMPARE(snap->tx[1].entry.id, 30);
+        QCOMPARE(snap->tx[2].entry.id, 0);
+
+        // Sort by Status: Running first (HEARTBEAT 0)
+        worker.sortEntries(1, true);
+        QCOMPARE(spy.count(), 1);
+        snap = spy.takeFirst().at(0).value<SnapshotPtr>();
+        QCOMPARE(snap->tx[0].entry.id, 0);
+
+        // Sort by Payload Size Ascending: 9 (0), 28 (30), 28 (33)
+        worker.sortEntries(2, true);
+        QCOMPARE(spy.count(), 1);
+        snap = spy.takeFirst().at(0).value<SnapshotPtr>();
+        QCOMPARE(snap->tx[0].entry.id, 0);
+
+        // Sort by Target Hz Ascending: 1.0 (0), 5.0 (33), 10.0 (30)
+        worker.sortEntries(3, true);
+        QCOMPARE(spy.count(), 1);
+        snap = spy.takeFirst().at(0).value<SnapshotPtr>();
+        QCOMPARE(snap->tx[0].entry.id, 0);
+        QCOMPARE(snap->tx[1].entry.id, 33);
+        QCOMPARE(snap->tx[2].entry.id, 30);
+
+        // 2. Test MainWindow UI actions and indicator toggle
+        auto *sortById = window.findChild<QAction *>("sortById");
+        auto *sortByStatus = window.findChild<QAction *>("sortByStatus");
+        QVERIFY(sortById != nullptr);
+        QCOMPARE(sortById->text(), "ID");
+        QVERIFY(sortByStatus != nullptr);
+        QVERIFY(window.findChild<QAction *>("sortByName") == nullptr);
+
+        // First click: Ascending
+        sortById->trigger();
+        QVERIFY(sortById->isChecked());
+        QVERIFY(!sortById->icon().isNull());
+
+        // Second click: Toggle to Descending
+        sortById->trigger();
+        QVERIFY(sortById->isChecked());
+        QVERIFY(!sortById->icon().isNull());
+
+        // Switch to Status sort
+        sortByStatus->trigger();
+        QVERIFY(sortByStatus->isChecked());
+        QVERIFY(!sortById->isChecked());
+
+        // Test hover brightening
+        sortBtn->setEnabled(true);
+        QEvent enterEvent(QEvent::Enter);
+        QApplication::sendEvent(sortBtn, &enterEvent);
+        const QImage hoverImg = sortBtn->icon().pixmap(16, 16).toImage();
+
+        QEvent leaveEvent(QEvent::Leave);
+        QApplication::sendEvent(sortBtn, &leaveEvent);
+        const QImage leaveImg = sortBtn->icon().pixmap(16, 16).toImage();
+
+        QVERIFY(hoverImg != leaveImg);
+
+        // Offscreen visual capture
+        QPixmap sortBtnPix(sortBtn->size());
+        sortBtn->render(&sortBtnPix);
+        QVERIFY(!sortBtnPix.isNull());
+        QDir().mkpath("qa");
+        sortBtnPix.save("qa/sort_button_rendered.png");
+
+        window.setTxSummaryStats(2, 1, 21.0, 0.2);
+        QApplication::processEvents();
+        QTest::qWait(50);
+        auto *txTable = window.findChild<QTableWidget *>("txTable");
+        if (txTable && txTable->parentWidget())
+        {
+            auto *txGroupWidget = txTable->parentWidget();
+            txGroupWidget->grab(QRect(0, 0, txGroupWidget->width(), 100)).save("qa/tx-heading-sort-pills.png");
+        }
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

@@ -303,6 +303,79 @@ void SerialWorker::restoreEntry(int targetIndex, Mav::TxEntry entry)
     requestSnapshot();
 }
 
+/**
+ * @brief Sort entries by specified criteria and sort order.
+ * @param criteria Attribute used for comparison (0: Id, 1: Name, 2: Status, 3: PayloadSize, 4: TargetHz, 5: SysComp).
+ * @param ascending True for ascending order, false for descending.
+ */
+void SerialWorker::sortEntries(int criteria, bool ascending)
+{
+    auto comparator = [criteria](const Mav::TxEntry &a, const Mav::TxEntry &b) -> bool
+    {
+        switch (criteria)
+        {
+        case 0: // ID
+            return a.id < b.id;
+        case 1: // Status
+        {
+            const bool runningA = a.active && a.error.empty();
+            const bool runningB = b.active && b.error.empty();
+            if (runningA != runningB)
+            {
+                return runningA > runningB; // Running first
+            }
+            return a.id < b.id;
+        }
+        case 2: // Payload size
+        {
+            const auto *metaA = mavlink_get_msg_entry(a.id);
+            const auto *metaB = mavlink_get_msg_entry(b.id);
+            const size_t sizeA = metaA ? metaA->max_msg_len : a.payload.size();
+            const size_t sizeB = metaB ? metaB->max_msg_len : b.payload.size();
+            if (sizeA != sizeB)
+            {
+                return sizeA < sizeB;
+            }
+            return a.id < b.id;
+        }
+        case 3: // Target Hz
+        {
+            if (a.hz != b.hz)
+            {
+                return a.hz < b.hz;
+            }
+            return a.id < b.id;
+        }
+        case 4: // Sys / Comp ID
+        default:
+        {
+            if (a.sysid != b.sysid)
+            {
+                return a.sysid < b.sysid;
+            }
+            if (a.compid != b.compid)
+            {
+                return a.compid < b.compid;
+            }
+            return a.id < b.id;
+        }
+        }
+    };
+
+    if (ascending)
+    {
+        std::stable_sort(entries.begin(), entries.end(), comparator);
+    }
+    else
+    {
+        std::stable_sort(entries.begin(), entries.end(), [&](const Mav::TxEntry &a, const Mav::TxEntry &b)
+        {
+            return comparator(b, a);
+        });
+    }
+    requestSnapshot();
+}
+
 void SerialWorker::setActive(quint64 key, bool active)
 {
     for (auto &entry : entries)

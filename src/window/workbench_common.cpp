@@ -316,7 +316,10 @@ QPushButton *button(const QString &text, const char *name, QBoxLayout *layout)
 {
     auto *control = new QPushButton(text);
     control->setObjectName(name);
-    layout->addWidget(control);
+    if (layout)
+    {
+        layout->addWidget(control);
+    }
     return control;
 }
 
@@ -477,6 +480,37 @@ QIcon actionIcon(const QString &name, const QColor &color)
 
         painter.drawLine(QPointF(6.7, 6.1), QPointF(10.5, 9.9));
         painter.drawLine(QPointF(10.5, 6.1), QPointF(6.7, 9.9));
+    }
+    else if (name == "sort" || name == "sortMessages")
+    {
+        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+
+        // Up arrow on the left
+        painter.drawLine(QPointF(5.0, 12.5), QPointF(5.0, 3.5));
+        painter.drawLine(QPointF(2.8, 5.7), QPointF(5.0, 3.5));
+        painter.drawLine(QPointF(7.2, 5.7), QPointF(5.0, 3.5));
+
+        // Down arrow on the right
+        painter.drawLine(QPointF(11.0, 3.5), QPointF(11.0, 12.5));
+        painter.drawLine(QPointF(8.8, 10.3), QPointF(11.0, 12.5));
+        painter.drawLine(QPointF(13.2, 10.3), QPointF(11.0, 12.5));
+    }
+    else if (name == "sortArrowUp")
+    {
+        painter.setPen(QPen(color, 1.45, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawLine(QPointF(8.0, 12.5), QPointF(8.0, 3.5));
+        painter.drawLine(QPointF(4.5, 7.0), QPointF(8.0, 3.5));
+        painter.drawLine(QPointF(11.5, 7.0), QPointF(8.0, 3.5));
+    }
+    else if (name == "sortArrowDown")
+    {
+        painter.setPen(QPen(color, 1.45, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawLine(QPointF(8.0, 3.5), QPointF(8.0, 12.5));
+        painter.drawLine(QPointF(4.5, 9.0), QPointF(8.0, 12.5));
+        painter.drawLine(QPointF(11.5, 9.0), QPointF(8.0, 12.5));
     }
     return QIcon(pixmap);
 }

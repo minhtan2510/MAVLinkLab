@@ -101,29 +101,58 @@ QSize TxSummaryWidget::sizeHint() const
     QFont boldFont = baseFont;
     boldFont.setWeight(QFont::DemiBold);
 
-    const QString totalText = QString("%1 %2")
+    const QString countPart = QString("%1 %2  ·  ")
         .arg(totalCount)
         .arg(totalCount == 1 ? "message" : "messages");
-    const QString runningText = QString("%1 running").arg(runningCount);
+    const QString runningPart = QString("%1 running").arg(runningCount);
 
-    const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
-    const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
-
-    const int pill1Width = totalTextWidth + 20;
-    const int pill2Width = runningTextWidth + 20;
+    const int pill1Width = QFontMetrics(baseFont).horizontalAdvance(countPart) +
+                           QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningPart) + 20;
 
     const bool showLoad = (runningCount > 0 && estBps > 0.0);
-    int pill3Width = 0;
+    int pill2Width = 0;
     if (showLoad)
     {
         const QString loadText = (estUtil > 0.0) ?
             QString("~%1 (%2%)").arg(QString::fromStdString(Mav::formatByteRate(estBps))).arg(estUtil, 0, 'f', 1) :
             QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
-        pill3Width = QFontMetrics(baseFont).horizontalAdvance(loadText) + 20;
+        pill2Width = QFontMetrics(boldFont).horizontalAdvance(loadText) + 20;
     }
 
-    const int totalWidth = pill1Width + 6 + pill2Width + (showLoad ? (6 + pill3Width) : 0);
+    const int totalWidth = pill1Width + (showLoad ? (6 + pill2Width) : 0);
     return QSize(totalWidth, 26);
+}
+
+/**
+ * @brief Minimum compact size needed to render status pills without truncation.
+ * @return Layout minimum size hint.
+ */
+QSize TxSummaryWidget::minimumSizeHint() const
+{
+    QFont baseFont = font();
+    baseFont.setPixelSize(11);
+    baseFont.setWeight(QFont::Medium);
+    QFont boldFont = baseFont;
+    boldFont.setWeight(QFont::DemiBold);
+
+    const QString countPart = QString("%1 %2  ·  ")
+        .arg(totalCount)
+        .arg(totalCount == 1 ? "message" : "messages");
+    const QString runningPart = QString("%1 running").arg(runningCount);
+
+    const int pill1Width = QFontMetrics(baseFont).horizontalAdvance(countPart) +
+                           QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningPart) + 20;
+
+    const bool showLoad = (runningCount > 0 && estBps > 0.0);
+    int pill2Width = 0;
+    if (showLoad)
+    {
+        const QString loadText = QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
+        pill2Width = QFontMetrics(boldFont).horizontalAdvance(loadText) + 20;
+    }
+
+    const int minWidth = pill1Width + (showLoad ? (6 + pill2Width) : 0) + 2;
+    return QSize(minWidth, 26);
 }
 
 /**
@@ -149,92 +178,106 @@ void TxSummaryWidget::paintEvent(QPaintEvent *event)
     QFont boldFont = baseFont;
     boldFont.setWeight(QFont::DemiBold);
 
-    const QString totalText = QString("%1 %2")
+    const QString countPart = QString("%1 %2  ·  ")
         .arg(totalCount)
         .arg(totalCount == 1 ? "message" : "messages");
-    const QString runningText = QString("%1 running").arg(runningCount);
+    const QString runningPart = QString("%1 running").arg(runningCount);
 
-    const int totalTextWidth = QFontMetrics(baseFont).horizontalAdvance(totalText);
-    const int runningTextWidth = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningText);
+    const int countPartW = QFontMetrics(baseFont).horizontalAdvance(countPart);
+    const int runningPartW = QFontMetrics(runningCount > 0 ? boldFont : baseFont).horizontalAdvance(runningPart);
+    const int pill1ContentW = countPartW + runningPartW;
+    const int pill1Width = pill1ContentW + 20;
 
     const int pillHeight = 24;
     const int y = (height() - pillHeight) / 2;
 
-    // --- Pill 1: Total Configured Messages ---
-    const int pill1Width = totalTextWidth + 20;
+    // --- Pill 1: Combined Message Count & Running Status ---
     const QRect pill1Rect(0, y, pill1Width, pillHeight);
-
-    painter.setPen(QPen(QColor(dark ? "#334155" : "#cbd5e1"), 1.0));
-    painter.setBrush(QColor(dark ? "#1e293b" : "#f1f5f9"));
-    painter.drawRoundedRect(pill1Rect, 6.0, 6.0);
-
-    painter.setFont(baseFont);
-    painter.setPen(QColor(dark ? "#94a3b8" : "#475569"));
-    painter.drawText(pill1Rect, Qt::AlignCenter, totalText);
-
-    // --- Pill 2: Running State Indicator ---
-    const int pill2Left = pill1Width + 6;
-    const int pill2Width = runningTextWidth + 20;
-    const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
 
     if (runningCount > 0)
     {
         painter.setPen(QPen(QColor(dark ? "#0d7a5f" : "#86efac"), 1.0));
         painter.setBrush(QColor(dark ? "#0a2e23" : "#dcfce7"));
-        painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+        painter.drawRoundedRect(pill1Rect, 6.0, 6.0);
+
+        const int textStartX = 10;
+        painter.setFont(baseFont);
+        painter.setPen(QColor(dark ? "#a7f3d0" : "#166534"));
+        const QRect countRect(textStartX, y, countPartW, pillHeight);
+        painter.drawText(countRect, Qt::AlignVCenter | Qt::AlignLeft, countPart);
 
         painter.setFont(boldFont);
         painter.setPen(QColor(dark ? "#34d399" : "#15803d"));
-        painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
+        const QRect runningRect(textStartX + countPartW, y, runningPartW, pillHeight);
+        painter.drawText(runningRect, Qt::AlignVCenter | Qt::AlignLeft, runningPart);
     }
     else
     {
-        painter.setPen(QPen(QColor(dark ? "#334155" : "#e2e8f0"), 1.0));
-        painter.setBrush(QColor(dark ? "#1e293b" : "#f8fafc"));
-        painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
+        painter.setPen(QPen(QColor(dark ? "#334155" : "#cbd5e1"), 1.0));
+        painter.setBrush(QColor(dark ? "#1e293b" : "#f1f5f9"));
+        painter.drawRoundedRect(pill1Rect, 6.0, 6.0);
+
+        const int textStartX = 10;
+        painter.setFont(baseFont);
+        painter.setPen(QColor(dark ? "#94a3b8" : "#475569"));
+        const QRect countRect(textStartX, y, countPartW, pillHeight);
+        painter.drawText(countRect, Qt::AlignVCenter | Qt::AlignLeft, countPart);
 
         painter.setFont(baseFont);
         painter.setPen(QColor(dark ? "#64748b" : "#94a3b8"));
-        painter.drawText(pill2Rect, Qt::AlignCenter, runningText);
+        const QRect runningRect(textStartX + countPartW, y, runningPartW, pillHeight);
+        painter.drawText(runningRect, Qt::AlignVCenter | Qt::AlignLeft, runningPart);
     }
 
-    // --- Pill 3: Throughput Estimate (When transmitting) ---
-    if (runningCount > 0 && estBps > 0.0)
+    // --- Pill 2: Throughput / Wire Load Estimate ---
+    const bool showLoad = (runningCount > 0 && estBps > 0.0);
+    if (showLoad)
     {
-        const QString loadText = (estUtil > 0.0) ?
+        const QString fullLoadText = (estUtil > 0.0) ?
             QString("~%1 (%2%)").arg(QString::fromStdString(Mav::formatByteRate(estBps))).arg(estUtil, 0, 'f', 1) :
             QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
-        const int pill3Left = pill2Left + pill2Width + 6;
-        const int pill3Width = QFontMetrics(baseFont).horizontalAdvance(loadText) + 20;
-        const QRect pill3Rect(pill3Left, y, pill3Width, pillHeight);
+        const QString compactLoadText = QString("~%1").arg(QString::fromStdString(Mav::formatByteRate(estBps)));
 
-        QColor p3Border, p3Bg, p3Text;
+        const int pill2Left = pill1Width + 6;
+        const int availablePill2W = width() - pill2Left;
+        const QString loadText = (QFontMetrics(boldFont).horizontalAdvance(fullLoadText) + 20 <= availablePill2W)
+            ? fullLoadText
+            : compactLoadText;
+
+        int pill2Width = QFontMetrics(boldFont).horizontalAdvance(loadText) + 20;
+        if (pill2Left + pill2Width >= width())
+        {
+            pill2Width = std::max(width() - pill2Left - 1, 10);
+        }
+        const QRect pill2Rect(pill2Left, y, pill2Width, pillHeight);
+
+        QColor p2Border, p2Bg, p2Text;
         if (estUtil > 90.0)
         {
-            p3Border = QColor(dark ? "#7f1d1d" : "#fecaca");
-            p3Bg = QColor(dark ? "#2e1215" : "#fef2f2");
-            p3Text = QColor(dark ? "#f87171" : "#dc2626");
+            p2Border = QColor(dark ? "#7f1d1d" : "#fecaca");
+            p2Bg = QColor(dark ? "#2e1215" : "#fef2f2");
+            p2Text = QColor(dark ? "#f87171" : "#dc2626");
         }
         else if (estUtil > 70.0)
         {
-            p3Border = QColor(dark ? "#78350f" : "#fde68a");
-            p3Bg = QColor(dark ? "#2b1a07" : "#fffbeb");
-            p3Text = QColor(dark ? "#fbbf24" : "#d97706");
+            p2Border = QColor(dark ? "#78350f" : "#fde68a");
+            p2Bg = QColor(dark ? "#2b1a07" : "#fffbeb");
+            p2Text = QColor(dark ? "#fbbf24" : "#d97706");
         }
         else
         {
-            p3Border = QColor(dark ? "#1e3a5f" : "#bfdbfe");
-            p3Bg = QColor(dark ? "#0f233a" : "#eff6ff");
-            p3Text = QColor(dark ? "#60a5fa" : "#2563eb");
+            p2Border = QColor(dark ? "#1e3a5f" : "#bfdbfe");
+            p2Bg = QColor(dark ? "#0f233a" : "#eff6ff");
+            p2Text = QColor(dark ? "#60a5fa" : "#2563eb");
         }
 
-        painter.setPen(QPen(p3Border, 1.0));
-        painter.setBrush(p3Bg);
-        painter.drawRoundedRect(pill3Rect, 6.0, 6.0);
+        painter.setPen(QPen(p2Border, 1.0));
+        painter.setBrush(p2Bg);
+        painter.drawRoundedRect(pill2Rect, 6.0, 6.0);
 
         painter.setFont(boldFont);
-        painter.setPen(p3Text);
-        painter.drawText(pill3Rect, Qt::AlignCenter, loadText);
+        painter.setPen(p2Text);
+        painter.drawText(pill2Rect, Qt::AlignCenter, loadText);
     }
 }
 

@@ -126,6 +126,11 @@ void MainWindow::updateActions()
     runAllButton->setEnabled(connected && hasEntries);
     stopAllButton->setEnabled(connected && hasEntries);
     deleteAllButton->setEnabled(hasEntries);
+    if (sortButton)
+    {
+        sortButton->setEnabled(hasEntries);
+        updateSortButtonIcon(sortButton->underMouse());
+    }
     const int row = txTable->currentRow();
     const bool running = selected && txTable->item(row, 6) && txTable->item(row, 6)->text() == "Running";
     startAction->setVisible(!running);

@@ -24,6 +24,7 @@ public:
     int running() const;
     QString text() const;
     QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 
 protected:
     void paintEvent(QPaintEvent *event) override;

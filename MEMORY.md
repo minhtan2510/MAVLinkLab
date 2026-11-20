@@ -48,6 +48,21 @@
   * The clone strictly starts in the `Stopped` state with zero counters (`count = 0`), preserving the active transmission state of the original card without triggering mutual exclusion stops.
   * Focus and selection automatically transition to the newly duplicated card for rapid inline inspection and editing.
   * **Slide-down Insert Animation (220 ms, High-FPS Smoothness):** Cloned card smoothly slides out from beneath the original card (vertical offset $-rowHeight \to 0$ with quadratic ease-out $1 - (1-t)^2$) and fades in from $0.0 \to 1.0$ opacity. Paced by a high-resolution `Qt::PreciseTimer` (8 ms intervals) over 220 ms to guarantee stutter-free 120 FPS rendering and eliminate Linux timer jitter. The top boundary of the new cell geometry serves as a clip boundary, preventing overlap with the source card above, while all rows below simultaneously push down by $-rowHeight \to 0$. Rapid successive duplications gracefully restart the animation for the newest card without coordinate desynchronization.
+* **TX Card Message Sorting (`sortMessages` Ghost Button & `sortMenu` Popup):**
+  * Dedicated 28x28 px frameless ghost button `sortButton` located at Row 0, Column 4 in a 5-column `txHeading` grid layout, vertically aligned flush to the right edge directly above `addButton` (which spans Columns 3-4 in Row 1).
+  * **Dual-Pill Status Display (`TxSummaryWidget`):** Streamlined from 3 pills into 2 elegant rounded chips:
+    * **Pill 1 (Combined Count & Running Status):** `X messages  ·  Y running` in a unified 6px rounded chip; `Y running` is highlighted in vivid DemiBold green (`#34d399` dark / `#15803d` light) with a subtle green tint background when transmitting (`running > 0`), and subdued neutral slate when stopped.
+    * **Pill 2 (Throughput / Wire Load):** `~XX B/s (X.X%)` in telemetry blue chip, dynamically adapting if constrained to ensure zero text clipping.
+  * **Minimum Width Enforcement:** Configured `txGroup->setMinimumWidth(465)` and `rxGroup->setMinimumWidth(480)` on the `dashboards` horizontal splitter, preventing the splitter from squeezing the TX Dashboard narrower than 465px. Combined with `MainWindow::setMinimumSize(1000, 720)`, status pills and controls are guaranteed 100% breathing room without any border clipping or truncation across all resize and splitter dragging interactions.
+  * Borderless and translucent (`border: none; background: transparent;`) with muted idle icon color (`#8895ad` dark / `#64748b` light).
+  * **Hover Icon Brightening:** Because Qt Style Sheets (`QStyleSheetStyle`) ignore `QIcon::Active` on mouse hover, button hover state is handled via `MainWindow::eventFilter` on `QEvent::Enter`/`QEvent::Leave` calling `updateSortButtonIcon()`, dynamically brightening the vector icon stroke to high-contrast foreground (`#edf0fa` dark / `#20263b` light) while keeping background completely transparent.
+  * Dedicated popup menu exclusively launched via the header button (no context menu clutter).
+  * Reduced width (`min-width: 130px`) and compact padding for a neat fit around the 5 criteria options: `ID`, `Status`, `Payload Size`, `Target Rate`, and `Sys / Comp ID`.
+  * Visual indicators: left-aligned vector arrow icon (`sortArrowUp` / `sortArrowDown`) and soft background tint (`item:checked`, ~12-22% opacity) for the currently active criteria; unselected items maintain transparent spacer icons for exact text alignment.
+  * Bidirectional toggle: clicking the same criteria toggles between Ascending and Descending order.
+  * Rearranging cards manually via drag-and-drop or `Ctrl+Up`/`Ctrl+Down` automatically resets the active sort indicator back to custom.
+  * Direct execution on the worker thread via `SerialWorker::sortEntries(criteria, ascending)` using `std::stable_sort`, preserving active transmission states without interruption, and persisting the updated sequence to `Workspace` settings immediately.
+  * Disabled automatically when no TX cards exist (`rowCount == 0`).
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
