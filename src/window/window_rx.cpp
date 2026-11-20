@@ -176,17 +176,24 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 item->setFont(0, messageFont);
                 item->setFont(1, fixedFont);
                 item->setFont(2, fixedFont);
+                item->setFont(3, fixedFont);
 
                 item->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
                 item->setTextAlignment(1, Qt::AlignCenter);
                 item->setTextAlignment(2, Qt::AlignCenter);
+                item->setTextAlignment(3, Qt::AlignCenter);
             }
 
+            const auto *entryInfo = mavlink_get_msg_entry(message.msgid);
+            const int payloadLen = entryInfo ? int(entryInfo->max_msg_len) : int(message.len);
+
             item->setText(0, QString("[%1] %2").arg(message.msgid).arg(messageName(message.msgid)));
-            item->setText(1, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
-            item->setData(1, Qt::UserRole, entry.hz);
-            item->setText(2, QString::number(qulonglong(entry.count)));
-            item->setData(2, Qt::UserRole, qulonglong(entry.count));
+            item->setText(1, QString("%1 B").arg(payloadLen));
+            item->setData(1, Qt::UserRole, payloadLen);
+            item->setText(2, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
+            item->setData(2, Qt::UserRole, entry.hz);
+            item->setText(3, QString::number(qulonglong(entry.count)));
+            item->setData(3, Qt::UserRole, qulonglong(entry.count));
             item->setData(0, Qt::UserRole + 2, entry.age);
             if (message.msgid == 22 && latest && latest->params)
             {
@@ -212,6 +219,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         }
         filterRx();
         updateInspector();
+        updateRxExpandIcon();
     }
     if (telemetryPlotter && telemetryPlotter->channelCount() > 0 && !paused && latest)
     {
@@ -619,5 +627,76 @@ void MainWindow::filterRx()
     rxSummary->setText(query.isEmpty() ? QString("%1 %2").arg(total).arg(total == 1 ? "stream" : "streams") :
                        QString("%1 / %2 streams").arg(matched).arg(total));
 }
+
+/**
+ * @brief Toggle expansion state of all RX device nodes.
+ *
+ * If any top-level item is currently expanded, collapses all items.
+ * If all items are collapsed, expands all items.
+ */
+void MainWindow::toggleExpandCollapseRx()
+{
+    if (!rxTree || rxTree->topLevelItemCount() == 0)
+    {
+        return;
+    }
+    bool anyExpanded = false;
+    for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
+    {
+        if (rxTree->topLevelItem(i)->isExpanded())
+        {
+            anyExpanded = true;
+            break;
+        }
+    }
+    if (anyExpanded)
+    {
+        rxTree->collapseAll();
+    }
+    else
+    {
+        rxTree->expandAll();
+    }
+    updateRxExpandIcon();
+}
+
+/**
+ * @brief Update the toggle expand/collapse button icon and tooltip based on RX tree state.
+ */
+void MainWindow::updateRxExpandIcon()
+{
+    if (!toggleExpandRx || !rxTree)
+    {
+        return;
+    }
+    const bool hasMessages = rxTree->topLevelItemCount() > 0;
+    bool anyExpanded = false;
+    for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
+    {
+        if (rxTree->topLevelItem(i)->isExpanded())
+        {
+            anyExpanded = true;
+            break;
+        }
+    }
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    const QColor iconColor = dark ? QColor("#e2e8f0") : QColor("#334155");
+    const QColor disabledColor = dark ? QColor("#526079") : QColor("#94a3b8");
+    const QString iconName = anyExpanded ? "collapseAll" : "expandAll";
+    const QString toolTip = anyExpanded ? "Collapse all (Ctrl+E)" : "Expand all (Ctrl+E)";
+
+    QIcon icon = actionIcon(iconName, iconColor);
+    icon.addPixmap(actionIcon(iconName, disabledColor).pixmap(18, 18), QIcon::Disabled);
+    toggleExpandRx->setIcon(icon);
+    toggleExpandRx->setIconSize(QSize(18, 18));
+    toggleExpandRx->setToolTip(toolTip);
+    toggleExpandRx->setEnabled(hasMessages);
+    if (toggleExpandRxAction)
+    {
+        toggleExpandRxAction->setText(anyExpanded ? "Collapse All Messages" : "Expand All Messages");
+        toggleExpandRxAction->setEnabled(hasMessages);
+    }
+}
+
 
 

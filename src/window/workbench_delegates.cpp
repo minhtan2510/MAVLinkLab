@@ -769,7 +769,7 @@ void RxStatusIcon::paint(QPainter *painter, const QRect &rect, QIcon::Mode mode,
 // --- RxItemDelegate ---
 
 /**
- * @brief Paint cells while suppressing dotted focus outlines.
+ * @brief Paint cells while suppressing dotted focus outlines and rendering badges for payload and rate.
  * @param painter Active painter.
  * @param option Style options.
  * @param index Model index.
@@ -778,6 +778,89 @@ void RxItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
 {
     QStyleOptionViewItem opt(option);
     opt.state &= ~QStyle::State_HasFocus;
+
+    const bool isChild = index.parent().isValid();
+    if (isChild && (index.column() == 1 || index.column() == 2))
+    {
+        opt.text.clear();
+        QStyledItemDelegate::paint(painter, opt, index);
+
+        const bool dark = option.palette.color(QPalette::Window).lightness() < 128;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QRect rect = option.rect;
+        const int pillHeight = 20;
+        const int pillY = rect.top() + (rect.height() - pillHeight) / 2;
+
+        if (index.column() == 1)
+        {
+            const QString text = index.data(Qt::DisplayRole).toString();
+            QFont font = cachedFixedFont();
+            font.setPixelSize(11);
+            font.setWeight(QFont::Medium);
+            painter->setFont(font);
+
+            const QFontMetrics fm(font);
+            const int textWidth = fm.horizontalAdvance(text);
+            const int pillWidth = textWidth + 14;
+            const int pillX = rect.left() + (rect.width() - pillWidth) / 2;
+            const QRectF pillRect(pillX, pillY, pillWidth, pillHeight);
+
+            const QColor bg = dark ? QColor(255, 255, 255, 12) : QColor(0, 0, 0, 8);
+            const QColor border = dark ? QColor(255, 255, 255, 24) : QColor(0, 0, 0, 18);
+            const QColor textCol = dark ? QColor("#94a3b8") : QColor("#64748b");
+
+            painter->setPen(QPen(border, 1.0));
+            painter->setBrush(bg);
+            painter->drawRoundedRect(pillRect, 4.5, 4.5);
+
+            painter->setPen(textCol);
+            painter->drawText(pillRect, Qt::AlignCenter, text);
+        }
+        else if (index.column() == 2)
+        {
+            const double hz = index.data(Qt::UserRole).toDouble();
+            const QString text = index.data(Qt::DisplayRole).toString() + " Hz";
+            QFont font = cachedFixedFont();
+            font.setPixelSize(11);
+            font.setWeight(QFont::Medium);
+            painter->setFont(font);
+
+            const QFontMetrics fm(font);
+            const int textWidth = fm.horizontalAdvance(text);
+            const int pillWidth = textWidth + 14;
+            const int pillX = rect.left() + (rect.width() - pillWidth) / 2;
+            const QRectF pillRect(pillX, pillY, pillWidth, pillHeight);
+
+            QColor bg;
+            QColor border;
+            QColor textCol;
+            if (hz > 0.0)
+            {
+                bg = dark ? QColor(52, 211, 153, 24) : QColor(21, 128, 61, 20);
+                border = dark ? QColor(52, 211, 153, 65) : QColor(21, 128, 61, 50);
+                textCol = dark ? QColor("#34d399") : QColor("#15803d");
+            }
+            else
+            {
+                bg = dark ? QColor(255, 255, 255, 8) : QColor(0, 0, 0, 6);
+                border = dark ? QColor(255, 255, 255, 18) : QColor(0, 0, 0, 14);
+                textCol = dark ? QColor("#64748b") : QColor("#94a3b8");
+            }
+
+            painter->setPen(QPen(border, 1.0));
+            painter->setBrush(bg);
+            painter->drawRoundedRect(pillRect, 4.5, 4.5);
+
+            painter->setPen(textCol);
+            painter->drawText(pillRect, Qt::AlignCenter, text);
+        }
+
+        painter->restore();
+        return;
+    }
+
     QStyledItemDelegate::paint(painter, opt, index);
 }
 
@@ -785,6 +868,11 @@ void RxItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
 void RxItemDelegate::initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const
 {
     QStyledItemDelegate::initStyleOption(option, index);
+    if (index.parent().isValid() && (index.column() == 1 || index.column() == 2))
+    {
+        option->text.clear();
+        return;
+    }
     if (index.column() != 0 || !index.data(Qt::UserRole + 2).isValid())
     {
         return;

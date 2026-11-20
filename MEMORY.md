@@ -127,6 +127,19 @@
   * TX Card bounding geometry is centralized in authoritative static helper `MainWindow::txCardRect(cellRect, animDy)` with 6px left margin and 8px right margin (`adjusted(6, 5 + animDy, -8, -5 + animDy)`), replacing hardcoded offsets across painting, drag-and-drop, and mouse event dispatching.
   * Provides an 8px breathing gap between the card right perimeter and the vertical scrollbar, eliminating cramped visual collision.
   * Global scrollbar styling refined to Swiss / macOS minimalist specifications: slim 6px width/height, fully transparent track (`background: transparent;`), 4px top/bottom margin preventing end-cap truncation, and capsule handle with 3px radius using soft neutral translucency (Dark: `rgba(255, 255, 255, 0.18)` / Hover `0.36` / Pressed `0.52`; Light: `rgba(0, 0, 0, 0.18)` / Hover `0.36` / Pressed `0.52`).
+* **RX Tree 4-Column Modern Hierarchy & Smart Toggle Expand/Collapse:**
+  * **4-Column Dedicated Layout:** `rxTree` adopts a dedicated 4-column structure:
+    1. **Col 0 (`Message`):** Stream identity `[ID] MESSAGE_NAME`, decorated with theme-aware status dot (Active `#3fb950`, Stale `#d29922`, Inactive `#8b949e`). Parent group rows (`System %1 · Component %2`) span all 4 columns (`setFirstColumnSpanned(true)`).
+    2. **Col 1 (`Payload`):** Schema wire payload size formatted as `XX B` (e.g. `9 B`, `28 B`), rendered via `RxItemDelegate::paint()` as a centered 20px rounded pill badge ($r = 4.5\text{px}$) with subtle translucent border.
+    3. **Col 2 (`Rate (Hz)`):** Measured reception frequency formatted as `X Hz` (or `X.X Hz`), rendered via `RxItemDelegate::paint()` as an active emerald chip badge when streaming ($hz > 0.0$, `#34d399` text / `#059669` border) and subdued neutral slate chip when inactive.
+    4. **Col 3 (`Count`):** Cumulative packet counter in fixed-pitch monospace font, centered.
+  * **Smart Toggle Expand/Collapse All (`toggleExpandRx` & `Ctrl+E`):**
+    * 34×34 px compact button on `rxActions` toolbar with dynamic vector icons (`expandAll` outward diagonal chevrons, `collapseAll` inward diagonal chevrons via Lucide `maximize-2` / `minimize-2` metaphor).
+    * Automatically detects state: if any device group is expanded $\to$ collapses all; if all are collapsed $\to$ expands all.
+    * Synced to `itemExpanded`/`itemCollapsed` signals to update icon and tooltip dynamically (*"Collapse all (Ctrl+E)"* vs *"Expand all (Ctrl+E)"*).
+    * Disabled automatically when no RX streams exist (`topLevelItemCount() == 0`), including upon startup and after `clearStatistics` (`Ctrl+L`), disabling shortcut `Ctrl+E` and rendering theme-aware muted `QIcon::Disabled` state.
+  * **Adaptive Geometry & No Horizontal Scroll:**
+    * `RxHeader::resetColumns()` distributes available viewport width across `{180, 75, 85, 80}` minimum widths, keeping `widths[0] > widths[column]` strictly satisfied and eliminating horizontal scrollbars across all window widths $\ge 1000\text{px}$.
 * **Real-time Throughput Monitoring & Link Load Estimation:**
   * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
   * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
@@ -194,6 +207,10 @@
 * **Unit Test Snapshot Injection vs. Worker Polling Timer:**
   * `MainWindow` maintains a 200ms `refresh` timer triggering `worker->requestSnapshot()`. In unit tests injecting synthetic snapshots directly via `window.applySnapshot(snapshot)`, call `window.stopRefreshTimer()` to prevent worker's empty periodic snapshots from overwriting test state.
   * Conversely, in integration tests relying on worker thread events (e.g. TX queue additions, PTY real transmission), keep the refresh timer active so worker snapshots flow naturally to the GUI.
+* **Custom Cell Text Suppression in QStyledItemDelegate (`initStyleOption`):**
+  * When implementing a custom delegate that paints custom badges or pills (such as `RxItemDelegate` for Column 1 Payload and Column 2 Rate), calling `QStyledItemDelegate::paint(painter, opt, index)` will internally invoke `initStyleOption(&opt, index)` on its local copy.
+  * If `initStyleOption` does not explicitly clear `option->text`, Qt's default `CE_ItemViewItem` will paint the item's `Qt::DisplayRole` text directly onto the cell canvas prior to the custom pill painting, causing double text rendering and overlapping visual artifacts (e.g. `1.0 Hz` painted over `1.0`).
+  * Remedy: In `initStyleOption()`, check if `index.parent().isValid()` and the column is custom-rendered (`column == 1 || column == 2`), then invoke `option->text.clear()`. This allows `QStyledItemDelegate::paint()` to cleanly draw the selection/hover background while delegating 100% of the foreground pill/text rendering to custom code without text collision.
 * **Linux X11 Popups & Rounded Window Masks:**
   * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11/Wayland unless configured with `setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint)` and `setAttribute(Qt::WA_TranslucentBackground, true)` prior to show/popup.
   * Avoid applying 1-bit raster masks via `setMask(roundedRect)` on translucent popups: XShape 1-bit polygon masks lack antialiasing, and integer polygon quantization errors leave dark/black pixel artifacts at the sharp outer vertices outside the stylesheet's antialiased curved border.

@@ -780,6 +780,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxFilter->setMinimumWidth(140);
     rxFilter->setAccessibleName("Filter received MAVLink streams");
     rxActions->addWidget(rxFilter);
+    toggleExpandRx = button("", "expandAll", rxActions);
+    toggleExpandRx->setObjectName("toggleExpandRx");
+    toggleExpandRx->setFixedSize(34, 34);
+    toggleExpandRx->setAccessibleName("Toggle expand/collapse all");
+    toggleExpandRx->setToolTip("Expand all (Ctrl+E)");
+    toggleExpandRx->setEnabled(false);
     auto *pause = button("", "pauseDisplay", rxActions);
     pause->setCheckable(true);
     pause->setFixedSize(34, 34);
@@ -790,6 +796,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     clear->setAccessibleName("Clear received messages");
     clear->setToolTip("Clear received messages and statistics (Ctrl+L)");
     rxLayout->addLayout(rxActions);
+
+    toggleExpandRxAction = viewMenu->addAction("Expand All Messages", this, &MainWindow::toggleExpandCollapseRx, QKeySequence("Ctrl+E"));
+    toggleExpandRxAction->setObjectName("actionToggleExpandRx");
+    toggleExpandRxAction->setEnabled(false);
 
     auto *pauseAction = viewMenu->addAction("Pause Display", this, [pause]()
     {
@@ -809,11 +819,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setObjectName("rxTree");
     rxTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rxTree->setHeader(new RxHeader(rxTree));
-    rxTree->setHeaderLabels({"Message", "Rate (Hz)", "Count"});
+    rxTree->setHeaderLabels({"Message", "Payload", "Rate (Hz)", "Count"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(1, Qt::AlignCenter);
     rxTree->headerItem()->setTextAlignment(2, Qt::AlignCenter);
+    rxTree->headerItem()->setTextAlignment(3, Qt::AlignCenter);
     rxTree->setRootIsDecorated(true);
     rxTree->setIndentation(16);
     rxTree->setUniformRowHeights(true);
@@ -1348,6 +1359,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         inspectorSource->clear();
         inspectorSource->hide();
         filterRx();
+        updateRxExpandIcon();
     });
     connect(pause, &QPushButton::toggled, this, [this, pause](bool checked)
     {
@@ -1366,6 +1378,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         pausedLabel->setVisible(checked);
     });
     connect(rxFilter, &QLineEdit::textChanged, this, &MainWindow::filterRx);
+    connect(toggleExpandRx, &QPushButton::clicked, this, &MainWindow::toggleExpandCollapseRx);
+    connect(rxTree, &QTreeWidget::itemExpanded, this, &MainWindow::updateRxExpandIcon);
+    connect(rxTree, &QTreeWidget::itemCollapsed, this, &MainWindow::updateRxExpandIcon);
     connect(rxTree, &QTreeWidget::itemSelectionChanged, this, &MainWindow::updateInspector);
     connect(txTable, &QTableWidget::itemSelectionChanged, this, &MainWindow::updateActions);
     connect(txTable, &QTableWidget::cellDoubleClicked, this, [this]()

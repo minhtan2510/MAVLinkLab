@@ -429,13 +429,13 @@ private slots:
         auto *pause = window.findChild<QPushButton *>("pauseDisplay");
         pause->click();
         QVERIFY(window.findChild<QLabel *>("displayPaused")->isVisible());
-        const auto frozenCount = message->text(2);
+        const auto frozenCount = message->text(3);
         QCOMPARE(::write(pty.master, frame.data(), frame.size()), ssize_t(frame.size()));
         QTest::qWait(300);
-        QCOMPARE(message->text(2), frozenCount);
+        QCOMPARE(message->text(3), frozenCount);
         pause->click();
         QVERIFY(window.findChild<QLabel *>("displayPaused")->isHidden());
-        QTRY_VERIFY(message->text(2) != frozenCount);
+        QTRY_VERIFY(message->text(3) != frozenCount);
         start->trigger();
         QTest::qWait(100);
         stop->trigger();
@@ -834,7 +834,7 @@ private slots:
 
             fields->setColumnWidth(0, 185);
             QTest::qWait(30);
-            rxCountWidth = rx->columnWidth(2);
+            rxCountWidth = rx->columnWidth(3);
             size = window.size();
             dashboardSizes = dashboards->sizes();
             inspectorSizes = rxSplit->sizes();
@@ -849,7 +849,7 @@ private slots:
             QVERIFY(qAbs(actual[0] - dashboardSizes[0]) <= 2);
             const auto restored = window.findChild<QSplitter *>("rxSplit")->sizes();
             QVERIFY(qAbs(restored[0] - inspectorSizes[0]) <= 2);
-            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(2), rxCountWidth);
+            QCOMPARE(window.findChild<QTreeWidget *>("rxTree")->columnWidth(3), rxCountWidth);
             QCOMPARE(window.findChild<QTableWidget *>("inspector")->columnWidth(0), 185);
             QCOMPARE(window.findChild<QPushButton *>("connect")->text(), QString("Connect"));
             QCOMPARE(window.findChild<QTableWidget *>("txTable")->rowCount(), 0);
@@ -886,13 +886,13 @@ private slots:
         auto *header = rx->header();
         const auto widths = [header]()
         {
-            return std::array<int, 3>{header->sectionSize(0), header->sectionSize(1), header->sectionSize(2)};
+            return std::array<int, 4>{header->sectionSize(0), header->sectionSize(1), header->sectionSize(2), header->sectionSize(3)};
         };
         const auto verifyFit = [&]()
         {
-            QCOMPARE(rx->columnCount(), 3);
+            QCOMPARE(rx->columnCount(), 4);
             QCOMPARE(header->length(), rx->viewport()->width());
-            for (int column = 1; column < 3; ++column)
+            for (int column = 1; column < 4; ++column)
             {
                 QVERIFY(header->sectionSize(0) > header->sectionSize(column));
             }
@@ -900,7 +900,7 @@ private slots:
             QCOMPARE(rx->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
             QVERIFY(!rx->horizontalScrollBar()->isVisible());
             QCOMPARE(rx->horizontalScrollBar()->maximum(), 0);
-            for (int column = 0; column < 3; ++column)
+            for (int column = 0; column < 4; ++column)
             {
                 QCOMPARE(header->sectionResizeMode(column), QHeaderView::Fixed);
                 QCOMPARE(header->visualIndex(column), column);
@@ -991,11 +991,12 @@ private slots:
         for (const QString &state : {QString("Active"), QString("Stale"), QString("Inactive")})
         {
             QTRY_COMPARE(item->toolTip(0), state);
-            QCOMPARE(rx->columnCount(), 3);
+            QCOMPARE(rx->columnCount(), 4);
             QVERIFY(item->data(0, Qt::AccessibleTextRole).toString().endsWith(state));
             QVERIFY(device->toolTip(0).isEmpty());
             QVERIFY(device->text(1).isEmpty());
             QVERIFY(device->text(2).isEmpty());
+            QVERIFY(device->text(3).isEmpty());
             QVERIFY(!device->data(0, Qt::UserRole + 2).isValid());
             QVERIFY(device->isFirstColumnSpanned());
             QVERIFY(device->font(0).bold());
@@ -1444,20 +1445,25 @@ private slots:
         auto *inspector = window.findChild<QTableWidget *>("inspector");
         QTRY_VERIFY(inspector->rowCount() > 0);
         QCOMPARE(rx->headerItem()->text(0), QString("Message"));
-        QCOMPARE(rx->headerItem()->text(1), QString("Rate (Hz)"));
-        QCOMPARE(rx->headerItem()->text(2), QString("Count"));
-        QCOMPARE(rx->columnCount(), 3);
+        QCOMPARE(rx->headerItem()->text(1), QString("Payload"));
+        QCOMPARE(rx->headerItem()->text(2), QString("Rate (Hz)"));
+        QCOMPARE(rx->headerItem()->text(3), QString("Count"));
+        QCOMPARE(rx->columnCount(), 4);
         QCOMPARE(rx->topLevelItem(0)->child(1)->text(0), QString("[30] ATTITUDE"));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->text(1), QString("28 B"));
         QCOMPARE(rx->topLevelItem(0)->child(1)->toolTip(0), QString("Active"));
         QVERIFY(!rx->header()->sectionsMovable());
         QCOMPARE(rx->header()->sectionResizeMode(0), QHeaderView::Fixed);
         QCOMPARE(rx->headerItem()->textAlignment(1), int(Qt::AlignCenter));
         QCOMPARE(rx->headerItem()->textAlignment(2), int(Qt::AlignCenter));
+        QCOMPARE(rx->headerItem()->textAlignment(3), int(Qt::AlignCenter));
         QVERIFY(rx->topLevelItem(0)->isFirstColumnSpanned());
         QVERIFY(rx->topLevelItem(0)->text(1).isEmpty());
         QVERIFY(rx->topLevelItem(0)->text(2).isEmpty());
+        QVERIFY(rx->topLevelItem(0)->text(3).isEmpty());
         QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(1), int(Qt::AlignCenter));
         QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(2), int(Qt::AlignCenter));
+        QCOMPARE(rx->topLevelItem(0)->child(1)->textAlignment(3), int(Qt::AlignCenter));
         QCOMPARE(inspector->horizontalHeaderItem(0)->text(), QString("Parameter"));
         QCOMPARE(inspector->horizontalHeaderItem(1)->text(), QString("Type"));
         QCOMPARE(inspector->horizontalHeaderItem(2)->text(), QString("Value"));
@@ -5439,6 +5445,131 @@ private slots:
         QPixmap cardPix = txTable->viewport()->grab(cellRect);
         QDir().mkpath("qa");
         cardPix.save("qa/tx-card-long-title-elided.png");
+    }
+
+    /** @brief Verify RX tree 4-column layout, pill badges, and Smart Toggle Expand/Collapse with Ctrl+E. */
+    void rxTreeFourColumnsAndToggleExpand()
+    {
+        MainWindow window;
+        window.show();
+        window.resize(1100, 750);
+        window.stopRefreshTimer();
+        QTest::qWait(50);
+
+        auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+        auto *toggleBtn = window.findChild<QPushButton *>("toggleExpandRx");
+        auto *action = window.findChild<QAction *>("actionToggleExpandRx");
+        QVERIFY(rxTree && toggleBtn && action);
+
+        // Initially disabled when 0 messages
+        QVERIFY(!toggleBtn->isEnabled());
+        QVERIFY(!action->isEnabled());
+
+        // Inject snapshot with multiple streams
+        auto snapshot = std::make_shared<Snapshot>();
+        snapshot->connected = true;
+
+        RxView view1;
+        view1.message.sysid = 1;
+        view1.message.compid = 1;
+        view1.message.msgid = 0; // HEARTBEAT, payload 9 B
+        view1.message.len = 9;
+        view1.hz = 1.0;
+        view1.count = 42;
+        view1.age = 0.5;
+
+        RxView view2;
+        view2.message.sysid = 1;
+        view2.message.compid = 1;
+        view2.message.msgid = 30; // ATTITUDE, payload 28 B
+        view2.message.len = 28;
+        view2.hz = 10.0;
+        view2.count = 420;
+        view2.age = 0.2;
+
+        RxView view3;
+        view3.message.sysid = 2;
+        view3.message.compid = 1;
+        view3.message.msgid = 1; // SYS_STATUS, payload 31 B
+        view3.message.len = 31;
+        view3.hz = 2.0;
+        view3.count = 84;
+        view3.age = 0.4;
+
+        snapshot->rx.push_back(view1);
+        snapshot->rx.push_back(view2);
+        snapshot->rx.push_back(view3);
+
+        window.applySnapshot(snapshot);
+        QTest::qWait(50);
+
+        QCOMPARE(rxTree->columnCount(), 4);
+        QCOMPARE(rxTree->topLevelItemCount(), 2);
+
+        auto *dev1 = rxTree->topLevelItem(0);
+        auto *dev2 = rxTree->topLevelItem(1);
+        QVERIFY(dev1->isExpanded());
+        QVERIFY(dev2->isExpanded());
+        QCOMPARE(dev1->childCount(), 2);
+        QCOMPARE(dev2->childCount(), 1);
+
+        // Verify child 0 (HEARTBEAT): payload 9 B
+        auto *hbItem = dev1->child(0);
+        QCOMPARE(hbItem->text(0), QString("[0] HEARTBEAT"));
+        QCOMPARE(hbItem->text(1), QString("9 B"));
+        QCOMPARE(hbItem->text(2), QString("1.0"));
+        QCOMPARE(hbItem->text(3), QString("42"));
+
+        // Verify child 1 (ATTITUDE): payload 28 B
+        auto *attItem = dev1->child(1);
+        QCOMPARE(attItem->text(0), QString("[30] ATTITUDE"));
+        QCOMPARE(attItem->text(1), QString("28 B"));
+        QCOMPARE(attItem->text(2), QString("10"));
+        QCOMPARE(attItem->text(3), QString("420"));
+
+        // Verify Smart Toggle: initial state has expanded items -> clicking collapses all
+        toggleBtn->click();
+        QTest::qWait(30);
+        QVERIFY(!dev1->isExpanded());
+        QVERIFY(!dev2->isExpanded());
+        QCOMPARE(toggleBtn->toolTip(), QString("Expand all (Ctrl+E)"));
+
+        // Clicking again expands all
+        toggleBtn->click();
+        QTest::qWait(30);
+        QVERIFY(dev1->isExpanded());
+        QVERIFY(dev2->isExpanded());
+        QCOMPARE(toggleBtn->toolTip(), QString("Collapse all (Ctrl+E)"));
+
+        // Trigger Ctrl+E shortcut
+        action->trigger();
+        QTest::qWait(30);
+        QVERIFY(!dev1->isExpanded());
+        QVERIFY(!dev2->isExpanded());
+
+        action->trigger();
+        QTest::qWait(30);
+        QVERIFY(dev1->isExpanded());
+        QVERIFY(dev2->isExpanded());
+        QVERIFY(toggleBtn->isEnabled());
+        QVERIFY(action->isEnabled());
+
+        // Clear statistics should disable toggle button and action
+        auto *clearBtn = window.findChild<QPushButton *>("clearStatistics");
+        QVERIFY(clearBtn);
+        clearBtn->click();
+        QTest::qWait(30);
+        QCOMPARE(rxTree->topLevelItemCount(), 0);
+        QVERIFY(!toggleBtn->isEnabled());
+        QVERIFY(!action->isEnabled());
+
+        // Capture offscreen rendering to build/qa/rx-tree-four-columns.png
+        QDir().mkpath("qa");
+        rxTree->grab().save("qa/rx-tree-four-columns.png");
+        toggleBtn->grab().save("qa/toggle-btn-collapse.png");
+        toggleBtn->click();
+        QTest::qWait(30);
+        toggleBtn->grab().save("qa/toggle-btn-expand.png");
     }
 };
 

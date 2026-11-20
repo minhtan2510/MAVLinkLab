@@ -484,6 +484,48 @@ QIcon actionIcon(const QString &name, const QColor &color)
         painter.drawLine(QPointF(6.7, 6.1), QPointF(10.5, 9.9));
         painter.drawLine(QPointF(10.5, 6.1), QPointF(6.7, 9.9));
     }
+    else if (name == "expandAll")
+    {
+        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+
+        // Top-right corner and diagonal shaft pointing outward
+        QPainterPath trCorner;
+        trCorner.moveTo(9.2, 3.2);
+        trCorner.lineTo(12.8, 3.2);
+        trCorner.lineTo(12.8, 6.8);
+        painter.drawPath(trCorner);
+        painter.drawLine(QPointF(12.8, 3.2), QPointF(8.5, 7.5));
+
+        // Bottom-left corner and diagonal shaft pointing outward
+        QPainterPath blCorner;
+        blCorner.moveTo(6.8, 12.8);
+        blCorner.lineTo(3.2, 12.8);
+        blCorner.lineTo(3.2, 9.2);
+        painter.drawPath(blCorner);
+        painter.drawLine(QPointF(3.2, 12.8), QPointF(7.5, 8.5));
+    }
+    else if (name == "collapseAll")
+    {
+        painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+
+        // Top-right corner and diagonal shaft pointing inward
+        QPainterPath trCorner;
+        trCorner.moveTo(12.8, 6.8);
+        trCorner.lineTo(9.2, 6.8);
+        trCorner.lineTo(9.2, 3.2);
+        painter.drawPath(trCorner);
+        painter.drawLine(QPointF(12.8, 3.2), QPointF(9.2, 6.8));
+
+        // Bottom-left corner and diagonal shaft pointing inward
+        QPainterPath blCorner;
+        blCorner.moveTo(3.2, 9.2);
+        blCorner.lineTo(6.8, 9.2);
+        blCorner.lineTo(6.8, 12.8);
+        painter.drawPath(blCorner);
+        painter.drawLine(QPointF(3.2, 12.8), QPointF(6.8, 9.2));
+    }
     else if (name == "sort" || name == "sortMessages")
     {
         painter.setPen(QPen(color, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));

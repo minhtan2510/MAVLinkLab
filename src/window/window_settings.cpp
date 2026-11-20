@@ -764,6 +764,7 @@ void MainWindow::showKeyboardShortcuts()
         {"Undo delete", {"Ctrl", "+", "Z"}},
         {"Move message up", {"Ctrl", "+", "↑"}},
         {"Move message down", {"Ctrl", "+", "↓"}},
+        {"Expand / collapse all", {"Ctrl", "+", "E"}},
         {"Pause / resume display", {"Ctrl", "+", "P"}},
         {"Clear received messages", {"Ctrl", "+", "L"}},
         {"Cancel drag & drop", {"Esc"}},

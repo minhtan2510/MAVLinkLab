@@ -107,6 +107,10 @@ private:
     void updateInspector();
     /** @brief Filter RX rows by sender and message identity. */
     void filterRx();
+    /** @brief Toggle expansion state of all RX device nodes. */
+    void toggleExpandCollapseRx();
+    /** @brief Update the toggle expand/collapse icon and tooltip based on RX tree state. */
+    void updateRxExpandIcon();
     /** @brief Apply semantic light/dark tokens or the current system palette. */
     void applyTheme();
     /** @brief Display a persistent actionable error in the status bar. */
@@ -302,6 +306,8 @@ private:
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
+    QPushButton *toggleExpandRx = nullptr;
+    QAction *toggleExpandRxAction = nullptr;
     QLineEdit *paramFilter = nullptr;
     bool isParamView = false;
     uint32_t activeParamSysId = 0;

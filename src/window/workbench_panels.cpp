@@ -154,34 +154,36 @@ RxHeader::RxHeader(QWidget *parent)
 /** @brief Apply the fixed column distribution at the current viewport width. */
 void RxHeader::resetColumns()
 {
-    if (adjusting || count() != 3 || !isVisible())
+    if (adjusting || count() != 4 || !isVisible())
     {
         return;
     }
     adjusting = true;
-    const int available = qMax(viewport()->width(), 3);
-    const std::array<int, 3> minima{180, 90, 80};
-    std::array<int, 3> widths{};
-    if (available >= 350)
+    const int available = qMax(viewport()->width(), 4);
+    const std::array<int, 4> minima{180, 75, 85, 80};
+    std::array<int, 4> widths{};
+    const int fixedTotal = minima[1] + minima[2] + minima[3];
+    const int totalMinima = minima[0] + fixedTotal;
+    if (available >= totalMinima)
     {
-        widths[0] = qBound(180, available / 2, available - 170);
-        const int surplus = available - widths[0] - 170;
-        for (int column = 1; column < 3; ++column)
+        widths[0] = qBound(minima[0], available / 2, available - fixedTotal);
+        const int surplus = available - widths[0] - fixedTotal;
+        for (int column = 1; column < 4; ++column)
         {
-            widths[column] = minima[column] + surplus / 2 + (column <= surplus % 2 ? 1 : 0);
+            widths[column] = minima[column] + surplus / 3 + (column <= surplus % 3 ? 1 : 0);
         }
     }
     else
     {
         int remaining = available;
-        for (int column = 0; column < 2; ++column)
+        for (int column = 0; column < 3; ++column)
         {
-            widths[column] = qMax(1, minima[column] * available / 350);
+            widths[column] = qMax(1, minima[column] * available / totalMinima);
             remaining -= widths[column];
         }
-        widths[2] = remaining;
+        widths[3] = remaining;
     }
-    for (int column = 0; column < 3; ++column)
+    for (int column = 0; column < 4; ++column)
     {
         resizeSection(column, widths[column]);
     }
