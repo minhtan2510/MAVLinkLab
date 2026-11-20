@@ -221,6 +221,12 @@
   * Focus Rect & Outline Suppression: `RxItemDelegate` strips `State_HasFocus` while QSS enforces `outline: none; border: none;` on selected and focused items, providing clean full-row solid highlight without distracting dotted frames.
   * Inline Status Dots: `RxItemDelegate` uses `RxStatusIcon` vector decorations before Message text on leaf rows only. Freshness is stored in column0 at `Qt::UserRole + 2`, leaving identity roles untouched. Green Active at age<=1.2s, amber Stale through3.0s, muted Inactive afterward; no visible age or separate Status column. Device groups are identity-only.
   * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
+* **RX Dashboard Compact Action Toolbar (`pauseDisplay` & `clearStatistics`):**
+  * Modernized from bulky text buttons to compact 32x32 px icon-only controls aligned with `rxFilter` (32 px height, 4 px spacing, border-radius 6 px) to maximize search input width.
+  * Vector Icons via `actionIcon()`:
+    * `pauseDisplay`: Dynamic `❚❚` (Pause) ↔ `▶` (Resume). When paused, applies an Amber alert badge style (`#f59e0b` / theme tokens) with instant visual feedback.
+    * `clearStatistics`: Backspace erase tag vector icon (left-pointing polygon with `✕` inside) with subtle danger hover highlight (`#ef4444` / `#dc2626`).
+  * Keyboard Shortcuts: `Ctrl+P` for Pause/Resume Display and `Ctrl+L` for Clear Received Messages, bound to View menu actions and listed in the F1 Keyboard Shortcuts cheatsheet dialog.
 * **MAVLink Parameter Protocol Collection & Dual-Mode Inspector:**
   * Parameter Protocol encodes all distinct parameters under a single stream identity `[22] PARAM_VALUE`. The core `Mav::Receiver` aggregates parameter values into `params[{sysid, compid}]` maps rather than discarding previous entries.
   * Wire format packs numeric parameter values into a 32-bit `float param_value`. Type conversion for integers (`UINT8`, `INT8`, `UINT16`, `INT16`, `UINT32`, `INT32`) must strictly use standard type-punning via `mavlink_param_union_t` to avoid IEEE-754 precision loss and NaN conversion errors.

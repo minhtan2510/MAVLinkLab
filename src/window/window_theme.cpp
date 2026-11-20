@@ -139,7 +139,7 @@ void MainWindow::applyTheme()
         "QCheckBox { background:transparent; color:%3; font-size:13px; outline:none; }"
         "QDialogButtonBox QPushButton { qproperty-icon: none; }"
         "QPushButton { background:%2; color:%3; border:1px solid %4; border-radius:7px; padding:7px 10px; font-weight:500; outline:none; }"
-        "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll { padding:0; border-radius:5px; }"
+        "QPushButton#runAll,QPushButton#stopAll,QPushButton#deleteAll,QPushButton#pauseDisplay,QPushButton#clearStatistics { padding:0; border-radius:6px; }"
         "QPushButton:hover { background:%6; border-color:#818cf8; }"
         "QPushButton:pressed,QPushButton:checked { background:%6; border-color:%8; }"
         "QPushButton[role=primary] { background:#4f46e5; color:white; border-color:#4f46e5; }"
@@ -163,7 +163,7 @@ void MainWindow::applyTheme()
         "QComboBox QLineEdit,QComboBox QLineEdit:focus,QComboBox QLineEdit:hover { padding:0; margin:0; border:0; outline:none; background:transparent; }"
         "QComboBox QFrame { background:transparent; border:0; }"
         "QPushButton#refreshPorts { padding:0; }"
-        "QPushButton#refreshPorts[keyboardFocus=true] { padding:0; }"
+        "QPushButton#refreshPorts[keyboardFocus=true],QPushButton#pauseDisplay[keyboardFocus=true],QPushButton#clearStatistics[keyboardFocus=true] { padding:0; }"
         "QSpinBox::up-button,QDoubleSpinBox::up-button { subcontrol-origin:border; subcontrol-position:top right; width:20px; border-left:1px solid %4; border-bottom:1px solid %4; }"
         "QSpinBox::down-button,QDoubleSpinBox::down-button { subcontrol-origin:border; subcontrol-position:bottom right; width:20px; border-left:1px solid %4; }"
         "QSpinBox::up-arrow,QSpinBox::down-arrow,QDoubleSpinBox::up-arrow,QDoubleSpinBox::down-arrow { image:none; }"
@@ -268,12 +268,36 @@ void MainWindow::applyTheme()
     ).arg(dark ? "#162134" : "#ffffff", dark ? "#35445d" : "#d1dbea",
           dark ? "#202d42" : "#eef2f9", dark ? "#d6dfee" : "#40536e",
           dark ? "#1d2b41" : "#f4f7fb", dark ? "#1d293c" : "#f7f9fc", dark ? "#f3d698" : "#805c17");
-    setStyleSheet(baseStyle + menuStyle + connectionStyle + selectionStyle + dataStyle);
-    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "duplicateMessage", "removeMessage", "runAll", "stopAll", "deleteAll"})
+    const QString rxButtonStyle = QString(
+        "QPushButton#pauseDisplay[paused=true] { background:%1; border:1px solid %2; }"
+        "QPushButton#pauseDisplay[paused=true]:hover { background:%3; border-color:%2; }"
+        "QPushButton#clearStatistics:hover { background:%4; border-color:%5; }"
+        "QPushButton#clearStatistics:pressed { background:%6; border-color:%7; }"
+    ).arg(dark ? "rgba(245, 158, 11, 0.22)" : "rgba(245, 158, 11, 0.15)",
+          dark ? "#f59e0b" : "#d97706",
+          dark ? "rgba(245, 158, 11, 0.32)" : "rgba(245, 158, 11, 0.25)",
+          dark ? "rgba(239, 68, 68, 0.16)" : "rgba(239, 68, 68, 0.12)",
+          dark ? "#ef4444" : "#dc2626",
+          dark ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.20)",
+          dark ? "#dc2626" : "#b91c1c");
+    setStyleSheet(baseStyle + menuStyle + connectionStyle + selectionStyle + dataStyle + rxButtonStyle);
+    for (const auto &name : {"addMessage", "startTx", "sendOnce", "stopTx", "refreshPorts", "serialSettings", "editMessage", "duplicateMessage", "removeMessage", "runAll", "stopAll", "deleteAll", "pauseDisplay", "clearStatistics"})
     {
         auto *control = findChild<QPushButton *>(name);
         if (!control)
         {
+            continue;
+        }
+        if (QString(name) == "pauseDisplay")
+        {
+            const bool isPaused = control->property("paused").toBool();
+            const QColor pauseColor = isPaused
+                ? (dark ? QColor("#fbbf24") : QColor("#d97706"))
+                : foreground;
+            QIcon icon = actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", pauseColor);
+            icon.addPixmap(actionIcon(isPaused ? "resumeDisplay" : "pauseDisplay", QColor(muted)).pixmap(16, 16), QIcon::Disabled);
+            control->setIcon(icon);
+            control->setIconSize(QSize(16, 16));
             continue;
         }
         const QString role = control->property("role").toString();

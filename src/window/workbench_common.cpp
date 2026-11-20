@@ -444,6 +444,40 @@ QIcon actionIcon(const QString &name, const QColor &color)
         painter.drawLine(12, 2, 12, 6);
         painter.drawLine(12, 6, 8, 6);
     }
+    else if (name == "pauseDisplay")
+    {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawRoundedRect(QRectF(3.8, 3.5, 2.7, 9.0), 1.0, 1.0);
+        painter.drawRoundedRect(QRectF(9.5, 3.5, 2.7, 9.0), 1.0, 1.0);
+    }
+    else if (name == "resumeDisplay")
+    {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        QPainterPath path;
+        path.moveTo(4.4, 3.1);
+        path.lineTo(12.6, 8.0);
+        path.lineTo(4.4, 12.9);
+        path.closeSubpath();
+        painter.drawPath(path);
+    }
+    else if (name == "clearStatistics")
+    {
+        painter.setPen(QPen(color, 1.45, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath tag;
+        tag.moveTo(1.5, 8.0);
+        tag.lineTo(4.7, 3.1);
+        tag.lineTo(14.1, 3.1);
+        tag.lineTo(14.1, 12.9);
+        tag.lineTo(4.7, 12.9);
+        tag.closeSubpath();
+        painter.drawPath(tag);
+
+        painter.drawLine(QPointF(6.7, 6.1), QPointF(10.5, 9.9));
+        painter.drawLine(QPointF(10.5, 6.1), QPointF(6.7, 9.9));
+    }
     return QIcon(pixmap);
 }
 

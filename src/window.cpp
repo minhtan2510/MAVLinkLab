@@ -763,29 +763,36 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxHeader->addStretch();
     rxLayout->addLayout(rxHeader);
     auto *rxActions = new QHBoxLayout;
+    rxActions->setContentsMargins(0, 0, 0, 0);
+    rxActions->setSpacing(4);
     rxFilter = new CatalogSearch;
     rxFilter->setObjectName("rxFilter");
+    rxFilter->setFixedHeight(32);
     rxFilter->setPlaceholderText("Search messages or sender…");
     rxFilter->setClearButtonEnabled(true);
     rxFilter->setMinimumWidth(140);
     rxFilter->setAccessibleName("Filter received MAVLink streams");
     rxActions->addWidget(rxFilter);
-    auto *pause = button("Pause display", "pauseDisplay", rxActions);
+    auto *pause = button("", "pauseDisplay", rxActions);
     pause->setCheckable(true);
-    pause->setMinimumWidth(136);
-    auto *clear = button("Clear", "clearStatistics", rxActions);
-    clear->setToolTip("Clear received messages and statistics");
+    pause->setFixedSize(32, 32);
+    pause->setAccessibleName("Pause display");
+    pause->setToolTip("Pause display (Ctrl+P)");
+    auto *clear = button("", "clearStatistics", rxActions);
+    clear->setFixedSize(32, 32);
+    clear->setAccessibleName("Clear received messages");
+    clear->setToolTip("Clear received messages and statistics (Ctrl+L)");
     rxLayout->addLayout(rxActions);
 
     auto *pauseAction = viewMenu->addAction("Pause Display", this, [pause]()
     {
         pause->toggle();
-    });
+    }, QKeySequence("Ctrl+P"));
     pauseAction->setObjectName("actionPauseDisplay");
     pauseAction->setCheckable(true);
     connect(pause, &QPushButton::toggled, pauseAction, &QAction::setChecked);
 
-    auto *clearAction = viewMenu->addAction("Clear Received Messages", clear, &QPushButton::click);
+    auto *clearAction = viewMenu->addAction("Clear Received Messages", clear, &QPushButton::click, QKeySequence("Ctrl+L"));
     clearAction->setObjectName("actionClearDisplay");
     auto *rxSplit = new QSplitter(Qt::Vertical);
     rxSplit->setObjectName("rxSplit");
@@ -1337,7 +1344,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(pause, &QPushButton::toggled, this, [this, pause](bool checked)
     {
         paused = checked;
-        pause->setText(checked ? "Resume display" : "Pause display");
+        pause->setToolTip(checked ? "Resume display (Ctrl+P)" : "Pause display (Ctrl+P)");
+        pause->setAccessibleName(checked ? "Resume display" : "Pause display");
+        pause->setProperty("paused", checked);
+        pause->style()->unpolish(pause);
+        pause->style()->polish(pause);
+        const bool dark = palette().color(QPalette::Window).lightness() < 128;
+        const QColor activeColor = checked
+            ? (dark ? QColor("#fbbf24") : QColor("#d97706"))
+            : (dark ? QColor("#e2e8f0") : QColor("#334155"));
+        pause->setIcon(actionIcon(checked ? "resumeDisplay" : "pauseDisplay", activeColor));
         pausedLabel->setVisible(checked);
     });
     connect(rxFilter, &QLineEdit::textChanged, this, &MainWindow::filterRx);
