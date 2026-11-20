@@ -334,6 +334,21 @@ void PlotCanvasWidget::paintEvent(QPaintEvent *event)
 
         if (poly.size() >= 2)
         {
+            // Soft Area Gradient Fill under curve down to baseline
+            QPolygonF fillPoly = poly;
+            fillPoly.append(QPointF(poly.last().x(), plotRect.bottom()));
+            fillPoly.append(QPointF(poly.first().x(), plotRect.bottom()));
+
+            QLinearGradient gradient(0, plotRect.top(), 0, plotRect.bottom());
+            const int topAlpha = dark_ ? 50 : 35;
+            gradient.setColorAt(0.0, QColor(channel.color.red(), channel.color.green(), channel.color.blue(), topAlpha));
+            gradient.setColorAt(1.0, QColor(channel.color.red(), channel.color.green(), channel.color.blue(), 0));
+
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(gradient);
+            painter.drawPolygon(fillPoly);
+
+            // Crisp line curve on top
             painter.setPen(QPen(channel.color, 2.0));
             painter.drawPolyline(poly);
         }
@@ -347,11 +362,15 @@ void PlotCanvasWidget::paintEvent(QPaintEvent *event)
 
     painter.setClipping(false);
 
-    // 7. Hover Inspection Hairline & Readout Tooltip
+    // 7. Hover Inspection Dual-Axis Crosshair & Readout Tooltip
     if (isHovering_ && plotRect.contains(hoverPos_))
     {
-        painter.setPen(QPen(dark_ ? QColor("#94a3b8") : QColor("#475569"), 1, Qt::DashLine));
+        const QColor hairlineColor = dark_ ? QColor(148, 163, 184, 180) : QColor(71, 85, 105, 180);
+        painter.setPen(QPen(hairlineColor, 1, Qt::DashLine));
+        // Vertical hairline (Time axis)
         painter.drawLine(hoverPos_.x(), plotRect.top(), hoverPos_.x(), plotRect.bottom());
+        // Horizontal hairline (Value axis)
+        painter.drawLine(plotRect.left(), hoverPos_.y(), plotRect.right(), hoverPos_.y());
 
         const double hoverFrac = double(hoverPos_.x() - plotRect.left()) / double(plotRect.width());
         const int64_t cursorTimeUs = startUs + int64_t(hoverFrac * double(windowUs));
@@ -677,6 +696,23 @@ void TelemetryPlotWidget::removeChannelAt(size_t index)
         if (onChannelsChanged)
         {
             onChannelsChanged();
+        }
+    }
+}
+
+/**
+ * @brief Toggle visibility of the channel at specified zero-based index.
+ * @param index Index of channel to toggle.
+ */
+void TelemetryPlotWidget::toggleChannelVisibility(size_t index)
+{
+    if (index < channels_.size())
+    {
+        channels_[index].visible = !channels_[index].visible;
+        updateChannelTagStyle(index);
+        if (canvas_)
+        {
+            canvas_->update();
         }
     }
 }
@@ -1077,6 +1113,68 @@ void TelemetryPlotWidget::closeEvent(QCloseEvent *event)
     }
 }
 
+/**
+ * @brief Interactive pill frame allowing toggle of channel visibility via left click.
+ */
+class ChannelTagPill : public QFrame
+{
+public:
+    using QFrame::QFrame;
+    std::function<void()> onClicked;
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && onClicked)
+        {
+            onClicked();
+            event->accept();
+            return;
+        }
+        QFrame::mousePressEvent(event);
+    }
+};
+
+void TelemetryPlotWidget::updateChannelTagStyle(size_t index)
+{
+    if (index >= channels_.size() || index >= tagWidgets_.size())
+    {
+        return;
+    }
+    const auto &c = channels_[index];
+    auto &entry = tagWidgets_[index];
+    if (!entry.frame || !entry.valueLabel || !entry.dotLabel)
+    {
+        return;
+    }
+    entry.frame->setToolTip(c.visible ? "Click to hide channel from plot" : "Click to show channel on plot");
+    if (c.visible)
+    {
+        entry.dotLabel->setText("●");
+        entry.dotLabel->setStyleSheet(QString("color: %1; font-size: 10px;").arg(c.color.name()));
+        entry.valueLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 500;")
+                                        .arg(dark_ ? "#edf0fa" : "#1e293b"));
+        entry.frame->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 4px; } "
+                                           "QFrame:hover { border-color: %3; }")
+                                   .arg(dark_ ? c.color.name() + "22" : c.color.name() + "18",
+                                        c.color.name() + "88",
+                                        c.color.name()));
+    }
+    else
+    {
+        entry.dotLabel->setText("○");
+        entry.dotLabel->setStyleSheet(QString("color: %1; font-size: 10px;")
+                                      .arg(dark_ ? "#64748b" : "#94a3b8"));
+        entry.valueLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 400;")
+                                        .arg(dark_ ? "#64748b" : "#94a3b8"));
+        entry.frame->setStyleSheet(QString("QFrame { background: %1; border: 1px dashed %2; border-radius: 4px; } "
+                                           "QFrame:hover { border-color: %3; }")
+                                   .arg(dark_ ? "#1e293b66" : "#f1f5f9aa",
+                                        dark_ ? "#475569" : "#cbd5e1",
+                                        c.color.name() + "88"));
+    }
+}
+
 void TelemetryPlotWidget::rebuildChannelTags()
 {
     tagWidgets_.clear();
@@ -1090,38 +1188,40 @@ void TelemetryPlotWidget::rebuildChannelTags()
     for (size_t i = 0; i < channels_.size(); ++i)
     {
         const auto &c = channels_[i];
-        auto *tag = new QFrame(tagsContainer_);
+        auto *tag = new ChannelTagPill(tagsContainer_);
+        tag->setCursor(Qt::PointingHandCursor);
         auto *tagLayout = new QHBoxLayout(tag);
-        tagLayout->setContentsMargins(5, 2, 4, 2);
+        tagLayout->setContentsMargins(6, 2, 4, 2);
         tagLayout->setSpacing(4);
 
-        auto *dot = new QLabel("●", tag);
-        dot->setStyleSheet(QString("color: %1; font-size: 10px;").arg(c.color.name()));
+        auto *dot = new QLabel(c.visible ? "●" : "○", tag);
         tagLayout->addWidget(dot);
 
         const QString valStr = c.hasValue ? QString::number(c.latestValue, 'g', 4) : "--";
         auto *text = new QLabel(QString("%1: %2").arg(c.label, valStr), tag);
-        text->setStyleSheet(QString("color: %1; font-size: 11px; font-weight: 500;")
-                            .arg(dark_ ? "#edf0fa" : "#1e293b"));
         tagLayout->addWidget(text);
 
         auto *removeBtn = new QPushButton("×", tag);
         removeBtn->setFixedSize(14, 14);
+        removeBtn->setCursor(Qt::ArrowCursor);
         removeBtn->setStyleSheet("QPushButton { border: 0; background: transparent; color: #94a3b8; font-size: 12px; font-weight: bold; } "
                                  "QPushButton:hover { color: #ef4444; }");
         tagLayout->addWidget(removeBtn);
 
         const size_t chIdx = i;
+        tag->onClicked = [this, chIdx]()
+        {
+            toggleChannelVisibility(chIdx);
+        };
+
         connect(removeBtn, &QPushButton::clicked, this, [this, chIdx]()
         {
             removeChannelAt(chIdx);
         });
 
-        tag->setStyleSheet(QString("QFrame { background: %1; border: 1px solid %2; border-radius: 3px; }")
-                           .arg(dark_ ? c.color.name() + "22" : c.color.name() + "18",
-                                c.color.name() + "88"));
         tagsLayout_->addWidget(tag);
-        tagWidgets_.push_back({tag, text});
+        tagWidgets_.push_back({tag, text, dot});
+        updateChannelTagStyle(i);
     }
 }
 

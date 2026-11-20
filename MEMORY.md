@@ -48,6 +48,52 @@
   * The clone strictly starts in the `Stopped` state with zero counters (`count = 0`), preserving the active transmission state of the original card without triggering mutual exclusion stops.
   * Focus and selection automatically transition to the newly duplicated card for rapid inline inspection and editing.
   * **Slide-down Insert Animation (220 ms, High-FPS Smoothness):** Cloned card smoothly slides out from beneath the original card (vertical offset $-rowHeight \to 0$ with quadratic ease-out $1 - (1-t)^2$) and fades in from $0.0 \to 1.0$ opacity. Paced by a high-resolution `Qt::PreciseTimer` (8 ms intervals) over 220 ms to guarantee stutter-free 120 FPS rendering and eliminate Linux timer jitter. The top boundary of the new cell geometry serves as a clip boundary, preventing overlap with the source card above, while all rows below simultaneously push down by $-rowHeight \to 0$. Rapid successive duplications gracefully restart the animation for the newest card without coordinate desynchronization.
+* **TX Card Message Presentation & Single-Line Layout:**
+  * Fixed row height strictly at 74px (`defaultSectionSize = 74`).
+  * **Title-Adjacent Control Flow (Title → Rate → Payload → [gap] → Status):** Badges on Line 1 are positioned immediately following the message title for maximum context association, sharing an identical height of 22px, radius 5px, font 11px Medium, and an airy 8px inter-pill spacing:
+    1. Title text: starts at `card.left() + 24`. If longer than available space, it elides with ellipsis (`...`).
+    2. Target Rate pill (`X Hz ⌵`): placed immediately adjacent to the title ($8\text{ px}$ spacing, $22\text{ px}$ height, 5px radius).
+    3. Payload length badge (`XX B`): placed immediately adjacent to the Rate pill ($8\text{ px}$ spacing, horizontal padding $+14\text{ px}$, $22\text{ px}$ height, 5px radius).
+    4. Status badge (`Running` / `Stopped`): pinned at `card.right() - 88` ($80 \times 22\text{ px}$, 5px radius).
+  * **Pill Preservation on Long Titles:** Available title width is calculated to always reserve space for both pills before the status button:
+    $$\text{maxTitleWidth} = \text{badge.left}() - 8 - (\text{rateWidth} + 8 + \text{payloadWidth} + 8) - \text{textLeft}$$
+    Long titles (e.g. `[89] LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET`) are elided with ellipsis (`Qt::ElideRight`), allowing both pills to remain fully visible without pushing down or overlapping. Hovering over an elided card/title displays a tooltip (`QHelpEvent`) showing the complete `[ID] MESSAGE_NAME`.
+  * **Guaranteed Bottom Breathing Room:** Metadata row 2 (`Sys · Comp · Actual · Frames`) is fixed at `card.top() + 36` (height 18px), leaving a generous 13px padding before the card bottom border (`y = 68-69`) and completely eliminating any border clipping or overlap.
+* **TX Card Message Presentation & Single-Line Layout:**
+  * Fixed row height strictly at 74px (`defaultSectionSize = 74`).
+  * **Title-Adjacent Control Flow (Title → Rate → Payload → [gap] → Status):** Badges on Line 1 are positioned immediately following the message title for maximum context association, sharing an identical height of 22px, radius 5px, font 11px Medium, and an airy 8px inter-pill spacing:
+    1. Title text: starts at `card.left() + 24`. If longer than available space, it elides with ellipsis (`...`).
+    2. Target Rate pill (`X Hz ⌵`): placed immediately adjacent to the title ($8\text{ px}$ spacing, $22\text{ px}$ height, 5px radius).
+    3. Payload length badge (`XX B`): placed immediately adjacent to the Rate pill ($8\text{ px}$ spacing, horizontal padding $+14\text{ px}$, $22\text{ px}$ height, 5px radius).
+    4. Status badge (`Running` / `Stopped`): pinned at `card.right() - 88` ($80 \times 22\text{ px}$, 5px radius).
+  * **Pill Preservation on Long Titles:** Available title width is calculated to always reserve space for both pills before the status button:
+    $$\text{maxTitleWidth} = \text{badge.left}() - 8 - (\text{rateWidth} + 8 + \text{payloadWidth} + 8) - \text{textLeft}$$
+    Long titles (e.g. `[89] LOCAL_POSITION_NED_SYSTEM_GLOBAL_OFFSET`) are elided with ellipsis (`Qt::ElideRight`), allowing both pills to remain fully visible without pushing down or overlapping. Hovering over an elided card/title displays a tooltip (`QHelpEvent`) showing the complete `[ID] MESSAGE_NAME`.
+  * **Guaranteed Bottom Breathing Room:** Metadata row 2 (`Sys · Comp · Actual · Frames`) is fixed at `card.top() + 36` (height 18px), leaving a generous 13px padding before the card bottom border (`y = 68-69`) and completely eliminating any border clipping or overlap.
+* **TX Card Message Sorting (`sortMessages` Ghost Button & `sortMenu` Popup):**
+  * Dedicated 28x28 px frameless ghost button `sortButton` located at Row 0, Column 4 in a 5-column `txHeading` grid layout, vertically aligned flush to the right edge directly above `addButton` (which spans Columns 3-4 in Row 1).
+  * **Dual-Pill Status Display (`TxSummaryWidget`):** Streamlined from 3 pills into 2 elegant rounded chips:
+    * **Pill 1 (Combined Count & Running Status):** `X messages  ·  Y running` in a unified 6px rounded chip; `Y running` is highlighted in vivid DemiBold green (`#34d399` dark / `#15803d` light) with a subtle green tint background when transmitting (`running > 0`), and subdued neutral slate when stopped.
+    * **Pill 2 (Throughput / Wire Load):** `~XX B/s (X.X%)` in telemetry blue chip, dynamically adapting if constrained to ensure zero text clipping.
+  * **Minimum Width Enforcement:** Configured `txGroup->setMinimumWidth(465)` and `rxGroup->setMinimumWidth(480)` on the `dashboards` horizontal splitter, preventing the splitter from squeezing the TX Dashboard narrower than 465px. Combined with `MainWindow::setMinimumSize(1000, 720)`, status pills and controls are guaranteed 100% breathing room without any border clipping or truncation across all resize and splitter dragging interactions.
+  * Borderless and translucent (`border: none; background: transparent;`) with muted idle icon color (`#8895ad` dark / `#64748b` light).
+  * **Hover Icon Brightening:** Because Qt Style Sheets (`QStyleSheetStyle`) ignore `QIcon::Active` on mouse hover, button hover state is handled via `MainWindow::eventFilter` on `QEvent::Enter`/`QEvent::Leave` calling `updateSortButtonIcon()`, dynamically brightening the vector icon stroke to high-contrast foreground (`#edf0fa` dark / `#20263b` light) while keeping background completely transparent.
+  * Dedicated popup menu exclusively launched via the header button (no context menu clutter).
+  * Reduced width (`min-width: 130px`) and compact padding for a neat fit around the 5 criteria options: `ID`, `Status`, `Payload Size`, `Target Rate`, and `Sys / Comp ID`.
+  * Visual indicators: left-aligned vector arrow icon (`sortArrowUp` / `sortArrowDown`) and soft background tint (`item:checked`, ~12-22% opacity) for the currently active criteria; unselected items maintain transparent spacer icons for exact text alignment.
+  * Bidirectional toggle: clicking the same criteria toggles between Ascending and Descending order.
+  * Rearranging cards manually via drag-and-drop or `Ctrl+Up`/`Ctrl+Down` automatically resets the active sort indicator back to custom.
+  * Direct execution on the worker thread via `SerialWorker::sortEntries(criteria, ascending)` using `std::stable_sort`, preserving active transmission states without interruption, and persisting the updated sequence to `Workspace` settings immediately.
+  * Disabled automatically when no TX cards exist (`rowCount == 0`).
+* **Unified UART Connection Button & Status Consolidation:**
+  * Consolidated serial connection status indicators directly into `connectButton` (`QPushButton#connect`, 148×32 px), removing the redundant standalone `connectionStatusPill` widget from the `uartRow` layout and reclaiming ~104 px of horizontal space with clean 8px spacing between controls.
+  * `connectionStatusPill` is kept created and hidden (`hide()`) as an internal child of `MainWindow`, preserving 100% backward compatibility for test fixtures expecting `window.findChild<QWidget *>("connectionStatusPill")`.
+  * **Unified State Machine & Breathing Animation:**
+    1. **Disconnected:** Text `"Connect"`, `role="primary"` (Indigo `#4f46e5`, white text), tooltip `"Open serial connection"`, static styling.
+    2. **Connecting:** Text `"Connecting…"`, `role="connecting"` (Amber `#d97706` / `#fbbf24`), tooltip `"Opening serial connection to <port> (<baud> baud)..."`, disabled to prevent double clicks, active sinusoidal breathing pulse animation (~28 FPS).
+    3. **Connected:** Text `"Disconnect"`, `role="danger"` (Rose/Red `#dc2626` / `#ef4444`, white text), tooltip `"Close serial connection to <port> (<baud> baud)"`, static styling.
+    4. **Reconnecting:** Text `"Cancel (Reconnecting…)"`, `role="reconnecting"` (Orange `#ea580c` / `#f97316`), tooltip `"Click to cancel auto-reconnection loop"`, enabled allowing cancellation, active sinusoidal breathing pulse animation (~28 FPS).
+  * Breathing pulse animation (`startConnectPulse`, `stopConnectPulse`) uses `connectPulseTimer` (35 ms interval) interpolating between tonal bounds via $0.5 + 0.5 \sin(\text{phase})$, dynamically applying smooth background and border transitions without external dependencies, and cleanly reverting to global QSS on disconnect or connect.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
@@ -77,6 +123,32 @@
   * Smart Keyboard Shortcuts: `Delete`/`Backspace`/`Ctrl+X` deletes card; `Ctrl+D` duplicates card and selects the clone; `Ctrl+Up`/`Ctrl+Down` reorders the card with an ease-out 140ms swap slide animation; `Space` toggles transmitting state (safely disabled when disconnected); `Ctrl+Z` triggers undo. All shortcuts strictly bypass text inputs (`QLineEdit`, `QTextEdit`, `QSpinBox`) so search filters are never interrupted; `Ctrl+X` in text inputs cuts text normally without deleting cards.
   * Keyboard Shortcuts Reference Dialog (`keyboardShortcutsDialog`): Accessible via `Help -> Keyboard Shortcuts` menu (`actionKeyboardShortcuts`) or global `F1` key (`QKeySequence::HelpContents`). Renders an elegant theme-adaptive cheatsheet displaying keycaps (`Space`, `Ctrl+D`, `Delete`/`Backspace`/`Ctrl+X`, `Ctrl+Z`, `Ctrl+Up`/`Ctrl+Down`, `Esc`, `F1`) and action descriptions inside a frameless `addDialogTitleBar` window with fixed non-resizable geometry (`QLayout::SetFixedSize`, size grip disabled).
   * Menu Shortcut Keycap Pill Badges (`WorkbenchMenu`): Custom `QMenu` subclass across all top-level (`File`, `View`, `Tool`, `Help`) and popup context menus. Overrides virtual `initStyleOption` to strip raw `\t` accelerator text from labels, enforces `min-width: 190px` for ample breathing room, and renders right-aligned keycap pill badges (`r = 3.5px`, $9\text{ pt}$ Normal weight) with subtle hairline semi-transparent border/fill and soft muted text in normal state, switching to translucent white on hover over `#4f46e5` selection.
+* **Dashboard Empty & Waiting States (`TxTableWidget` & `RxTreeWidget`):**
+  * When `txTable` has 0 rows, `TxTableWidget` renders a minimalist Swiss style empty state directly onto the viewport: an outgoing plane vector glyph, title *"No messages configured"*, and subtitle *"Click '+ Add message' to create your first transmission"*.
+  * When `rxTree` has 0 top-level streams, `RxTreeWidget` renders a state-aware waiting state:
+    * **Disconnected:** Broken cable/plug vector glyph with *"Serial Disconnected"* and instructions to select a port and connect.
+    * **Connected:** Emerald digital UART square waveform vector glyph with *"Connected to <port> (<baud>)"* and *"Waiting for incoming MAVLink packets on serial port..."*.
+  * Both states automatically dismiss with zero visual artifacts as soon as items or streams are populated, incurring zero CPU/rendering overhead during active streaming.
+* **TX Card Inset Capsule Accent Pill & Payload Wire Size Badge (`TxCardDelegate`):**
+  * Refined slim 3px state capsule pill: inset at `card.left() + 8`, vertically centered (`card.top() + 10`, `card.height() - 20`), fully rounded ($r = 1.5\text{px}$), clearly reflecting `Running` (Emerald `#57c99a`), `Error` (Rose `#ef8799`), and `Stopped` (Muted Slate `#3d506e` / `#b8c8dc`) states without breaking the continuous card rounded border ($r = 8\text{px}$).
+  * Payload wire size badge: schema payload length (`mavlink_get_msg_entry(msgId)->max_msg_len`) formatted as `X B` (e.g. `9 B`, `28 B`), rendered as a crisp 10px pill badge adjacent to the Target Hz pill.
+* **TX Card Geometry Centralization & Minimalist Scrollbar Harmonization:**
+  * TX Card bounding geometry is centralized in authoritative static helper `MainWindow::txCardRect(cellRect, animDy)` with 6px left margin and 8px right margin (`adjusted(6, 5 + animDy, -8, -5 + animDy)`), replacing hardcoded offsets across painting, drag-and-drop, and mouse event dispatching.
+  * Provides an 8px breathing gap between the card right perimeter and the vertical scrollbar, eliminating cramped visual collision.
+  * Global scrollbar styling refined to Swiss / macOS minimalist specifications: slim 6px width/height, fully transparent track (`background: transparent;`), 4px top/bottom margin preventing end-cap truncation, and capsule handle with 3px radius using soft neutral translucency (Dark: `rgba(255, 255, 255, 0.18)` / Hover `0.36` / Pressed `0.52`; Light: `rgba(0, 0, 0, 0.18)` / Hover `0.36` / Pressed `0.52`).
+* **RX Tree 4-Column Modern Hierarchy & Smart Toggle Expand/Collapse:**
+  * **4-Column Dedicated Layout:** `rxTree` adopts a dedicated 4-column structure:
+    1. **Col 0 (`Message`):** Stream identity `[ID] MESSAGE_NAME`, decorated with theme-aware status dot (Active `#3fb950`, Stale `#d29922`, Inactive `#8b949e`). Parent group rows (`System %1 · Component %2`) span all 4 columns (`setFirstColumnSpanned(true)`).
+    2. **Col 1 (`Payload`):** Schema wire payload size formatted as `XX B` (e.g. `9 B`, `28 B`), rendered via `RxItemDelegate::paint()` as a centered 20px rounded pill badge ($r = 4.5\text{px}$) with subtle translucent border.
+    3. **Col 2 (`Rate (Hz)`):** Measured reception frequency formatted as `X Hz` (or `X.X Hz`), rendered via `RxItemDelegate::paint()` as an active emerald chip badge when streaming ($hz > 0.0$, `#34d399` text / `#059669` border) and subdued neutral slate chip when inactive.
+    4. **Col 3 (`Count`):** Cumulative packet counter in fixed-pitch monospace font, centered.
+  * **Smart Toggle Expand/Collapse All (`toggleExpandRx` & `Ctrl+E`):**
+    * 34×34 px compact button on `rxActions` toolbar with dynamic vector icons (`expandAll` outward diagonal chevrons, `collapseAll` inward diagonal chevrons via Lucide `maximize-2` / `minimize-2` metaphor).
+    * Automatically detects state: if any device group is expanded $\to$ collapses all; if all are collapsed $\to$ expands all.
+    * Synced to `itemExpanded`/`itemCollapsed` signals to update icon and tooltip dynamically (*"Collapse all (Ctrl+E)"* vs *"Expand all (Ctrl+E)"*).
+    * Disabled automatically when no RX streams exist (`topLevelItemCount() == 0`), including upon startup and after `clearStatistics` (`Ctrl+L`), disabling shortcut `Ctrl+E` and rendering theme-aware muted `QIcon::Disabled` state.
+  * **Adaptive Geometry & No Horizontal Scroll:**
+    * `RxHeader::resetColumns()` distributes available viewport width across `{180, 75, 85, 80}` minimum widths, keeping `widths[0] > widths[column]` strictly satisfied and eliminating horizontal scrollbars across all window widths $\ge 1000\text{px}$.
 * **Real-time Throughput Monitoring & Link Load Estimation:**
   * Core provides `Mav::ByteRate` (1.0s sliding window), `Mav::estimateTxThroughput()`, `Mav::estimateEntryThroughput()`, and `Mav::formatByteRate()`.
   * Physical framing overhead bit calculation: $\text{bitsPerByte} = 1\text{ (Start)} + N_{\text{data}} + N_{\text{parity}} + N_{\text{stop}}$. Link utilization: $\text{Utilization (\%)} = \frac{\text{Bytes/sec} \times \text{bitsPerByte}}{\text{Baudrate}} \times 100$.
@@ -91,6 +163,27 @@
   * **Copy-on-Write Parameter Snapshots (`SnapshotParams`):** Snapshot parameters are encapsulated in a copy-on-write wrapper (`SnapshotParams`) referencing a shared immutable map (`std::shared_ptr<const ParamMap>`). Parameter collections are version-tracked (`receiver.paramsVersion`) and only deep-copied when actual `PARAM_VALUE` frames arrive, eliminating continuous heap allocation churn (thousands of map nodes) during 200 ms snapshot broadcasts.
   * **Decoupled Card Height & Font Query Caching:** `updateTxHeights()` layout calculations are decoupled from the 200 ms snapshot loop, triggering strictly when card count or titles change (`titleChanged`), eliminating repetitive `QFontMetrics` wrapping calculations. Fixed-pitch fonts are cached via `cachedFixedFont()` to avoid continuous OS font database queries.
   * **In-Place Telemetry Plotter Channel Tag Updates:** `TelemetryPlotWidget` maintains persistent channel tag components (`tagWidgets_`) and updates numeric value text directly in-place (`updateChannelTagValues()`), entirely eliminating widget destruction and recreation overhead on every 200 ms snapshot.
+* **Telemetry Plotter Visual Upgrades & Interactive Visibility:**
+  * Soft Area Gradient Fill: Each active channel renders a vertical linear gradient from curve down to baseline (`plotRect.bottom()`, 35–50% alpha down to 0%), giving modern dashboard depth while preserving a crisp 2.0px foreground polyline.
+  * Interactive Channel Legend Pills: Clicking any channel tag pill toggles visibility (`channel.visible`). Hidden channels show a hollow dot `○`, 40% dimmed opacity and dashed border, their curves disappear, and auto-scale excludes them dynamically.
+  * Dual-Axis Crosshair: Inspection cursor draws both vertical (time) and horizontal (value) dashed hairlines intersecting at cursor position, forming an exact crosshair with inspection tooltip.
+* **Modularization of MainWindow & Domain-Specific Translation Units (Phase 1 & 2):**
+  * Refactored monolithic `src/window.cpp` (formerly 10,331 lines) into dedicated domain compilation units and 6 decoupled Workbench UI modules housed under `src/window/`:
+    1. `src/window.h` & `src/window.cpp` (~1,830 lines): `MainWindow` public API and core lifecycle, central layout, toolbar actions, splitters, window events, and event filter.
+    2. `src/window/window_private.h` (~15 lines): Clean Master Header aggregating the 6 Workbench UI modules.
+    3. `src/window/workbench_common.h` (131 lines) & `workbench_common.cpp` (485 lines): Common helper utilities (`cachedFixedFont`, `cell`, `messageName`, `isPluggedPort`, `txRatePillRect`, `actionIcon`).
+    4. `src/window/workbench_controls.h` (146 lines) & `workbench_controls.cpp` (630 lines): Form controls (`WorkbenchComboBox`, `WorkbenchCheckBox`, `WorkbenchSpinBox`, `WorkbenchLineEdit`, `WorkbenchMenu`).
+    5. `src/window/workbench_status_widgets.h` (126 lines) & `workbench_status_widgets.cpp` (760 lines): Status & metric indicators (`TxSummaryWidget`, `ConnectionStatusWidget`, `StatusBarMetricsWidget`, `StatusBarMessageWidget`).
+    6. `src/window/workbench_delegates.h` (116 lines) & `workbench_delegates.cpp` (745 lines): Item delegates (`TxCardDelegate`, `ValueDelegate`, `CatalogDelegate`, `RxItemDelegate`, `PayloadIdentityDelegate`).
+    7. `src/window/workbench_dialogs.h` (94 lines) & `workbench_dialogs.cpp` (285 lines): Frameless modal dialogs (`DialogTitleBar`, `ConnectionErrorDialog`, `ProfileImportDialog`).
+    8. `src/window/workbench_panels.h` (180 lines) & `workbench_panels.cpp` (1,085 lines): Interactive widgets (`TxTableWidget`, `RxTreeWidget`, `TrashDropCard`, `WorkbenchToast`, `CatalogSearch`).
+    9. `src/window/window_tx.cpp` (~1,225 lines): TX message dashboard, drag-and-drop, animations, and multi-step undo system.
+    10. `src/window/window_rx.cpp` (~625 lines): RX stream tree, snapshot processing, inspector, and parameter editor.
+    11. `src/window/window_editor.cpp` (~1,150 lines): MAVLink message catalog search dialog and payload field editor.
+    12. `src/window/window_serial.cpp` (~220 lines): Serial port detection, connection lifecycle, and hardware alert dialogs.
+    13. `src/window/window_settings.cpp` (~910 lines): Persistent settings, profile import/export, updates check, and keyboard shortcuts.
+    14. `src/window/window_theme.cpp` (~350 lines): Dark/Light semantic theme application and QSS stylesheet engine.
+  * Preserves 100% public API compatibility of `MainWindow`, enables rapid multi-threaded parallel compilation, and passes all 88 automated tests with zero regressions.
 * **Code Style & Formatting:**
   * **BSD/Allman style** across all C++ files: opening braces `{` strictly on their own line for functions, control statements, structs, enums, etc.
   * `camelCase` for variables and functions; `PascalCase` for types and classes; `UPPER_SNAKE_CASE` for macros.
@@ -144,6 +237,10 @@
 * **Unit Test Snapshot Injection vs. Worker Polling Timer:**
   * `MainWindow` maintains a 200ms `refresh` timer triggering `worker->requestSnapshot()`. In unit tests injecting synthetic snapshots directly via `window.applySnapshot(snapshot)`, call `window.stopRefreshTimer()` to prevent worker's empty periodic snapshots from overwriting test state.
   * Conversely, in integration tests relying on worker thread events (e.g. TX queue additions, PTY real transmission), keep the refresh timer active so worker snapshots flow naturally to the GUI.
+* **Custom Cell Text Suppression in QStyledItemDelegate (`initStyleOption`):**
+  * When implementing a custom delegate that paints custom badges or pills (such as `RxItemDelegate` for Column 1 Payload and Column 2 Rate), calling `QStyledItemDelegate::paint(painter, opt, index)` will internally invoke `initStyleOption(&opt, index)` on its local copy.
+  * If `initStyleOption` does not explicitly clear `option->text`, Qt's default `CE_ItemViewItem` will paint the item's `Qt::DisplayRole` text directly onto the cell canvas prior to the custom pill painting, causing double text rendering and overlapping visual artifacts (e.g. `1.0 Hz` painted over `1.0`).
+  * Remedy: In `initStyleOption()`, check if `index.parent().isValid()` and the column is custom-rendered (`column == 1 || column == 2`), then invoke `option->text.clear()`. This allows `QStyledItemDelegate::paint()` to cleanly draw the selection/hover background while delegating 100% of the foreground pill/text rendering to custom code without text collision.
 * **Linux X11 Popups & Rounded Window Masks:**
   * Top-level popups (`QMenu`, `QComboBoxPrivateContainer`) have opaque rectangular native surfaces on Linux X11/Wayland unless configured with `setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint)` and `setAttribute(Qt::WA_TranslucentBackground, true)` prior to show/popup.
   * Avoid applying 1-bit raster masks via `setMask(roundedRect)` on translucent popups: XShape 1-bit polygon masks lack antialiasing, and integer polygon quantization errors leave dark/black pixel artifacts at the sharp outer vertices outside the stylesheet's antialiased curved border.
@@ -208,6 +305,12 @@
   * Focus Rect & Outline Suppression: `RxItemDelegate` strips `State_HasFocus` while QSS enforces `outline: none; border: none;` on selected and focused items, providing clean full-row solid highlight without distracting dotted frames.
   * Inline Status Dots: `RxItemDelegate` uses `RxStatusIcon` vector decorations before Message text on leaf rows only. Freshness is stored in column0 at `Qt::UserRole + 2`, leaving identity roles untouched. Green Active at age<=1.2s, amber Stale through3.0s, muted Inactive afterward; no visible age or separate Status column. Device groups are identity-only.
   * Direct Two-Tier Filtering: `MainWindow::filterRx()` searches across device header and leaf identities in a clean 2-level loop.
+* **RX Dashboard Compact Action Toolbar (`pauseDisplay` & `clearStatistics`):**
+  * Modernized from bulky text buttons to compact 34x34 px icon-only controls aligned with `rxFilter` (34 px height matching `rxTree` item rows, `padding: 4px 8px` preventing descender clipping on letters like 'g', 4 px spacing, border-radius 6 px) to maximize search input width.
+  * Vector Icons via `actionIcon()` (scaled to 18x18 px):
+    * `pauseDisplay`: Dynamic `❚❚` (Pause) ↔ `▶` (Resume). When paused, applies an Amber alert badge style (`#f59e0b` / theme tokens) with instant visual feedback.
+    * `clearStatistics`: Backspace erase tag vector icon (left-pointing polygon with `✕` inside) with subtle danger hover highlight (`#ef4444` / `#dc2626`).
+  * Keyboard Shortcuts: `Ctrl+P` for Pause/Resume Display and `Ctrl+L` for Clear Received Messages, bound to View menu actions and listed in the F1 Keyboard Shortcuts cheatsheet dialog.
 * **MAVLink Parameter Protocol Collection & Dual-Mode Inspector:**
   * Parameter Protocol encodes all distinct parameters under a single stream identity `[22] PARAM_VALUE`. The core `Mav::Receiver` aggregates parameter values into `params[{sysid, compid}]` maps rather than discarding previous entries.
   * Wire format packs numeric parameter values into a 32-bit `float param_value`. Type conversion for integers (`UINT8`, `INT8`, `UINT16`, `INT16`, `UINT32`, `INT32`) must strictly use standard type-punning via `mavlink_param_union_t` to avoid IEEE-754 precision loss and NaN conversion errors.

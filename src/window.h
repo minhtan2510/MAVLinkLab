@@ -59,6 +59,19 @@ public:
     void setTxSummaryStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
     void setConnectionStatus(const QString &state, bool open);
+    /**
+     * @brief Update the visual state, text label, role, and tooltip of the Connect button.
+     * @param state Status string ("Disconnected", "Connecting", "Connected", "Reconnecting").
+     * @param open True if serial port is open.
+     */
+    void updateConnectButtonVisuals(const QString &state, bool open);
+    /**
+     * @brief Start smooth breathing pulse animation for connecting or reconnecting state.
+     * @param role Target animation role ("connecting" or "reconnecting").
+     */
+    void startConnectPulse(const QString &role);
+    /** @brief Stop the breathing pulse animation and reset button inline styling. */
+    void stopConnectPulse();
     /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
     void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow,
                           double rxUtil = 0.0, double txUtil = 0.0, int baud = 0);
@@ -80,6 +93,13 @@ public:
     void togglePlotField(uint32_t sysid, uint8_t compid, uint32_t msgid, const QString &fieldName, const QString &label);
     /** @brief Return the application icon containing multi-resolution raster assets. */
     static QIcon appIcon();
+    /**
+     * @brief Compute the visual bounding rectangle for a TX message card inside a table cell.
+     * @param cellRect The raw geometry of the table cell (column 1).
+     * @param animDy Optional vertical animation translation offset in pixels.
+     * @return Padded card rectangle with 6px left margin and 8px right breathing room.
+     */
+    static QRect txCardRect(const QRect &cellRect, int animDy = 0);
 protected:
     /** @brief Persist presentation layout when the window closes normally. */
     void closeEvent(QCloseEvent *event) override;
@@ -100,6 +120,10 @@ private:
     void updateInspector();
     /** @brief Filter RX rows by sender and message identity. */
     void filterRx();
+    /** @brief Toggle expansion state of all RX device nodes. */
+    void toggleExpandCollapseRx();
+    /** @brief Update the toggle expand/collapse icon and tooltip based on RX tree state. */
+    void updateRxExpandIcon();
     /** @brief Apply semantic light/dark tokens or the current system palette. */
     void applyTheme();
     /** @brief Display a persistent actionable error in the status bar. */
@@ -174,6 +198,22 @@ private:
     void executeTxUndo();
     /** @brief Reposition the undo toast anchored to the bottom-left of the window. */
     void repositionTxUndoToast();
+    /** @brief Initialize the sort popup menu and context submenu with criteria actions. */
+    void setupSortMenu();
+    /** @brief Update checkmarks, indicators, and text labels across sort menu actions. */
+    void updateSortMenuActions();
+    /**
+     * @brief Apply sorting on TX message cards by criteria and toggle sort order.
+     * @param criteria Target sort criteria (0: Id, 1: Name, 2: Status, 3: PayloadSize, 4: TargetHz, 5: SysComp).
+     */
+    void applySort(int criteria);
+    /** @brief Reset sort state indicator to custom when cards are manually rearranged. */
+    void resetSortIndicator();
+    /**
+     * @brief Update the sort button icon based on theme, hover, and enabled states.
+     * @param hovered True if the mouse pointer is currently hovering over the button.
+     */
+    void updateSortButtonIcon(bool hovered = false);
     /** @brief Delete a TX message card at the specified row and trigger the undo toast. */
     void deleteTxCardAt(int row);
     /**
@@ -195,6 +235,9 @@ private:
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
+    QTimer *connectPulseTimer = nullptr;
+    double connectPulsePhase = 0.0;
+    QString connectPulseRole;
     bool snapshotPending = false;
     bool connected = false;
     bool connecting = false;
@@ -279,6 +322,8 @@ private:
     QTreeWidget *rxTree = nullptr;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
+    QPushButton *toggleExpandRx = nullptr;
+    QAction *toggleExpandRxAction = nullptr;
     QLineEdit *paramFilter = nullptr;
     bool isParamView = false;
     uint32_t activeParamSysId = 0;
@@ -292,6 +337,11 @@ private:
     QPushButton *runAllButton = nullptr;
     QPushButton *stopAllButton = nullptr;
     QPushButton *deleteAllButton = nullptr;
+    QPushButton *sortButton = nullptr;
+    QMenu *sortMenu = nullptr;
+    std::vector<QAction *> sortActions;
+    int currentSortCriteria = -1;
+    bool currentSortAscending = true;
     QLabel *serialSummary = nullptr;
     TxSummaryWidget *txSummary = nullptr;
     QLabel *rxSummary = nullptr;

@@ -62,6 +62,15 @@ private slots:
         // Out-of-bounds remove does not crash
         plotter.removeChannelAt(999);
         QCOMPARE(plotter.channelCount(), size_t(4));
+
+        // 7. Toggle channel visibility
+        QVERIFY(plotter.channels()[0].visible);
+        plotter.toggleChannelVisibility(0);
+        QVERIFY(!plotter.channels()[0].visible);
+        plotter.toggleChannelVisibility(0);
+        QVERIFY(plotter.channels()[0].visible);
+        plotter.toggleChannelVisibility(999);
+        QCOMPARE(plotter.channelCount(), size_t(4));
     }
 
     /** @brief Test snapshot ingestion and numeric field extraction for standard MAVLink messages. */

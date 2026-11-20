@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(MAVLinkLab VERSION 1.5.0 LANGUAGES CXX)
+project(MAVLinkLab VERSION 1.6.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -47,7 +47,26 @@ if(BUILD_GUI)
     if(NOT MAVLINK_LIB_GIT_HASH)
         set(MAVLINK_LIB_GIT_HASH "unknown")
     endif()
-    add_library(mavdesktop src/worker.cpp src/window.cpp src/profile.cpp src/plotter.cpp resources/resources.qrc)
+    add_library(mavdesktop
+        src/worker.cpp
+        src/window.cpp
+        src/window/workbench_common.cpp
+        src/window/workbench_controls.cpp
+        src/window/workbench_status_widgets.cpp
+        src/window/workbench_delegates.cpp
+        src/window/workbench_dialogs.cpp
+        src/window/workbench_panels.cpp
+        src/window/window_tx.cpp
+        src/window/window_rx.cpp
+        src/window/window_editor.cpp
+        src/window/window_serial.cpp
+        src/window/window_settings.cpp
+        src/window/window_theme.cpp
+        src/profile.cpp
+        src/plotter.cpp
+        resources/resources.qrc
+    )
+    target_include_directories(mavdesktop PUBLIC src src/window)
     target_compile_definitions(mavdesktop PUBLIC
         MAVLINK_LAB_VERSION="${PROJECT_VERSION}"
     )
