@@ -59,6 +59,19 @@ public:
     void setTxSummaryStats(int total, int running, double estimatedBps = 0.0, double utilization = 0.0);
     /** @brief Update the connection status indicator directly (e.g. for inspection/testing). */
     void setConnectionStatus(const QString &state, bool open);
+    /**
+     * @brief Update the visual state, text label, role, and tooltip of the Connect button.
+     * @param state Status string ("Disconnected", "Connecting", "Connected", "Reconnecting").
+     * @param open True if serial port is open.
+     */
+    void updateConnectButtonVisuals(const QString &state, bool open);
+    /**
+     * @brief Start smooth breathing pulse animation for connecting or reconnecting state.
+     * @param role Target animation role ("connecting" or "reconnecting").
+     */
+    void startConnectPulse(const QString &role);
+    /** @brief Stop the breathing pulse animation and reset button inline styling. */
+    void stopConnectPulse();
     /** @brief Update the status bar metrics directly (e.g. for inspection/testing). */
     void setStatusMetrics(double rxBps, double txBps, uint64_t crc, uint64_t pending, uint64_t overflow,
                           double rxUtil = 0.0, double txUtil = 0.0, int baud = 0);
@@ -222,6 +235,9 @@ private:
     SerialWorker *worker = nullptr;
     QThread thread;
     QTimer refresh;
+    QTimer *connectPulseTimer = nullptr;
+    double connectPulsePhase = 0.0;
+    QString connectPulseRole;
     bool snapshotPending = false;
     bool connected = false;
     bool connecting = false;

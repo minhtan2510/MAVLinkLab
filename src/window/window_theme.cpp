@@ -220,25 +220,35 @@ void MainWindow::applyTheme()
           dark ? "#381e26" : "#fee2e2",
           hintForeground,
           dark ? "rgba(255, 255, 255, 0.09)" : "rgba(0, 0, 0, 0.06)");
-    const QString connectionStyle = QString(
-        "QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:400; }"
-        "QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
-        "QPushButton#connect[connected=true]:pressed { background:%6; }"
-        "QPushButton#connect[reconnecting=true] { background:%7; color:%8; border:1px solid %9; font-weight:400; }"
-        "QPushButton#connect[reconnecting=true]:hover { background:%10; border-color:#f59e0b; color:%11; }"
-        "QPushButton#connect[reconnecting=true]:pressed { background:%12; }"
-    ).arg(dark ? "#3b1e26" : "#fef2f2",
+    const QString dangerStyle = QString(
+        "QPushButton#connect[role=danger],QPushButton#connect[connected=true] { background:%1; color:%2; border:1px solid %3; font-weight:500; }"
+        "QPushButton#connect[role=danger]:hover,QPushButton#connect[connected=true]:hover { background:%4; border-color:#ef4444; color:%5; }"
+        "QPushButton#connect[role=danger]:pressed,QPushButton#connect[connected=true]:pressed { background:%6; }"
+    ).arg(dark ? "rgba(239, 68, 68, 0.12)" : "#fef2f2",
           dark ? "#fca5a5" : "#b91c1c",
-          dark ? "#7f2d3f" : "#fca5a5",
-          dark ? "#4e2531" : "#fee2e2",
+          dark ? "rgba(239, 68, 68, 0.28)" : "#fecaca",
+          dark ? "rgba(239, 68, 68, 0.22)" : "#fee2e2",
           dark ? "#ffffff" : "#991b1b",
-          dark ? "#2d151c" : "#fecaca")
-     .arg(dark ? "#3d2a10" : "#fffbeb",
-          dark ? "#fcd34d" : "#b45309",
-          dark ? "#78350f" : "#fde68a",
-          dark ? "#4e3614" : "#fef3c7",
-          dark ? "#ffffff" : "#92400e",
-          dark ? "#291b08" : "#fde68a");
+          dark ? "rgba(239, 68, 68, 0.32)" : "#fecaca");
+    const QString connectingStyle = QString(
+        "QPushButton#connect[role=connecting],QPushButton#connect[role=connecting]:disabled { background:%1; color:#ffffff; border:1px solid %2; font-weight:500; }"
+        "QPushButton#connect[role=connecting]:hover { background:%3; border-color:#d97706; color:#ffffff; }"
+    ).arg(dark ? "#d97706" : "#d97706",
+          dark ? "#f59e0b" : "#d97706",
+          dark ? "#b45309" : "#b45309");
+    const QString reconnectingStyle = QString(
+        "QPushButton#connect[role=reconnecting],QPushButton#connect[reconnecting=true] { background:%1; color:#ffffff; border:1px solid %2; font-weight:500; }"
+        "QPushButton#connect[role=reconnecting]:hover,QPushButton#connect[reconnecting=true]:hover { background:%3; border-color:#f97316; color:#ffffff; }"
+        "QPushButton#connect[role=reconnecting]:pressed,QPushButton#connect[reconnecting=true]:pressed { background:%4; }"
+    ).arg(dark ? "#ea580c" : "#ea580c",
+          dark ? "#f97316" : "#ea580c",
+          dark ? "#c2410c" : "#c2410c",
+          dark ? "#9a3412" : "#9a3412");
+    const QString connectionStyle =
+        "QPushButton#connect[role=primary] { background:#4f46e5; color:white; border:1px solid #4f46e5; }"
+        "QPushButton#connect[role=primary]:hover { background:#4338ca; border-color:#4338ca; }"
+        "QPushButton#connect[role=primary]:pressed { background:#3730a3; border-color:#3730a3; }"
+        + dangerStyle + connectingStyle + reconnectingStyle;
     const QString selectionStyle = QString(
         "QTableView::item:selected,QTreeView::item:selected { background:%1; color:%2; }"
         "QTreeView::branch:selected { background:%1; }"

@@ -9,6 +9,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTimer>
+#include <cmath>
 
 /** @brief Refresh the port dropdown and retain its selection only if still enumerated. */
 void MainWindow::refreshPorts()
@@ -88,6 +89,10 @@ void MainWindow::toggleConnection()
         QMetaObject::invokeMethod(worker, "closePort", Qt::QueuedConnection);
         return;
     }
+    if (connecting)
+    {
+        return;
+    }
     PortConfig config = currentPortConfig();
     if (config.port.isEmpty())
     {
@@ -101,10 +106,10 @@ void MainWindow::toggleConnection()
                                 .arg(baudBox->currentText()));
         return;
     }
-    connectButton->setEnabled(false);
     connectingByUser = true;
     connectingPort = config.port;
     connectingBaud = config.baud;
+    updateConnectButtonVisuals("Connecting", false);
     QMetaObject::invokeMethod(worker, "openPort", Qt::QueuedConnection, Q_ARG(PortConfig, config));
 }
 
@@ -157,6 +162,8 @@ void MainWindow::updateSerialSummary()
 void MainWindow::setConnectionStatus(const QString &state, bool open)
 {
     connected = open;
+    connecting = (state == "Connecting");
+    reconnecting = (state == "Reconnecting");
     if (auto *tree = dynamic_cast<RxTreeWidget *>(rxTree))
     {
         tree->setConnectionInfo(open,
@@ -176,8 +183,162 @@ void MainWindow::setConnectionStatus(const QString &state, bool open)
         else
         {
             rxThroughput->show();
+            if (latest)
+            {
+                setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
+            }
+            else
+            {
+                setRxThroughputStats(0.0, 0.0, baudBox ? baudBox->currentText().toInt() : 115200);
+            }
         }
     }
+    updateConnectButtonVisuals(state, open);
+}
+
+/**
+ * @brief Start smooth breathing pulse animation for connecting or reconnecting state.
+ * @param role Target animation role ("connecting" or "reconnecting").
+ */
+void MainWindow::startConnectPulse(const QString &role)
+{
+    connectPulseRole = role;
+    if (!connectPulseTimer)
+    {
+        connectPulseTimer = new QTimer(this);
+        connectPulseTimer->setInterval(35);
+        connect(connectPulseTimer, &QTimer::timeout, this, [this]()
+        {
+            if (!connectButton)
+            {
+                return;
+            }
+            connectPulsePhase += 0.08;
+            if (connectPulsePhase > 6.283185307179586)
+            {
+                connectPulsePhase -= 6.283185307179586;
+            }
+            const double factor = 0.5 + 0.5 * std::sin(connectPulsePhase);
+            QColor c1;
+            QColor c2;
+            if (connectPulseRole == "connecting")
+            {
+                // Amber pulse: #d97706 to #f59e0b
+                c1 = QColor(217, 119, 6);
+                c2 = QColor(245, 158, 11);
+            }
+            else
+            {
+                // Orange pulse: #ea580c to #f97316
+                c1 = QColor(217, 80, 10);
+                c2 = QColor(249, 115, 22);
+            }
+            const int r = static_cast<int>(c1.red() + factor * (c2.red() - c1.red()));
+            const int g = static_cast<int>(c1.green() + factor * (c2.green() - c1.green()));
+            const int b = static_cast<int>(c1.blue() + factor * (c2.blue() - c1.blue()));
+            const QColor current(r, g, b);
+            connectButton->setStyleSheet(
+                QString("QPushButton#connect, QPushButton#connect:disabled { "
+                        "background: %1; border: 1px solid %2; color: #ffffff; font-weight: 500; }")
+                    .arg(current.name(), current.lighter(115).name()));
+        });
+    }
+    if (!connectPulseTimer->isActive())
+    {
+        connectPulsePhase = 0.0;
+        connectPulseTimer->start(35);
+    }
+}
+
+/** @brief Stop the breathing pulse animation and reset button inline styling. */
+void MainWindow::stopConnectPulse()
+{
+    if (connectPulseTimer && connectPulseTimer->isActive())
+    {
+        connectPulseTimer->stop();
+    }
+    connectPulsePhase = 0.0;
+    connectPulseRole.clear();
+    if (connectButton)
+    {
+        connectButton->setStyleSheet(QString());
+        connectButton->style()->unpolish(connectButton);
+        connectButton->style()->polish(connectButton);
+    }
+}
+
+/**
+ * @brief Update the visual state, text label, role, and tooltip of the Connect button.
+ * @param state Status string ("Disconnected", "Connecting", "Connected", "Reconnecting").
+ * @param open True if serial port is open.
+ */
+void MainWindow::updateConnectButtonVisuals(const QString &state, bool open)
+{
+    if (!connectButton)
+    {
+        return;
+    }
+
+    const QString port = portBox ? portBox->currentText().trimmed() : QString();
+    const QString baud = baudBox ? baudBox->currentText().trimmed() : QString();
+
+    if (state == "Connecting")
+    {
+        connectButton->setText(QString::fromUtf8("Connecting…"));
+        connectButton->setProperty("role", "connecting");
+        connectButton->setProperty("connected", false);
+        connectButton->setProperty("reconnecting", false);
+        connectButton->setEnabled(false);
+        if (!port.isEmpty() && !baud.isEmpty())
+        {
+            connectButton->setToolTip(QString("Opening serial connection to %1 (%2 baud)...").arg(port, baud));
+        }
+        else
+        {
+            connectButton->setToolTip("Opening serial connection...");
+        }
+        startConnectPulse("connecting");
+    }
+    else if (state == "Reconnecting")
+    {
+        connectButton->setText(QString::fromUtf8("Cancel (Reconnecting…)"));
+        connectButton->setProperty("role", "reconnecting");
+        connectButton->setProperty("connected", false);
+        connectButton->setProperty("reconnecting", true);
+        connectButton->setEnabled(true);
+        connectButton->setToolTip("Click to cancel auto-reconnection loop");
+        startConnectPulse("reconnecting");
+    }
+    else if (open)
+    {
+        stopConnectPulse();
+        connectButton->setText("Disconnect");
+        connectButton->setProperty("role", "danger");
+        connectButton->setProperty("connected", true);
+        connectButton->setProperty("reconnecting", false);
+        connectButton->setEnabled(true);
+        if (!port.isEmpty() && !baud.isEmpty())
+        {
+            connectButton->setToolTip(QString("Close serial connection to %1 (%2 baud)").arg(port, baud));
+        }
+        else
+        {
+            connectButton->setToolTip("Close serial connection");
+        }
+    }
+    else
+    {
+        stopConnectPulse();
+        connectButton->setText("Connect");
+        connectButton->setProperty("role", "primary");
+        connectButton->setProperty("connected", false);
+        connectButton->setProperty("reconnecting", false);
+        connectButton->setEnabled(true);
+        connectButton->setToolTip("Open serial connection");
+    }
+
+    connectButton->style()->unpolish(connectButton);
+    connectButton->style()->polish(connectButton);
 }
 
 /**
@@ -187,18 +348,10 @@ void MainWindow::setConnectionStatus(const QString &state, bool open)
  */
 void MainWindow::showConnectionError(const QString &title, const QString &message)
 {
-    if (connectButton)
-    {
-        connectButton->setEnabled(true);
-        connectButton->setText("Connect");
-    }
+    updateConnectButtonVisuals("Disconnected", false);
     ConnectionErrorDialog dialog(title, message, this);
     dialog.exec();
-    if (connectButton)
-    {
-        connectButton->setEnabled(true);
-        connectButton->setText("Connect");
-    }
+    updateConnectButtonVisuals("Disconnected", false);
 }
 
 void MainWindow::showError(const QString &message)

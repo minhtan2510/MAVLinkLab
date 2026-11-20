@@ -2455,22 +2455,34 @@ private slots:
 
             // 1. Initial Disconnected state
             QCOMPARE(statusPill->accessibleName(), QString("Connection status"));
+            QCOMPARE(connectBtn->text(), QString("Connect"));
+            QCOMPARE(connectBtn->property("role").toString(), QString("primary"));
+            QCOMPARE(connectBtn->toolTip(), QString("Open serial connection"));
             QVERIFY(uartBar->grab().save(QString("qa/uart-status-disconnected-%1.png").arg(themeSuffix)));
 
             // 2. Connecting state
             window.setConnectionStatus("Connecting", false);
             QTest::qWait(30);
+            QCOMPARE(connectBtn->text(), QString::fromUtf8("Connecting…"));
+            QCOMPARE(connectBtn->property("role").toString(), QString("connecting"));
+            QVERIFY(connectBtn->toolTip().contains("Opening serial connection"));
             QVERIFY(uartBar->grab().save(QString("qa/uart-status-connecting-%1.png").arg(themeSuffix)));
 
             // 3. Connected state
             window.setConnectionStatus("Connected", true);
             QTest::qWait(30);
+            QCOMPARE(connectBtn->text(), QString("Disconnect"));
+            QCOMPARE(connectBtn->property("role").toString(), QString("danger"));
+            QVERIFY(connectBtn->toolTip().contains("Close serial connection"));
             QVERIFY(uartBar->grab().save(QString("qa/uart-status-connected-%1.png").arg(themeSuffix)));
             QVERIFY(window.grab().save(QString("qa/window-status-connected-%1.png").arg(themeSuffix)));
 
             // 4. Reconnecting state
             window.setConnectionStatus("Reconnecting", false);
             QTest::qWait(30);
+            QCOMPARE(connectBtn->text(), QString::fromUtf8("Cancel (Reconnecting…)"));
+            QCOMPARE(connectBtn->property("role").toString(), QString("reconnecting"));
+            QCOMPARE(connectBtn->toolTip(), QString("Click to cancel auto-reconnection loop"));
             QVERIFY(uartBar->grab().save(QString("qa/uart-status-reconnecting-%1.png").arg(themeSuffix)));
         }
     }

@@ -467,11 +467,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     settings->setToolTip("UART settings");
 
     uartRow->addSpacing(8);
-    connectionStatusPill = new ConnectionStatusWidget;
+    connectionStatusPill = new ConnectionStatusWidget(this);
     connectionStatusPill->setObjectName("connectionStatusPill");
-    uartRow->addWidget(connectionStatusPill);
+    connectionStatusPill->hide();
 
-    uartRow->addSpacing(20);
     auto *connectionCard = new QFrame;
     connectionCard->setObjectName("connectionCard");
     auto *cardLayout = new QVBoxLayout(connectionCard);
@@ -481,10 +480,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connectRow->setContentsMargins(0, 0, 0, 0);
     connectButton = button("Connect", "connect", connectRow);
     connectButton->setProperty("role", "primary");
-    connectButton->setFixedSize(116, 32);
+    connectButton->setFixedSize(148, 32);
+    connectButton->setToolTip("Open serial connection");
     cardLayout->addLayout(connectRow);
     uartRow->addWidget(connectionCard, 0, Qt::AlignTop);
-    for (int index = 0; index < uartRow->count() - 1; ++index)
+    for (int index = 0; index < uartRow->count(); ++index)
     {
         if (auto *control = uartRow->itemAt(index)->widget())
         {
@@ -1171,51 +1171,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(&thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(worker, &SerialWorker::stateChanged, this, [this, refreshPortsButton](const QString &state, bool open)
     {
-        if (connectionStatusPill)
-        {
-            connectionStatusPill->setStatus(state, open);
-        }
-        connected = open;
-        if (auto *tree = dynamic_cast<RxTreeWidget *>(rxTree))
-        {
-            tree->setConnectionInfo(open,
-                                    portBox ? portBox->currentText() : QString(),
-                                    baudBox ? baudBox->currentText() : QString());
-        }
-        if (rxThroughput)
-        {
-            if (!open)
-            {
-                rxThroughput->hide();
-            }
-            else
-            {
-                if (latest)
-                {
-                    setRxThroughputStats(latest->rxBytesPerSecond, latest->rxUtilizationPercent, latest->baud);
-                }
-                else
-                {
-                    setRxThroughputStats(0.0, 0.0, baudBox ? baudBox->currentText().toInt() : 115200);
-                }
-            }
-        }
-        connecting = state == "Connecting";
-        reconnecting = state == "Reconnecting";
-        if (reconnecting)
-        {
-            connectButton->setText("Cancel (Reconnecting...)");
-            connectButton->setEnabled(true);
-        }
-        else
-        {
-            connectButton->setText(open ? "Disconnect" : "Connect");
-            connectButton->setEnabled(!connecting);
-        }
-        connectButton->setProperty("connected", open);
-        connectButton->setProperty("reconnecting", reconnecting);
-        connectButton->style()->unpolish(connectButton);
-        connectButton->style()->polish(connectButton);
+        setConnectionStatus(state, open);
         refreshPortsButton->setEnabled(!open && !connecting && !reconnecting);
         for (auto *combo : {portBox, baudBox, dataBox, parityBox, stopBox, flowBox})
         {
@@ -1614,6 +1570,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 MainWindow::~MainWindow()
 {
+    stopConnectPulse();
     refresh.stop();
     QMetaObject::invokeMethod(worker, "closePort", Qt::BlockingQueuedConnection);
     thread.quit();

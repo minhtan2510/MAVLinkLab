@@ -85,6 +85,15 @@
   * Rearranging cards manually via drag-and-drop or `Ctrl+Up`/`Ctrl+Down` automatically resets the active sort indicator back to custom.
   * Direct execution on the worker thread via `SerialWorker::sortEntries(criteria, ascending)` using `std::stable_sort`, preserving active transmission states without interruption, and persisting the updated sequence to `Workspace` settings immediately.
   * Disabled automatically when no TX cards exist (`rowCount == 0`).
+* **Unified UART Connection Button & Status Consolidation:**
+  * Consolidated serial connection status indicators directly into `connectButton` (`QPushButton#connect`, 148×32 px), removing the redundant standalone `connectionStatusPill` widget from the `uartRow` layout and reclaiming ~104 px of horizontal space with clean 8px spacing between controls.
+  * `connectionStatusPill` is kept created and hidden (`hide()`) as an internal child of `MainWindow`, preserving 100% backward compatibility for test fixtures expecting `window.findChild<QWidget *>("connectionStatusPill")`.
+  * **Unified State Machine & Breathing Animation:**
+    1. **Disconnected:** Text `"Connect"`, `role="primary"` (Indigo `#4f46e5`, white text), tooltip `"Open serial connection"`, static styling.
+    2. **Connecting:** Text `"Connecting…"`, `role="connecting"` (Amber `#d97706` / `#fbbf24`), tooltip `"Opening serial connection to <port> (<baud> baud)..."`, disabled to prevent double clicks, active sinusoidal breathing pulse animation (~28 FPS).
+    3. **Connected:** Text `"Disconnect"`, `role="danger"` (Rose/Red `#dc2626` / `#ef4444`, white text), tooltip `"Close serial connection to <port> (<baud> baud)"`, static styling.
+    4. **Reconnecting:** Text `"Cancel (Reconnecting…)"`, `role="reconnecting"` (Orange `#ea580c` / `#f97316`), tooltip `"Click to cancel auto-reconnection loop"`, enabled allowing cancellation, active sinusoidal breathing pulse animation (~28 FPS).
+  * Breathing pulse animation (`startConnectPulse`, `stopConnectPulse`) uses `connectPulseTimer` (35 ms interval) interpolating between tonal bounds via $0.5 + 0.5 \sin(\text{phase})$, dynamically applying smooth background and border transitions without external dependencies, and cleanly reverting to global QSS on disconnect or connect.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
