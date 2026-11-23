@@ -781,7 +781,7 @@ void MainWindow::executeTxUndo()
 }
 
 /**
- * @brief Reposition the undo toast anchored to the bottom-left of the window.
+ * @brief Reposition the undo toast anchored to the bottom-left inside the TX dashboard panel.
  */
 void MainWindow::repositionTxUndoToast()
 {
@@ -790,8 +790,13 @@ void MainWindow::repositionTxUndoToast()
         return;
     }
     const int targetX = 36;
-    const int statusHeight = statusBar() && statusBar()->isVisible() ? statusBar()->height() : 24;
-    const int targetY = height() - statusHeight - txUndoToast->height() - 24;
+    int targetY = height() - txUndoToast->height() - 72;
+    if (txTable && txTable->parentWidget())
+    {
+        const QWidget *panel = txTable->parentWidget();
+        const QPoint panelBottom = panel->mapTo(this, QPoint(0, panel->height()));
+        targetY = panelBottom.y() - txUndoToast->height() - 16;
+    }
     txUndoToast->setTargetPosition(QPoint(targetX, targetY));
 }
 
