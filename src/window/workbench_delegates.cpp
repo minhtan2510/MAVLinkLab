@@ -25,7 +25,7 @@
 void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 {
     const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
-    const QColor panelBg(dark ? "#1b2333" : "#ffffff");
+    const QColor panelBg(dark ? "#161b22" : "#ffffff");
     const bool isDragging = option.widget ? option.widget->property("isDragging").toBool() : false;
     const int dragSource = option.widget ? option.widget->property("dragSourceRow").toInt() : -1;
     const int dragTarget = option.widget ? option.widget->property("dragTargetRow").toInt() : -1;
@@ -121,18 +121,83 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         }
     }
     const QRect card = MainWindow::txCardRect(option.rect, animDy);
+    const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
+
+    // Subtle 3D Floating Elevation Shadow (Ambient + Drop + Contact edge layers)
+    if (!isDeletingThis)
+    {
+        painter->setPen(Qt::NoPen);
+        const int shadowSpread = hovered ? 3 : 2;
+
+        // Ambient soft shadow
+        const QColor ambientShadow = dark ? QColor(0, 0, 0, hovered ? 38 : 30) :
+                                            QColor(15, 23, 42, hovered ? 14 : 10);
+        painter->setBrush(ambientShadow);
+        painter->drawRoundedRect(card.adjusted(0, 1, 0, shadowSpread + 1), 8, 8);
+
+        // Direct downward drop shadow
+        const QColor dropShadow = dark ? QColor(0, 0, 0, hovered ? 60 : 45) :
+                                         QColor(15, 23, 42, hovered ? 24 : 18);
+        painter->setBrush(dropShadow);
+        painter->drawRoundedRect(card.adjusted(0, 1, 0, shadowSpread), 8, 8);
+
+        // Contact edge shadow directly under bottom edge
+        const QColor contactShadow = dark ? QColor(0, 0, 0, hovered ? 85 : 65) :
+                                            QColor(15, 23, 42, hovered ? 34 : 26);
+        painter->setBrush(contactShadow);
+        painter->drawRoundedRect(card.adjusted(1, 1, -1, hovered ? 2 : 1), 8, 8);
+    }
+
     const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#3d506e" : "#b8c8dc");
-    QColor surface = panelBg;
-    if (hovered)
+
+    // Subtle 3D Surface Gradient (Soft top illumination to bottom depth)
+    QLinearGradient surfaceGrad(card.topLeft(), card.bottomLeft());
+    if (dark)
     {
-        surface = dark ? surface.lighter(112) : QColor("#f8fafc");
+        if (hovered)
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#29364e"));
+            surfaceGrad.setColorAt(1.0, QColor("#202a3c"));
+        }
+        else
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#242f44"));
+            surfaceGrad.setColorAt(1.0, QColor("#1c2435"));
+        }
     }
-    const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
-    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#60a5fa") : QColor(dark ? "#272d3b" : "#e2e8f0");
+    else
+    {
+        if (hovered)
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#ffffff"));
+            surfaceGrad.setColorAt(1.0, QColor("#f1f5f9"));
+        }
+        else
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#ffffff"));
+            surfaceGrad.setColorAt(1.0, QColor("#f8fafc"));
+        }
+    }
+
+    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#60a5fa") :
+                              (hovered ? QColor(dark ? "#3d4e6d" : "#cbd5e1") : QColor(dark ? "#2d3a52" : "#e2e8f0"));
     painter->setPen(QPen(cardBorder, (selected && !isDeletingThis) ? 1.5 : 1.2));
-    painter->setBrush(surface);
+    painter->setBrush(surfaceGrad);
     painter->drawRoundedRect(card, 8, 8);
+
+    // Top Rim Light (Soft specular inset highlight on the upper curved rim)
+    if (!selected && !isDeletingThis)
+    {
+        painter->save();
+        painter->setClipRect(QRect(card.left(), card.top(), card.width(), 8), Qt::IntersectClip);
+        const QColor rimColor = dark ? QColor(255, 255, 255, hovered ? 28 : 18) :
+                                       QColor(255, 255, 255, 120);
+        painter->setPen(QPen(rimColor, 1.0));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(card.adjusted(1, 1, -1, -1), 7, 7);
+        painter->restore();
+    }
 
     // Refined slim 3px state capsule pill inset along left edge
     const QRectF accentPill(card.left() + 8, card.top() + 10, 3, card.height() - 20);

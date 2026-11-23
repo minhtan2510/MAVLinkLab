@@ -29,11 +29,11 @@
  * @brief Compute the visual bounding rectangle for a TX message card inside a table cell.
  * @param cellRect The raw geometry of the table cell (column 1).
  * @param animDy Optional vertical animation translation offset in pixels.
- * @return Padded card rectangle with 6px left margin and 8px right breathing room.
+ * @return Card rectangle flush with the divider line and adaptive to viewport scrollbars.
  */
 QRect MainWindow::txCardRect(const QRect &cellRect, int animDy)
 {
-    return cellRect.adjusted(6, 5 + animDy, -8, -5 + animDy);
+    return cellRect.adjusted(1, 5 + animDy, -1, -5 + animDy);
 }
 
 /**
@@ -641,6 +641,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addWidget(txDivider);
     txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"}, true);
     txTable->setObjectName("txTable");
+    txTable->setFrameShape(QFrame::NoFrame);
     txTable->setItemDelegateForColumn(1, new TxCardDelegate(txTable));
     txTable->horizontalHeader()->hide();
     txTable->horizontalHeader()->setStretchLastSection(false);

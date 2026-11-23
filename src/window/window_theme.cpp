@@ -264,7 +264,7 @@ void MainWindow::applyTheme()
         "QLabel#displayPaused { color:%7; background:%1; padding:2px 6px; border-radius:4px; font-size:11px; }"
         "QTreeWidget#rxTree { background:%1; alternate-background-color:%5; outline:none; }"
         "QTableWidget#inspector { background:%1; border:0; }"
-        "QTableWidget#txTable { background:transparent; }"
+        "QTableWidget#txTable { background:transparent; border:0; outline:none; }"
         "QTableView#txTable::item:selected,QTableView#txTable::item:hover { background:transparent; }"
         "QTreeWidget#rxTree::item { border-bottom:1px solid %5; height:34px; padding:0 8px; outline:none; }"
         "QTreeWidget#rxTree::item:focus { outline:none; border:none; }"
