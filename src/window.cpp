@@ -590,13 +590,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txSummary = new TxSummaryWidget;
     txSummary->setObjectName("txSummary");
-    txHeading->addWidget(txSummary, 0, 1, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
 
     sortButton = button("", "sortMessages", nullptr);
     sortButton->setFixedSize(28, 28);
     sortButton->setAccessibleName("Sort messages");
     sortButton->installEventFilter(this);
-    txHeading->addWidget(sortButton, 0, 4, Qt::AlignRight | Qt::AlignVCenter);
+
+    auto *txHeaderRow = new QHBoxLayout;
+    txHeaderRow->setContentsMargins(0, 0, 0, 0);
+    txHeaderRow->setSpacing(8);
+    txHeaderRow->addWidget(txSummary, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    txHeaderRow->addStretch(1);
+    txHeaderRow->addWidget(sortButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    txHeading->addLayout(txHeaderRow, 0, 1);
 
     auto *batchActions = new QHBoxLayout;
     batchActions->setContentsMargins(0, 0, 0, 0);
@@ -624,12 +630,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txHeading->addLayout(batchActions, 1, 0);
 
-    txHeading->setColumnStretch(2, 1);
+    txHeading->setColumnStretch(1, 1);
 
     auto *addButton = new QPushButton("Add message");
     addButton->setObjectName("addMessage");
     addButton->setProperty("role", "primary");
-    txHeading->addWidget(addButton, 1, 3, 1, 2, Qt::AlignRight | Qt::AlignVCenter);
+    txHeading->addWidget(addButton, 1, 1, Qt::AlignRight | Qt::AlignVCenter);
 
     txLayout->addLayout(txHeading);
 
