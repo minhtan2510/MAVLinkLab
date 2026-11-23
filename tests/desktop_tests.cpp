@@ -1663,7 +1663,7 @@ private slots:
             {
                 theme->setCurrentIndex(liveMode);
                 QTest::qWait(10);
-                const QColor expected(liveMode == 2 ? "#0d1422" : "#edf1f8");
+                const QColor expected(liveMode == 2 ? "#0e1117" : "#f4f6fa");
                 QCOMPARE(titleBar->grab().toImage().pixelColor(2, 2), expected);
             }
             theme->showPopup();
@@ -1681,7 +1681,7 @@ private slots:
                 auto *header = about->findChild<QWidget *>("dialogTitleBar");
                 QVERIFY(header);
                 QCOMPARE(header->grab().toImage().pixelColor(2, 2),
-                         QColor(index == 2 ? "#0d1422" : "#edf1f8"));
+                         QColor(index == 2 ? "#0e1117" : "#f4f6fa"));
                 QVERIFY(about->grab().save("qa/about-" + mode + ".png"));
                 if (index == 2)
                 {
@@ -2751,6 +2751,7 @@ private slots:
         {
             MainWindow window;
             window.show();
+            window.stopRefreshTimer();
             QTest::qWait(30);
 
             auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
@@ -4928,6 +4929,31 @@ private slots:
             QCOMPARE(toast->height(), 28);
             const int targetY = toast->y();
 
+            // Verify spatial boundary: toast must be strictly contained inside the TX dashboard panel
+            auto *txGroup = tx->parentWidget();
+            QVERIFY(txGroup != nullptr);
+            const QRect panelInWindow(txGroup->mapTo(&window, QPoint(0, 0)), txGroup->size());
+            QVERIFY(panelInWindow.contains(toast->geometry()));
+            QVERIFY(toast->geometry().bottom() <= panelInWindow.bottom() - 16);
+            QVERIFY(toast->geometry().left() >= panelInWindow.left() + 16);
+
+            // Verify spatial boundaries hold across multiple window resolutions
+            for (const QSize &sz : {QSize(1000, 720), QSize(1440, 900), QSize(1920, 1080)})
+            {
+                window.resize(sz);
+                QTest::qWait(30);
+                const QRect resizedPanel(txGroup->mapTo(&window, QPoint(0, 0)), txGroup->size());
+                QVERIFY(resizedPanel.contains(toast->geometry()));
+                QVERIFY(toast->geometry().bottom() <= resizedPanel.bottom() - 16);
+                QVERIFY(toast->geometry().left() >= resizedPanel.left() + 16);
+            }
+            window.resize(1440, 900);
+            QTest::qWait(30);
+
+            // Save visual artifact of the floating undo toast
+            QDir().mkpath("qa");
+            window.grab(QRect(0, 0, window.width(), window.height())).save("qa/tx-undo-toast-rendered.png");
+
             // Test consecutive delete while toast is active: in-place reset without slide re-entry
             QTest::keyClick(&window, Qt::Key_Delete, Qt::NoModifier);
             QTest::qWait(50);
@@ -5403,6 +5429,83 @@ private slots:
         {
             auto *txGroupWidget = txTable->parentWidget();
             txGroupWidget->grab(QRect(0, 0, txGroupWidget->width(), 100)).save("qa/tx-heading-sort-pills.png");
+        }
+
+        // 3. Verify sort arrow icon contrast across Light and Dark themes
+        auto *themeBox = window.findChild<QComboBox *>("theme");
+        QVERIFY(themeBox != nullptr);
+
+        for (int themeIdx : {1, 2}) // 1: Light, 2: Dark
+        {
+            themeBox->setCurrentIndex(themeIdx);
+            QApplication::processEvents();
+            QTest::qWait(30);
+
+            sortById->trigger();
+            const QIcon arrowIcon = sortById->icon();
+            QVERIFY(!arrowIcon.isNull());
+
+            const QImage normalImg = arrowIcon.pixmap(16, 16, QIcon::Normal, QIcon::On).toImage();
+            const QImage activeImg = arrowIcon.pixmap(16, 16, QIcon::Active, QIcon::On).toImage();
+            const QImage selectedImg = arrowIcon.pixmap(16, 16, QIcon::Selected, QIcon::On).toImage();
+
+            // In Light mode (themeIdx == 1), Normal & Active icons must be dark/black, NEVER pure white
+            if (themeIdx == 1)
+            {
+                bool hasDarkPixel = false;
+                bool hasWhitePixel = false;
+                for (int y = 0; y < normalImg.height(); ++y)
+                {
+                    for (int x = 0; x < normalImg.width(); ++x)
+                    {
+                        const QColor c = normalImg.pixelColor(x, y);
+                        if (c.alpha() > 100)
+                        {
+                            if (c.red() < 50 && c.green() < 50 && c.blue() < 50)
+                            {
+                                hasDarkPixel = true;
+                            }
+                            if (c.red() > 240 && c.green() > 240 && c.blue() > 240)
+                            {
+                                hasWhitePixel = true;
+                            }
+                        }
+                    }
+                }
+                QVERIFY(hasDarkPixel);
+                QVERIFY(!hasWhitePixel);
+            }
+            else // Dark mode (themeIdx == 2), Normal & Active icons must be light foreground
+            {
+                bool hasLightPixel = false;
+                for (int y = 0; y < normalImg.height(); ++y)
+                {
+                    for (int x = 0; x < normalImg.width(); ++x)
+                    {
+                        const QColor c = normalImg.pixelColor(x, y);
+                        if (c.alpha() > 100 && c.red() > 200 && c.green() > 200 && c.blue() > 200)
+                        {
+                            hasLightPixel = true;
+                        }
+                    }
+                }
+                QVERIFY(hasLightPixel);
+            }
+
+            // In both themes, Selected (hovered) state on blue background MUST have pure white pixels
+            bool selectedHasWhitePixel = false;
+            for (int y = 0; y < selectedImg.height(); ++y)
+            {
+                for (int x = 0; x < selectedImg.width(); ++x)
+                {
+                    const QColor c = selectedImg.pixelColor(x, y);
+                    if (c.alpha() > 100 && c.red() > 240 && c.green() > 240 && c.blue() > 240)
+                    {
+                        selectedHasWhitePixel = true;
+                    }
+                }
+            }
+            QVERIFY(selectedHasWhitePixel);
         }
     }
 

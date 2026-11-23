@@ -164,7 +164,7 @@ void WorkbenchComboDelegate::paint(QPainter *painter, const QStyleOptionViewItem
     if (isCurrent)
     {
         painter->setPen(Qt::NoPen);
-        painter->setBrush(isHovered ? QColor("#4338ca") : QColor("#4f46e5"));
+        painter->setBrush(isHovered ? QColor("#1d4ed8") : QColor("#2563eb"));
         painter->drawRoundedRect(itemRect, 5.0, 5.0);
     }
     else if (isHovered)
@@ -432,8 +432,8 @@ void WorkbenchComboBox::paintEvent(QPaintEvent *event)
               : (palette().color(QPalette::Window).lightness() < 128)));
 
     const QColor chevronColor = (isOpen || isHovered || isFocused)
-        ? QColor("#818cf8")
-        : (dark ? QColor("#aab4cd") : QColor("#626c84"));
+        ? QColor("#60a5fa")
+        : (dark ? QColor("#8b949e") : QColor("#57606a"));
 
     const qreal direction = isOpen ? -1.0 : 1.0;
     const QPointF center(width() - 14.0, height() / 2.0);
@@ -525,19 +525,19 @@ void WorkbenchCheckBox::paintEvent(QPaintEvent *event)
                         qApp->property("darkTheme").toBool() :
                         (palette().color(QPalette::Window).lightness() < 128)));
 
-    QColor borderColor = (hovered || focused) ? QColor("#818cf8") : (dark ? QColor("#667595") : QColor("#929db3"));
-    QColor bgColor = dark ? QColor("#1b2333") : QColor("#ffffff");
+    QColor borderColor = (hovered || focused) ? QColor("#60a5fa") : (dark ? QColor("#374151") : QColor("#cbd5e1"));
+    QColor bgColor = dark ? QColor("#161b22") : QColor("#ffffff");
 
     if (pressed && !checked)
     {
-        bgColor = dark ? QColor("#222c3e") : QColor("#f1f5f9");
+        bgColor = dark ? QColor("#1c212c") : QColor("#f1f5f9");
     }
 
     if (checked)
     {
-        bgColor = isEnabled() ? (pressed ? QColor("#3730a3") : (hovered ? QColor("#4338ca") : QColor("#4f46e5")))
-                              : (dark ? QColor("#3730a3") : QColor("#818cf8"));
-        borderColor = (focused || hovered) ? QColor("#818cf8") : bgColor;
+        bgColor = isEnabled() ? (pressed ? QColor("#1e40af") : (hovered ? QColor("#1d4ed8") : QColor("#2563eb")))
+                              : (dark ? QColor("#1e40af") : QColor("#60a5fa"));
+        borderColor = (focused || hovered) ? QColor("#60a5fa") : bgColor;
     }
 
     painter.setPen(QPen(borderColor, 1.0));

@@ -664,21 +664,20 @@ void SerialWorker::readAvailable()
     }
     const int64_t now = clock.nsecsElapsed() / 1000;
     qint64 totalRead = 0;
+    uint8_t readBuffer[8192];
     while (port->bytesAvailable() > 0 && totalRead < 65536)
     {
-        const QByteArray bytes = port->read(8192);
-        if (bytes.isEmpty())
+        const qint64 bytesRead = port->read(reinterpret_cast<char *>(readBuffer), sizeof(readBuffer));
+        if (bytesRead <= 0)
         {
             break;
         }
-        totalRead += bytes.size();
-        rxThroughput.add(bytes.size(), now);
-        const auto *data = reinterpret_cast<const uint8_t *>(bytes.constData());
-        const auto messages = parser.feed(data, size_t(bytes.size()));
-        for (const auto &message : messages)
+        totalRead += bytesRead;
+        rxThroughput.add(size_t(bytesRead), now);
+        parser.feed(readBuffer, size_t(bytesRead), [this, now](const mavlink_message_t &message)
         {
             receiver.accept(message, now);
-        }
+        });
     }
     if (port->bytesAvailable() > 0)
     {
@@ -734,9 +733,13 @@ void SerialWorker::pump()
     // Bound the Qt write buffer in addition to the application queue.
     while (queue.size() && port->bytesToWrite() < 4096)
     {
-        const auto frame = queue.front();
-        const auto length = std::min<qint64>(qint64(frame.size()), 4096 - port->bytesToWrite());
-        const auto written = port->write(reinterpret_cast<const char *>(frame.data()), length);
+        const auto [data, available] = queue.peek();
+        if (!data || available == 0)
+        {
+            break;
+        }
+        const auto length = std::min<qint64>(qint64(available), 4096 - port->bytesToWrite());
+        const auto written = port->write(reinterpret_cast<const char *>(data), length);
         if (written < 0)
         {
             handleUnexpectedDisconnect("Serial write failed");
@@ -747,7 +750,7 @@ void SerialWorker::pump()
             break;
         }
         queue.consume(size_t(written));
-        if (size_t(written) == frame.size())
+        if (size_t(written) == available)
         {
             const auto key = owners.front();
             owners.pop_front();

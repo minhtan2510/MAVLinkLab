@@ -29,11 +29,11 @@
  * @brief Compute the visual bounding rectangle for a TX message card inside a table cell.
  * @param cellRect The raw geometry of the table cell (column 1).
  * @param animDy Optional vertical animation translation offset in pixels.
- * @return Padded card rectangle with 6px left margin and 8px right breathing room.
+ * @return Card rectangle flush with the divider line and adaptive to viewport scrollbars.
  */
 QRect MainWindow::txCardRect(const QRect &cellRect, int animDy)
 {
-    return cellRect.adjusted(6, 5 + animDy, -8, -5 + animDy);
+    return cellRect.adjusted(1, 5 + animDy, -1, -5 + animDy);
 }
 
 /**
@@ -590,13 +590,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txSummary = new TxSummaryWidget;
     txSummary->setObjectName("txSummary");
-    txHeading->addWidget(txSummary, 0, 1, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
 
     sortButton = button("", "sortMessages", nullptr);
     sortButton->setFixedSize(28, 28);
     sortButton->setAccessibleName("Sort messages");
     sortButton->installEventFilter(this);
-    txHeading->addWidget(sortButton, 0, 4, Qt::AlignRight | Qt::AlignVCenter);
+
+    auto *txHeaderRow = new QHBoxLayout;
+    txHeaderRow->setContentsMargins(0, 0, 0, 0);
+    txHeaderRow->setSpacing(8);
+    txHeaderRow->addWidget(txSummary, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    txHeaderRow->addStretch(1);
+    txHeaderRow->addWidget(sortButton, 0, Qt::AlignRight | Qt::AlignVCenter);
+    txHeading->addLayout(txHeaderRow, 0, 1);
 
     auto *batchActions = new QHBoxLayout;
     batchActions->setContentsMargins(0, 0, 0, 0);
@@ -624,12 +630,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     txHeading->addLayout(batchActions, 1, 0);
 
-    txHeading->setColumnStretch(2, 1);
+    txHeading->setColumnStretch(1, 1);
 
     auto *addButton = new QPushButton("Add message");
     addButton->setObjectName("addMessage");
     addButton->setProperty("role", "primary");
-    txHeading->addWidget(addButton, 1, 3, 1, 2, Qt::AlignRight | Qt::AlignVCenter);
+    txHeading->addWidget(addButton, 1, 1, Qt::AlignRight | Qt::AlignVCenter);
 
     txLayout->addLayout(txHeading);
 
@@ -641,6 +647,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     txLayout->addWidget(txDivider);
     txTable = table({"ID", "Message", "Sys / Comp", "Target Hz", "Actual Hz", "Queued", "Status"}, true);
     txTable->setObjectName("txTable");
+    txTable->setFrameShape(QFrame::NoFrame);
     txTable->setItemDelegateForColumn(1, new TxCardDelegate(txTable));
     txTable->horizontalHeader()->hide();
     txTable->horizontalHeader()->setStretchLastSection(false);
@@ -1208,7 +1215,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             }
             settings.sync();
 
-            rxTree->clear();
+            clearRxTree();
             inspector->setRowCount(0);
         }
         updateActions();
@@ -1309,7 +1316,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(clear, &QPushButton::clicked, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "clearStatistics", Qt::QueuedConnection);
-        rxTree->clear();
+        clearRxTree();
         inspector->setRowCount(0);
         inspectorTitle->setText("DECODED FIELDS");
         inspectorSource->clear();
@@ -1826,4 +1833,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     }
     return QMainWindow::eventFilter(watched, event);
 }
+
+void MainWindow::clearRxTree()
+{
+    rxDeviceItems_.clear();
+    rxStreamItems_.clear();
+    if (rxTree)
+    {
+        rxTree->clear();
+    }
+}
+
 
