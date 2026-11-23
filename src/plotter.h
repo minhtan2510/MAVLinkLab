@@ -133,6 +133,8 @@ private:
     double cachedYMax_ = 1.0;
     QPoint hoverPos_{-1, -1};
     bool isHovering_ = false;
+    mutable QPolygonF curvePoly_;
+    mutable QPolygonF fillPoly_;
 };
 
 /**

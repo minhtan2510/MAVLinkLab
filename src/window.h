@@ -1,5 +1,6 @@
 #pragma once
 #include "worker.h"
+#include <unordered_map>
 #include <QMainWindow>
 #include <QDialog>
 #include <QMenuBar>
@@ -209,6 +210,8 @@ private:
     void applySort(int criteria);
     /** @brief Reset sort state indicator to custom when cards are manually rearranged. */
     void resetSortIndicator();
+    /** @brief Clear the RX tree hierarchy and reset cached item lookup maps. */
+    void clearRxTree();
     /**
      * @brief Update the sort button icon based on theme, hover, and enabled states.
      * @param hovered True if the mouse pointer is currently hovering over the button.
@@ -320,6 +323,8 @@ private:
     double txDeleteAnimRowHeight = 74.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
+    std::unordered_map<uint64_t, QTreeWidgetItem *> rxDeviceItems_;
+    std::unordered_map<uint64_t, QTreeWidgetItem *> rxStreamItems_;
     QTableWidget *inspector = nullptr;
     QLineEdit *rxFilter = nullptr;
     QPushButton *toggleExpandRx = nullptr;

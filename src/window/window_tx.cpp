@@ -255,7 +255,7 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
         // 3. Crisp accent border highlight (Modern 3D lift)
         const bool dark = txTable->property("darkTheme").toBool();
         p.setOpacity(1.0);
-        p.setPen(QPen(QColor(dark ? "#818cf8" : "#4f46e5"), 1.5));
+        p.setPen(QPen(QColor(dark ? "#60a5fa" : "#2563eb"), 1.5));
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(QRect(shadowMargin, shadowMargin, cardRect.width(), cardRect.height()), 8, 8);
     }
@@ -1289,7 +1289,7 @@ void MainWindow::setupSortMenu()
 void MainWindow::updateSortMenuActions()
 {
     const bool isDark = sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true;
-    const QColor arrowColor = isDark ? QColor("#818cf8") : QColor("#4f46e5");
+    const QColor arrowColor = isDark ? QColor("#60a5fa") : QColor("#2563eb");
 
     for (size_t i = 0; i < sortActions.size(); ++i)
     {

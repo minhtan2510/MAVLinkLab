@@ -15,6 +15,98 @@ namespace Mav
 {
 using Bytes = std::vector<uint8_t>;
 
+/**
+ * @brief Contiguous circular ring queue with geometric capacity expansion and zero steady-state heap churn.
+ */
+template <typename T>
+class RingQueue
+{
+public:
+    void push_back(const T &item)
+    {
+        if (count_ == capacity_)
+        {
+            reserve(capacity_ == 0 ? 32 : capacity_ * 2);
+        }
+        const size_t writeIdx = (head_ + count_) % capacity_;
+        buffer_[writeIdx] = item;
+        ++count_;
+    }
+
+    void pop_front()
+    {
+        if (count_ > 0)
+        {
+            head_ = (head_ + 1) % capacity_;
+            --count_;
+            if (count_ == 0)
+            {
+                head_ = 0;
+            }
+        }
+    }
+
+    const T &front() const
+    {
+        static const T defaultVal{};
+        return count_ > 0 ? buffer_[head_] : defaultVal;
+    }
+
+    bool empty() const
+    {
+        return count_ == 0;
+    }
+
+    size_t size() const
+    {
+        return count_;
+    }
+
+    void clear()
+    {
+        head_ = 0;
+        count_ = 0;
+    }
+
+    void reserve(size_t newCap)
+    {
+        if (newCap <= capacity_)
+        {
+            return;
+        }
+        std::vector<T> newBuf(newCap);
+        for (size_t i = 0; i < count_; ++i)
+        {
+            newBuf[i] = std::move(buffer_[(head_ + i) % capacity_]);
+        }
+        buffer_ = std::move(newBuf);
+        head_ = 0;
+        capacity_ = newCap;
+    }
+
+    bool operator==(const RingQueue &other) const
+    {
+        if (count_ != other.count_)
+        {
+            return false;
+        }
+        for (size_t i = 0; i < count_; ++i)
+        {
+            if (buffer_[(head_ + i) % capacity_] != other.buffer_[(other.head_ + i) % other.capacity_])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+private:
+    std::vector<T> buffer_;
+    size_t head_ = 0;
+    size_t count_ = 0;
+    size_t capacity_ = 0;
+};
+
 /** @brief Return the generated dialect catalog in message ID order. */
 const std::vector<mavlink_message_info_t> &catalog();
 /** @brief Return a readable MAVLink primitive type name. */
@@ -54,6 +146,41 @@ struct Parser
     mavlink_status_t status{};
     uint64_t crcErrors = 0;
     uint64_t signatureErrors = 0;
+
+    /**
+     * @brief Parse raw bytes and dispatch decoded messages directly to a callback without vector allocations.
+     * @tparam Callback Callable with signature void(const mavlink_message_t &).
+     * @param data Pointer to raw byte buffer.
+     * @param length Number of bytes to parse.
+     * @param callback Functor or lambda invoked on each successfully parsed message.
+     */
+    template <typename Callback>
+    void feed(const uint8_t *data, size_t length, Callback &&callback)
+    {
+        if (!data || length == 0)
+        {
+            return;
+        }
+        for (size_t i = 0; i < length; ++i)
+        {
+            mavlink_message_t message{};
+            mavlink_status_t report{};
+            const auto framing = mavlink_frame_char_buffer(&buffer, &status, data[i], &message, &report);
+            if (framing == MAVLINK_FRAMING_OK)
+            {
+                callback(message);
+            }
+            else if (framing == MAVLINK_FRAMING_BAD_CRC)
+            {
+                ++crcErrors;
+            }
+            else if (framing == MAVLINK_FRAMING_BAD_SIGNATURE)
+            {
+                ++signatureErrors;
+            }
+        }
+    }
+
     /** @brief Parse an arbitrary fragment while preserving frame state. */
     std::vector<mavlink_message_t> feed(const Bytes &bytes);
     /**
@@ -67,7 +194,7 @@ struct Parser
 
 struct Rate
 {
-    std::deque<int64_t> times;
+    RingQueue<int64_t> times;
     /** @brief Record an event and bound storage to the measurement window. */
     void add(int64_t now);
     /** @brief Return events per second in the trailing one-second window. */
@@ -83,8 +210,17 @@ struct ByteRate
     {
         int64_t time = 0;
         size_t bytes = 0;
+
+        bool operator==(const Sample &other) const
+        {
+            return time == other.time && bytes == other.bytes;
+        }
+        bool operator!=(const Sample &other) const
+        {
+            return !(*this == other);
+        }
     };
-    std::deque<Sample> samples;
+    RingQueue<Sample> samples;
     size_t totalBytes = 0;
 
     /**
@@ -310,6 +446,11 @@ public:
     bool push(const Bytes &bytes);
     /** @brief Return the remaining bytes for the head frame. */
     Bytes front() const;
+    /**
+     * @brief Return a non-owning read view of remaining bytes in the head frame.
+     * @return Pair of pointer to start of remaining bytes and remaining byte count.
+     */
+    std::pair<const uint8_t *, size_t> peek() const;
     /** @brief Consume accepted bytes; reject invalid counts without mutation. */
     bool consume(size_t count);
     /** @brief Drop all application pending bytes. */

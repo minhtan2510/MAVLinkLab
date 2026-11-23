@@ -1663,7 +1663,7 @@ private slots:
             {
                 theme->setCurrentIndex(liveMode);
                 QTest::qWait(10);
-                const QColor expected(liveMode == 2 ? "#0d1422" : "#edf1f8");
+                const QColor expected(liveMode == 2 ? "#0e1117" : "#f4f6fa");
                 QCOMPARE(titleBar->grab().toImage().pixelColor(2, 2), expected);
             }
             theme->showPopup();
@@ -1681,7 +1681,7 @@ private slots:
                 auto *header = about->findChild<QWidget *>("dialogTitleBar");
                 QVERIFY(header);
                 QCOMPARE(header->grab().toImage().pixelColor(2, 2),
-                         QColor(index == 2 ? "#0d1422" : "#edf1f8"));
+                         QColor(index == 2 ? "#0e1117" : "#f4f6fa"));
                 QVERIFY(about->grab().save("qa/about-" + mode + ".png"));
                 if (index == 2)
                 {

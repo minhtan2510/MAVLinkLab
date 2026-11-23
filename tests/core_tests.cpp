@@ -147,6 +147,15 @@ static void testParserFramingAndCrc()
     check(decoded[1].magic == MAVLINK_STX_MAVLINK1 && decoded[1].sysid == 30, "Frame 2: MAVLink 1 sysid 30");
     check(decoded[2].magic == MAVLINK_STX && decoded[2].sysid == 10, "Frame 3: MAVLink 2 sysid 10");
 
+    // Zero-allocation callback parsing
+    size_t callbackFrames = 0;
+    parser.feed(combined.data(), combined.size(), [&callbackFrames](const mavlink_message_t &msg)
+    {
+        ++callbackFrames;
+        check(msg.sysid == 10 || msg.sysid == 30, "Callback receives valid decoded message");
+    });
+    check(callbackFrames == 3, "Callback dispatched exactly 3 frames without heap vector allocation");
+
     // Corrupted payload byte -> Bad CRC accounting
     auto corruptPayload = v2Bytes;
     corruptPayload[10] ^= 0x55;
@@ -665,6 +674,8 @@ static void testWriteQueueComprehensive()
     // Initial state
     check(queue.size() == 0, "Initial queue size 0");
     check(queue.front().empty(), "Initial front empty");
+    const auto [initData, initSize] = queue.peek();
+    check(initData == nullptr && initSize == 0, "Initial peek is null with size 0");
     check(!queue.consume(1), "Consume on empty queue rejected");
 
     // Reject empty push
@@ -676,11 +687,15 @@ static void testWriteQueueComprehensive()
     check(queue.push(frameA), "Pushed frame A (10 bytes)");
     check(queue.push(frameB), "Pushed frame B (3 bytes)");
     check(queue.size() == 13, "Queue size 13 bytes");
+    const auto [peekA, sizeA] = queue.peek();
+    check(peekA != nullptr && sizeA == 10 && peekA[0] == 10, "Peek matches frame A head");
 
     // Step 1: consume 3 bytes of frame A
     check(queue.consume(3), "Consume 3 bytes of frame A");
     check(queue.size() == 10, "Remaining 10 bytes");
     check(queue.front() == Mav::Bytes({40, 50, 60, 70, 80, 90, 100}), "Front matches remainder of frame A");
+    const auto [peekA1, sizeA1] = queue.peek();
+    check(peekA1 != nullptr && sizeA1 == 7 && peekA1[0] == 40, "Peek matches offset remainder of frame A");
 
     // Step 2: consume 4 bytes of frame A
     check(queue.consume(4), "Consume 4 bytes of frame A");

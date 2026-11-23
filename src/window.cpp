@@ -1208,7 +1208,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
             }
             settings.sync();
 
-            rxTree->clear();
+            clearRxTree();
             inspector->setRowCount(0);
         }
         updateActions();
@@ -1309,7 +1309,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(clear, &QPushButton::clicked, this, [this]()
     {
         QMetaObject::invokeMethod(worker, "clearStatistics", Qt::QueuedConnection);
-        rxTree->clear();
+        clearRxTree();
         inspector->setRowCount(0);
         inspectorTitle->setText("DECODED FIELDS");
         inspectorSource->clear();
@@ -1826,4 +1826,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     }
     return QMainWindow::eventFilter(watched, event);
 }
+
+void MainWindow::clearRxTree()
+{
+    rxDeviceItems_.clear();
+    rxStreamItems_.clear();
+    if (rxTree)
+    {
+        rxTree->clear();
+    }
+}
+
 

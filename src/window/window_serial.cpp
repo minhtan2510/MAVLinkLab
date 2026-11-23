@@ -203,50 +203,16 @@ void MainWindow::setConnectionStatus(const QString &state, bool open)
 void MainWindow::startConnectPulse(const QString &role)
 {
     connectPulseRole = role;
-    if (!connectPulseTimer)
+    if (connectPulseTimer && connectPulseTimer->isActive())
     {
-        connectPulseTimer = new QTimer(this);
-        connectPulseTimer->setInterval(35);
-        connect(connectPulseTimer, &QTimer::timeout, this, [this]()
-        {
-            if (!connectButton)
-            {
-                return;
-            }
-            connectPulsePhase += 0.08;
-            if (connectPulsePhase > 6.283185307179586)
-            {
-                connectPulsePhase -= 6.283185307179586;
-            }
-            const double factor = 0.5 + 0.5 * std::sin(connectPulsePhase);
-            QColor c1;
-            QColor c2;
-            if (connectPulseRole == "connecting")
-            {
-                // Amber pulse: #d97706 to #f59e0b
-                c1 = QColor(217, 119, 6);
-                c2 = QColor(245, 158, 11);
-            }
-            else
-            {
-                // Orange pulse: #ea580c to #f97316
-                c1 = QColor(217, 80, 10);
-                c2 = QColor(249, 115, 22);
-            }
-            const int r = static_cast<int>(c1.red() + factor * (c2.red() - c1.red()));
-            const int g = static_cast<int>(c1.green() + factor * (c2.green() - c1.green()));
-            const int b = static_cast<int>(c1.blue() + factor * (c2.blue() - c1.blue()));
-            const QColor current(r, g, b);
-            connectButton->setStyleSheet(
-                QString("QPushButton#connect, QPushButton#connect:disabled { "
-                        "background: %1; border: 1px solid %2; color: #ffffff; font-weight: 500; }")
-                    .arg(current.name(), current.lighter(115).name()));
-        });
+        connectPulseTimer->stop();
     }
-    if (!connectPulseTimer->isActive())
+    connectPulsePhase = 0.0;
+    if (connectButton)
     {
-        connectPulsePhase = 0.0;
-        connectPulseTimer->start(35);
+        connectButton->setStyleSheet(QString());
+        connectButton->style()->unpolish(connectButton);
+        connectButton->style()->polish(connectButton);
     }
 }
 

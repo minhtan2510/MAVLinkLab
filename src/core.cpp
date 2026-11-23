@@ -372,28 +372,10 @@ Bytes encode(uint32_t id, uint8_t sysid, uint8_t compid, bool version1,
 std::vector<mavlink_message_t> Parser::feed(const uint8_t *data, size_t length)
 {
     std::vector<mavlink_message_t> result;
-    if (!data || length == 0)
+    feed(data, length, [&result](const mavlink_message_t &message)
     {
-        return result;
-    }
-    for (size_t i = 0; i < length; ++i)
-    {
-        mavlink_message_t message{};
-        mavlink_status_t report{};
-        const auto framing = mavlink_frame_char_buffer(&buffer, &status, data[i], &message, &report);
-        if (framing == MAVLINK_FRAMING_OK)
-        {
-            result.push_back(message);
-        }
-        else if (framing == MAVLINK_FRAMING_BAD_CRC)
-        {
-            ++crcErrors;
-        }
-        else if (framing == MAVLINK_FRAMING_BAD_SIGNATURE)
-        {
-            ++signatureErrors;
-        }
-    }
+        result.push_back(message);
+    });
     return result;
 }
 
@@ -525,29 +507,44 @@ std::optional<std::pair<double, double>> PlotBuffer::rangeSince(int64_t startUs)
     {
         return std::nullopt;
     }
-    double minVal = std::numeric_limits<double>::infinity();
-    double maxVal = -std::numeric_limits<double>::infinity();
-    bool found = false;
-    for (size_t i = 0; i < count_; ++i)
+
+    // Binary search for the first sample whose timestamp is >= startUs.
+    // Samples are strictly non-decreasing in chronological order from index 0 to count_ - 1.
+    size_t low = 0;
+    size_t high = count_;
+    while (low < high)
     {
-        const size_t idx = (head_ + i) % capacity_;
-        if (buffer_[idx].timeUs >= startUs)
+        const size_t mid = low + (high - low) / 2;
+        const size_t actualIndex = (head_ + mid) % capacity_;
+        if (buffer_[actualIndex].timeUs < startUs)
         {
-            const double v = buffer_[idx].value;
-            if (v < minVal)
-            {
-                minVal = v;
-            }
-            if (v > maxVal)
-            {
-                maxVal = v;
-            }
-            found = true;
+            low = mid + 1;
+        }
+        else
+        {
+            high = mid;
         }
     }
-    if (!found)
+
+    if (low >= count_)
     {
         return std::nullopt;
+    }
+
+    double minVal = buffer_[(head_ + low) % capacity_].value;
+    double maxVal = minVal;
+    for (size_t i = low + 1; i < count_; ++i)
+    {
+        const size_t idx = (head_ + i) % capacity_;
+        const double v = buffer_[idx].value;
+        if (v < minVal)
+        {
+            minVal = v;
+        }
+        if (v > maxVal)
+        {
+            maxVal = v;
+        }
     }
     return std::make_pair(minVal, maxVal);
 }
@@ -838,6 +835,16 @@ bool WriteQueue::push(const Bytes &bytes)
 Bytes WriteQueue::front() const
 {
     return frames.empty() ? Bytes{} : Bytes(frames.front().begin() + offset, frames.front().end());
+}
+
+std::pair<const uint8_t *, size_t> WriteQueue::peek() const
+{
+    if (frames.empty())
+    {
+        return {nullptr, 0};
+    }
+    const auto &head = frames.front();
+    return {head.data() + offset, head.size() - offset};
 }
 
 bool WriteQueue::consume(size_t count)

@@ -129,7 +129,7 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         surface = dark ? surface.lighter(112) : QColor("#f8fafc");
     }
     const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
-    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
+    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#60a5fa") : QColor(dark ? "#272d3b" : "#e2e8f0");
     painter->setPen(QPen(cardBorder, (selected && !isDeletingThis) ? 1.5 : 1.2));
     painter->setBrush(surface);
     painter->drawRoundedRect(card, 8, 8);
