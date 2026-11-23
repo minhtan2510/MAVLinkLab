@@ -1288,8 +1288,10 @@ void MainWindow::setupSortMenu()
  */
 void MainWindow::updateSortMenuActions()
 {
-    const bool isDark = sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true;
-    const QColor arrowColor = isDark ? QColor("#60a5fa") : QColor("#2563eb");
+    const bool dark = property("darkTheme").isValid()
+        ? property("darkTheme").toBool()
+        : (sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true);
+    const QColor normalColor = dark ? QColor("#f0f3f6") : QColor("#000000");
 
     for (size_t i = 0; i < sortActions.size(); ++i)
     {
@@ -1305,7 +1307,16 @@ void MainWindow::updateSortMenuActions()
         if (active)
         {
             const QString iconName = currentSortAscending ? "sortArrowUp" : "sortArrowDown";
-            action->setIcon(actionIcon(iconName, arrowColor));
+            QIcon icon;
+            const QPixmap normalPix = actionIcon(iconName, normalColor).pixmap(16, 16);
+            const QPixmap selectedPix = actionIcon(iconName, Qt::white).pixmap(16, 16);
+            icon.addPixmap(normalPix, QIcon::Normal, QIcon::On);
+            icon.addPixmap(normalPix, QIcon::Normal, QIcon::Off);
+            icon.addPixmap(normalPix, QIcon::Active, QIcon::On);
+            icon.addPixmap(normalPix, QIcon::Active, QIcon::Off);
+            icon.addPixmap(selectedPix, QIcon::Selected, QIcon::On);
+            icon.addPixmap(selectedPix, QIcon::Selected, QIcon::Off);
+            action->setIcon(icon);
         }
         else
         {
@@ -1363,9 +1374,11 @@ void MainWindow::updateSortButtonIcon(bool hovered)
     {
         return;
     }
-    const bool dark = property("darkTheme").toBool();
+    const bool dark = property("darkTheme").isValid()
+        ? property("darkTheme").toBool()
+        : (palette().color(QPalette::Window).lightness() < 128);
     const bool isHovered = hovered && sortButton->isEnabled();
-    const QColor normalColor = dark ? QColor("#8895ad") : QColor("#64748b");
+    const QColor normalColor = dark ? QColor("#8895ad") : QColor("#000000");
     const QColor hoverColor = dark ? QColor("#edf0fa") : QColor("#20263b");
     const QColor disabledColor = dark ? QColor("#526079") : QColor("#94a3b8");
 

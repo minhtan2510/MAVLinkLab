@@ -326,6 +326,7 @@ void MainWindow::applyTheme()
         if (QString(name) == "sortMessages")
         {
             updateSortButtonIcon(sortButton && sortButton->underMouse());
+            updateSortMenuActions();
             continue;
         }
         const QString role = control->property("role").toString();

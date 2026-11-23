@@ -2751,6 +2751,7 @@ private slots:
         {
             MainWindow window;
             window.show();
+            window.stopRefreshTimer();
             QTest::qWait(30);
 
             auto *debugBox = window.findChild<QCheckBox *>("showDebugBar");
