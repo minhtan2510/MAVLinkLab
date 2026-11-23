@@ -22,7 +22,7 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
     menu->setAttribute(Qt::WA_DeleteOnClose);
     configureTranslucentMenu(menu);
     menu->installEventFilter(this);
-    const std::vector<double> presets = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0};
+    const std::vector<double> presets = {1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 500.0};
     for (double hz : presets)
     {
         const QString label = QString("%1 Hz").arg(hz, 0, 'f', (hz < 1.0) ? 1 : 0);

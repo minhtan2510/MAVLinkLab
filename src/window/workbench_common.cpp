@@ -243,7 +243,7 @@ QRect txRatePillRect(const QRect &card, const QString &idStr, const QString &nam
     pillFont.setPixelSize(11);
     pillFont.setWeight(QFont::Medium);
     const QString rateText = hzStr + " Hz";
-    const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
+    const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 14;
 
     const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
     const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);

@@ -294,7 +294,7 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
     painter->drawText(QRect(textLeft, badge.top(), actualTitleAdvance, badge.height()),
                       Qt::AlignVCenter | Qt::AlignLeft, displayTitle);
 
-    // Draw compact interactive Target Hz pill with dropdown chevron (adjacent to title)
+    // Draw compact interactive Target Hz pill (adjacent to title)
     const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
     if (pillRect.isValid())
     {
@@ -303,14 +303,7 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         painter->drawRoundedRect(pillRect, 5, 5);
         painter->setFont(pillFont);
         painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
-        painter->drawText(pillRect.adjusted(7, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
-
-        // Draw crisp vector down-chevron indicating dropdown switcher
-        painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        const int cx = pillRect.right() - 8;
-        const int cy = pillRect.center().y();
-        painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
-        painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
+        painter->drawText(pillRect, Qt::AlignCenter, rateText);
     }
 
     // Draw schema payload wire length badge (adjacent to Target Rate pill)
