@@ -189,7 +189,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             const double prevHz = item->data(2, Qt::UserRole).toDouble();
             if (std::abs(entry.hz - prevHz) >= 0.05 || (prevHz == 0.0 && entry.hz > 0.0) || (entry.hz == 0.0 && prevHz > 0.0))
             {
-                item->setText(2, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
+                item->setText(2, QString::number(entry.hz, 'f', 0));
                 item->setData(2, Qt::UserRole, entry.hz);
             }
 

@@ -5632,7 +5632,7 @@ private slots:
         auto *hbItem = dev1->child(0);
         QCOMPARE(hbItem->text(0), QString("[0] HEARTBEAT"));
         QCOMPARE(hbItem->text(1), QString("9 B"));
-        QCOMPARE(hbItem->text(2), QString("1.0"));
+        QCOMPARE(hbItem->text(2), QString("1"));
         QCOMPARE(hbItem->text(3), QString("42"));
 
         // Verify child 1 (ATTITUDE): payload 28 B
