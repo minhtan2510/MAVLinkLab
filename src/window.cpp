@@ -833,7 +833,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->headerItem()->setTextAlignment(2, Qt::AlignCenter);
     rxTree->headerItem()->setTextAlignment(3, Qt::AlignCenter);
     rxTree->setRootIsDecorated(true);
-    rxTree->setIndentation(16);
+    rxTree->setIndentation(22);
+    rxTree->setMouseTracking(true);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1021,7 +1022,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *inspectorHeader = new QFrame;
     inspectorHeader->setObjectName("inspectorHeader");
     auto *headerLayout = new QHBoxLayout(inspectorHeader);
-    headerLayout->setContentsMargins(10, 8, 10, 8);
+    headerLayout->setContentsMargins(12, 10, 12, 10);
     headerLayout->setSpacing(10);
 
     inspectorTitle = new QLabel("DECODED FIELDS");

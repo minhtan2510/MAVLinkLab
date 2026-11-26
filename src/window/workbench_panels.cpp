@@ -287,6 +287,67 @@ void RxTreeWidget::setConnectionInfo(bool connected, const QString &portName, co
 }
 
 /**
+ * @brief Paint tree branch indicator with an antialiased vector chevron for top-level groups.
+ * @param painter Active painter.
+ * @param rect Branch rectangle.
+ * @param index Model index of the row.
+ */
+void RxTreeWidget::drawBranches(QPainter *painter, const QRect &rect, const QModelIndex &index) const
+{
+    if (index.parent().isValid())
+    {
+        QTreeWidget::drawBranches(painter, rect, index);
+        return;
+    }
+
+    const bool dark = property("darkTheme").toBool();
+    const bool selected = selectionModel() && selectionModel()->isSelected(index);
+    const QPoint cursorPos = viewport()->mapFromGlobal(QCursor::pos());
+    const bool rowHovered = (index == indexAt(cursorPos));
+
+    painter->save();
+    if (selected)
+    {
+        painter->fillRect(rect, dark ? QColor("#1e293b") : QColor("#e0edff"));
+    }
+    else if (rowHovered)
+    {
+        painter->fillRect(rect, dark ? QColor("#1c212c") : QColor("#f8fafc"));
+    }
+
+    // Match the 1px bottom row divider from QTreeWidget#rxTree::item
+    painter->setPen(QPen(dark ? QColor("#161b22") : QColor("#f8fafc"), 1.0));
+    painter->drawLine(rect.bottomLeft(), rect.bottomRight());
+
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    const double cx = rect.left() + rect.width() / 2.0 + 4.0;
+    const double cy = rect.top() + rect.height() / 2.0;
+
+    const QColor chevronColor = (selected || rowHovered)
+        ? (dark ? QColor(226, 232, 240, 217) : QColor(30, 41, 59, 217))
+        : (dark ? QColor(148, 163, 184, 140) : QColor(100, 116, 139, 140));
+    painter->setPen(QPen(chevronColor, 1.25, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter->setBrush(Qt::NoBrush);
+
+    QPainterPath chevron;
+    if (isExpanded(index))
+    {
+        chevron.moveTo(cx - 3.5, cy - 1.75);
+        chevron.lineTo(cx, cy + 2.25);
+        chevron.lineTo(cx + 3.5, cy - 1.75);
+    }
+    else
+    {
+        chevron.moveTo(cx - 1.75, cy - 3.5);
+        chevron.lineTo(cx + 2.25, cy);
+        chevron.lineTo(cx - 1.75, cy + 3.5);
+    }
+    painter->drawPath(chevron);
+    painter->restore();
+}
+
+/**
  * @brief Paint tree contents and render waiting state when no streams have been received.
  * @param event Paint event.
  */
