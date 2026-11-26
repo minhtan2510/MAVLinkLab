@@ -5686,6 +5686,127 @@ private slots:
         QTest::qWait(30);
         toggleBtn->grab().save("qa/toggle-btn-expand.png");
     }
+
+    /**
+     * @brief Verify RX Dashboard column header sorting across all 4 columns while keeping groups fixed.
+     */
+    void rxTreeColumnSorting()
+    {
+        MainWindow window;
+        window.resize(1100, 750);
+        window.stopRefreshTimer();
+        QTest::qWait(50);
+
+        auto *rxTree = window.findChild<QTreeWidget *>("rxTree");
+        QVERIFY(rxTree);
+        QHeaderView *header = rxTree->header();
+        QVERIFY(header);
+        QVERIFY(header->sectionsClickable());
+        QVERIFY(!header->isSortIndicatorShown());
+
+        auto snapshot = std::make_shared<Snapshot>();
+        snapshot->connected = true;
+
+        // Group 1 (sys 1, comp 1) with 3 streams
+        RxView s1;
+        s1.message.sysid = 1;
+        s1.message.compid = 1;
+        s1.message.msgid = 30; // ATTITUDE (28 B)
+        s1.hz = 10.0;
+        s1.count = 300;
+        s1.age = 0.2;
+
+        RxView s2;
+        s2.message.sysid = 1;
+        s2.message.compid = 1;
+        s2.message.msgid = 0; // HEARTBEAT (9 B)
+        s2.hz = 1.0;
+        s2.count = 50;
+        s2.age = 0.2;
+
+        RxView s3;
+        s3.message.sysid = 1;
+        s3.message.compid = 1;
+        s3.message.msgid = 24; // GPS_RAW_INT (52 B)
+        s3.hz = 5.0;
+        s3.count = 150;
+        s3.age = 0.2;
+
+        // Group 2 (sys 2, comp 1) with 1 stream
+        RxView s4;
+        s4.message.sysid = 2;
+        s4.message.compid = 1;
+        s4.message.msgid = 0;
+        s4.hz = 2.0;
+        s4.count = 10;
+        s4.age = 0.2;
+
+        snapshot->rx.push_back(s1);
+        snapshot->rx.push_back(s2);
+        snapshot->rx.push_back(s3);
+        snapshot->rx.push_back(s4);
+
+        window.applySnapshot(snapshot);
+        QTest::qWait(30);
+
+        QCOMPARE(rxTree->topLevelItemCount(), 2);
+        auto *dev1 = rxTree->topLevelItem(0);
+        auto *dev2 = rxTree->topLevelItem(1);
+        QCOMPARE(dev1->childCount(), 3);
+        QCOMPARE(dev2->childCount(), 1);
+
+        // Sort by Col 0 (Message ID): Asc -> 0, 24, 30
+        emit header->sectionClicked(0);
+        QCOMPARE(header->sortIndicatorSection(), 0);
+        QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+        QCOMPARE(dev1->child(0)->data(0, Qt::UserRole).toUInt(), 0u);
+        QCOMPARE(dev1->child(1)->data(0, Qt::UserRole).toUInt(), 24u);
+        QCOMPARE(dev1->child(2)->data(0, Qt::UserRole).toUInt(), 30u);
+        // Group order stays fixed
+        QCOMPARE(rxTree->topLevelItem(0), dev1);
+        QCOMPARE(rxTree->topLevelItem(1), dev2);
+
+        // Click Col 0 again: Desc -> 30, 24, 0
+        emit header->sectionClicked(0);
+        QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+        QCOMPARE(dev1->child(0)->data(0, Qt::UserRole).toUInt(), 30u);
+        QCOMPARE(dev1->child(1)->data(0, Qt::UserRole).toUInt(), 24u);
+        QCOMPARE(dev1->child(2)->data(0, Qt::UserRole).toUInt(), 0u);
+
+        // Sort by Col 1 (Payload): Asc -> 9, 28, 52
+        emit header->sectionClicked(1);
+        QCOMPARE(header->sortIndicatorSection(), 1);
+        QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+        QCOMPARE(dev1->child(0)->data(1, Qt::UserRole).toInt(), 9);
+        QCOMPARE(dev1->child(1)->data(1, Qt::UserRole).toInt(), 28);
+        QCOMPARE(dev1->child(2)->data(1, Qt::UserRole).toInt(), 52);
+
+        // Sort by Col 2 (Rate Hz): Desc -> 10, 5, 1
+        emit header->sectionClicked(2);
+        emit header->sectionClicked(2);
+        QCOMPARE(header->sortIndicatorSection(), 2);
+        QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+        QCOMPARE(dev1->child(0)->data(2, Qt::UserRole).toDouble(), 10.0);
+        QCOMPARE(dev1->child(1)->data(2, Qt::UserRole).toDouble(), 5.0);
+        QCOMPARE(dev1->child(2)->data(2, Qt::UserRole).toDouble(), 1.0);
+
+        // Sort by Col 3 (Count): Asc -> 50, 150, 300
+        emit header->sectionClicked(3);
+        QCOMPARE(header->sortIndicatorSection(), 3);
+        QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+        QCOMPARE(dev1->child(0)->data(3, Qt::UserRole).toULongLong(), qulonglong(50));
+        QCOMPARE(dev1->child(1)->data(3, Qt::UserRole).toULongLong(), qulonglong(150));
+        QCOMPARE(dev1->child(2)->data(3, Qt::UserRole).toULongLong(), qulonglong(300));
+
+        // New snapshot preserves active sort order (Count Asc) and uses ascending Message ID tie-breaker
+        snapshot->rx[1].count = 500; // HEARTBEAT becomes highest count
+        snapshot->rx[2].count = 300; // GPS_RAW_INT (24) ties with ATTITUDE (30) at 300
+        window.applySnapshot(snapshot);
+        QTest::qWait(30);
+        QCOMPARE(dev1->child(0)->data(0, Qt::UserRole).toUInt(), 24u);
+        QCOMPARE(dev1->child(1)->data(0, Qt::UserRole).toUInt(), 30u);
+        QCOMPARE(dev1->child(2)->data(0, Qt::UserRole).toUInt(), 0u);
+    }
 };
 
 /** @brief Start the Qt integration tests with registered queued payload types. */

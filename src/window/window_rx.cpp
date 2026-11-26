@@ -226,6 +226,7 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             }
             item->setData(0, Qt::AccessibleTextRole, item->text(0) + ", " + currentStatus);
         }
+        sortRxStreams();
         filterRx();
         updateInspector();
         updateRxExpandIcon();
@@ -235,6 +236,88 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
         telemetryPlotter->processSnapshot(*latest);
     }
     updateActions();
+}
+
+/**
+ * @brief Sort child stream items within each top-level System/Component group.
+ */
+void MainWindow::sortRxStreams()
+{
+    if (!rxTree || rxSortColumn < 0)
+    {
+        return;
+    }
+
+    QTreeWidgetItem *current = rxTree->currentItem();
+    const int scroll = rxTree->verticalScrollBar() ? rxTree->verticalScrollBar()->value() : 0;
+
+    for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem *device = rxTree->topLevelItem(i);
+        if (!device || device->childCount() < 2)
+        {
+            continue;
+        }
+
+        QList<QTreeWidgetItem *> children = device->takeChildren();
+        const int col = rxSortColumn;
+        const bool asc = (rxSortOrder == Qt::AscendingOrder);
+
+        std::stable_sort(children.begin(), children.end(), [col, asc](const QTreeWidgetItem *a, const QTreeWidgetItem *b)
+        {
+            const uint32_t idA = a->data(0, Qt::UserRole).toUInt();
+            const uint32_t idB = b->data(0, Qt::UserRole).toUInt();
+            switch (col)
+            {
+                case 0: // Message ID
+                    return asc ? (idA < idB) : (idA > idB);
+                case 1: // Payload size (bytes)
+                {
+                    const int va = a->data(1, Qt::UserRole).toInt();
+                    const int vb = b->data(1, Qt::UserRole).toInt();
+                    if (va != vb)
+                    {
+                        return asc ? (va < vb) : (va > vb);
+                    }
+                    return idA < idB;
+                }
+                case 2: // Rate (Hz)
+                {
+                    const double va = a->data(2, Qt::UserRole).toDouble();
+                    const double vb = b->data(2, Qt::UserRole).toDouble();
+                    if (va != vb)
+                    {
+                        return asc ? (va < vb) : (va > vb);
+                    }
+                    return idA < idB;
+                }
+                case 3: // Count
+                {
+                    const qulonglong va = a->data(3, Qt::UserRole).toULongLong();
+                    const qulonglong vb = b->data(3, Qt::UserRole).toULongLong();
+                    if (va != vb)
+                    {
+                        return asc ? (va < vb) : (va > vb);
+                    }
+                    return idA < idB;
+                }
+                default:
+                    return false;
+            }
+        });
+
+        device->addChildren(children);
+    }
+
+    if (current)
+    {
+        const QSignalBlocker blocker(rxTree);
+        rxTree->setCurrentItem(current);
+    }
+    if (rxTree->verticalScrollBar())
+    {
+        rxTree->verticalScrollBar()->setValue(scroll);
+    }
 }
 
 TelemetryPlotWidget *MainWindow::plotterWidget() const

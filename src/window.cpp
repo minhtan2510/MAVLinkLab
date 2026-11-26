@@ -826,6 +826,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setObjectName("rxTree");
     rxTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rxTree->setHeader(new RxHeader(rxTree));
+    rxTree->header()->setSectionsClickable(true);
+    rxTree->header()->setSortIndicatorShown(false);
     rxTree->setHeaderLabels({"Message", "Payload", "Rate (Hz)", "Count"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
@@ -840,6 +842,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
     static_cast<RxHeader *>(rxTree->header())->resetColumns();
     rxTree->setItemDelegate(new RxItemDelegate(rxTree));
+    connect(rxTree->header(), &QHeaderView::sectionClicked, this, [this](int column)
+    {
+        if (rxSortColumn == column)
+        {
+            rxSortOrder = (rxSortOrder == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+        }
+        else
+        {
+            rxSortColumn = column;
+            rxSortOrder = Qt::AscendingOrder;
+        }
+        rxTree->header()->setSortIndicator(rxSortColumn, rxSortOrder);
+        sortRxStreams();
+    });
     inspector = table({"Parameter", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));

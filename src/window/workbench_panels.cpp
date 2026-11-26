@@ -139,7 +139,8 @@ RxHeader::RxHeader(QWidget *parent)
     : QHeaderView(Qt::Horizontal, parent)
 {
     setSectionsMovable(false);
-    setSectionsClickable(false);
+    setSectionsClickable(true);
+    setSortIndicatorShown(false);
     setHighlightSections(false);
     setSectionResizeMode(QHeaderView::Fixed);
     setStretchLastSection(false);
