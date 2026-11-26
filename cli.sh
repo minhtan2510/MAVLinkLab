@@ -663,7 +663,19 @@ install_desktop_entry()
         cp -f "$src_svg" "$icons_base/scalable/apps/mavlink-lab.svg"
     fi
 
-    # 3. Generate .desktop file
+    # 3. Ensure Qt plugin discovery works when launched outside cli.sh
+    local qt_plugin_dir=""
+    if setup_qt_env >/dev/null 2>&1 && [[ -n "${QT_PLUGIN_PATH:-}" ]]; then
+        qt_plugin_dir="${QT_PLUGIN_PATH%%:*}"
+        if [[ -d "$qt_plugin_dir" ]]; then
+            cat > "$build_dir/qt.conf" <<EOF
+[Paths]
+Plugins=$qt_plugin_dir
+EOF
+        fi
+    fi
+
+    # 4. Generate .desktop file
     printf "Generating desktop entry at %s...\n" "$desktop_file"
     cat > "$desktop_file" <<EOF
 [Desktop Entry]
@@ -682,7 +694,7 @@ EOF
 
     chmod 644 "$desktop_file"
 
-    # 4. Update system caches if tools exist
+    # 5. Update system caches if tools exist
     if command -v update-desktop-database &>/dev/null; then
         update-desktop-database "$apps_dir" 2>/dev/null || true
     fi
