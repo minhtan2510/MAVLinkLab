@@ -212,6 +212,8 @@ private:
     void resetSortIndicator();
     /** @brief Clear the RX tree hierarchy and reset cached item lookup maps. */
     void clearRxTree();
+    /** @brief Sort child stream items inside each RX System/Component group by active column. */
+    void sortRxStreams();
     /**
      * @brief Update the sort button icon based on theme, hover, and enabled states.
      * @param hovered True if the mouse pointer is currently hovering over the button.
@@ -323,6 +325,8 @@ private:
     double txDeleteAnimRowHeight = 74.0;
     QMenu *txMenu = nullptr;
     QTreeWidget *rxTree = nullptr;
+    int rxSortColumn = -1;
+    Qt::SortOrder rxSortOrder = Qt::AscendingOrder;
     std::unordered_map<uint64_t, QTreeWidgetItem *> rxDeviceItems_;
     std::unordered_map<uint64_t, QTreeWidgetItem *> rxStreamItems_;
     QTableWidget *inspector = nullptr;

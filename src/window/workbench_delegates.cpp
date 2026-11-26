@@ -828,9 +828,7 @@ void RxItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
             font.setWeight(QFont::Medium);
             painter->setFont(font);
 
-            const QFontMetrics fm(font);
-            const int textWidth = fm.horizontalAdvance(text);
-            const int pillWidth = textWidth + 14;
+            const int pillWidth = 56;
             const int pillX = rect.left() + (rect.width() - pillWidth) / 2;
             const QRectF pillRect(pillX, pillY, pillWidth, pillHeight);
 
@@ -854,9 +852,7 @@ void RxItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
             font.setWeight(QFont::Medium);
             painter->setFont(font);
 
-            const QFontMetrics fm(font);
-            const int textWidth = fm.horizontalAdvance(text);
-            const int pillWidth = textWidth + 14;
+            const int pillWidth = 70;
             const int pillX = rect.left() + (rect.width() - pillWidth) / 2;
             const QRectF pillRect(pillX, pillY, pillWidth, pillHeight);
 

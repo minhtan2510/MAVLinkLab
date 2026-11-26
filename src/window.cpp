@@ -826,6 +826,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->setObjectName("rxTree");
     rxTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rxTree->setHeader(new RxHeader(rxTree));
+    rxTree->header()->setSectionsClickable(true);
+    rxTree->header()->setSortIndicatorShown(false);
     rxTree->setHeaderLabels({"Message", "Payload", "Rate (Hz)", "Count"});
     rxTree->header()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     rxTree->headerItem()->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
@@ -833,12 +835,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     rxTree->headerItem()->setTextAlignment(2, Qt::AlignCenter);
     rxTree->headerItem()->setTextAlignment(3, Qt::AlignCenter);
     rxTree->setRootIsDecorated(true);
-    rxTree->setIndentation(16);
+    rxTree->setIndentation(22);
+    rxTree->setMouseTracking(true);
     rxTree->setUniformRowHeights(true);
     rxTree->setAlternatingRowColors(false);
     rxTree->setSelectionMode(QAbstractItemView::SingleSelection);
     static_cast<RxHeader *>(rxTree->header())->resetColumns();
     rxTree->setItemDelegate(new RxItemDelegate(rxTree));
+    connect(rxTree->header(), &QHeaderView::sectionClicked, this, [this](int column)
+    {
+        if (rxSortColumn == column)
+        {
+            rxSortOrder = (rxSortOrder == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+        }
+        else
+        {
+            rxSortColumn = column;
+            rxSortOrder = Qt::AscendingOrder;
+        }
+        rxTree->header()->setSortIndicator(rxSortColumn, rxSortOrder);
+        sortRxStreams();
+    });
     inspector = table({"Parameter", "Type", "Value", "Unit"});
     inspector->setObjectName("inspector");
     inspector->setItemDelegateForColumn(0, new PayloadIdentityDelegate(inspector));
@@ -1021,7 +1038,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     auto *inspectorHeader = new QFrame;
     inspectorHeader->setObjectName("inspectorHeader");
     auto *headerLayout = new QHBoxLayout(inspectorHeader);
-    headerLayout->setContentsMargins(10, 8, 10, 8);
+    headerLayout->setContentsMargins(12, 10, 12, 10);
     headerLayout->setSpacing(10);
 
     inspectorTitle = new QLabel("DECODED FIELDS");

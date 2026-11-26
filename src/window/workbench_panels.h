@@ -99,6 +99,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void drawBranches(QPainter *painter, const QRect &rect, const QModelIndex &index) const override;
 
 private:
     bool connected_ = false;
