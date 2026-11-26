@@ -625,8 +625,8 @@ void StatusBarMetricsWidget::applyStyles()
         "QLabel { background: #e6f9ee; color: #16a34a; border: 1px solid #bbf7d0; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
 
     const QString txActiveStyle = m_dark ?
-        "QLabel { background: #161636; color: #93c5fd; border: 1px solid #3730a3; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
-        "QLabel { background: #eff4ff; color: #4f46e5; border: 1px solid #c7d2fe; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
+        "QLabel { background: #101c36; color: #93c5fd; border: 1px solid #1e40af; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :
+        "QLabel { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }";
 
     const QString alertStyle = m_dark ?
         "QLabel { background: #2e1215; color: #f87171; border: 1px solid #7f1d1d; border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; }" :

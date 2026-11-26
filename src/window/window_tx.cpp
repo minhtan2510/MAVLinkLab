@@ -22,7 +22,7 @@ void MainWindow::showQuickRateMenu(quint64 key, double currentHz, const QPoint &
     menu->setAttribute(Qt::WA_DeleteOnClose);
     configureTranslucentMenu(menu);
     menu->installEventFilter(this);
-    const std::vector<double> presets = {0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0};
+    const std::vector<double> presets = {1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 500.0};
     for (double hz : presets)
     {
         const QString label = QString("%1 Hz").arg(hz, 0, 'f', (hz < 1.0) ? 1 : 0);
@@ -255,7 +255,7 @@ void MainWindow::startTxDrag(int row, const QPoint &globalPos)
         // 3. Crisp accent border highlight (Modern 3D lift)
         const bool dark = txTable->property("darkTheme").toBool();
         p.setOpacity(1.0);
-        p.setPen(QPen(QColor(dark ? "#818cf8" : "#4f46e5"), 1.5));
+        p.setPen(QPen(QColor(dark ? "#60a5fa" : "#2563eb"), 1.5));
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(QRect(shadowMargin, shadowMargin, cardRect.width(), cardRect.height()), 8, 8);
     }
@@ -781,7 +781,7 @@ void MainWindow::executeTxUndo()
 }
 
 /**
- * @brief Reposition the undo toast anchored to the bottom-left of the window.
+ * @brief Reposition the undo toast anchored to the bottom-left inside the TX dashboard panel.
  */
 void MainWindow::repositionTxUndoToast()
 {
@@ -790,8 +790,13 @@ void MainWindow::repositionTxUndoToast()
         return;
     }
     const int targetX = 36;
-    const int statusHeight = statusBar() && statusBar()->isVisible() ? statusBar()->height() : 24;
-    const int targetY = height() - statusHeight - txUndoToast->height() - 24;
+    int targetY = height() - txUndoToast->height() - 72;
+    if (txTable && txTable->parentWidget())
+    {
+        const QWidget *panel = txTable->parentWidget();
+        const QPoint panelBottom = panel->mapTo(this, QPoint(0, panel->height()));
+        targetY = panelBottom.y() - txUndoToast->height() - 16;
+    }
     txUndoToast->setTargetPosition(QPoint(targetX, targetY));
 }
 
@@ -1288,8 +1293,10 @@ void MainWindow::setupSortMenu()
  */
 void MainWindow::updateSortMenuActions()
 {
-    const bool isDark = sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true;
-    const QColor arrowColor = isDark ? QColor("#818cf8") : QColor("#4f46e5");
+    const bool dark = property("darkTheme").isValid()
+        ? property("darkTheme").toBool()
+        : (sortMenu ? (sortMenu->palette().color(QPalette::Window).lightness() < 128) : true);
+    const QColor normalColor = dark ? QColor("#f0f3f6") : QColor("#000000");
 
     for (size_t i = 0; i < sortActions.size(); ++i)
     {
@@ -1305,7 +1312,16 @@ void MainWindow::updateSortMenuActions()
         if (active)
         {
             const QString iconName = currentSortAscending ? "sortArrowUp" : "sortArrowDown";
-            action->setIcon(actionIcon(iconName, arrowColor));
+            QIcon icon;
+            const QPixmap normalPix = actionIcon(iconName, normalColor).pixmap(16, 16);
+            const QPixmap selectedPix = actionIcon(iconName, Qt::white).pixmap(16, 16);
+            icon.addPixmap(normalPix, QIcon::Normal, QIcon::On);
+            icon.addPixmap(normalPix, QIcon::Normal, QIcon::Off);
+            icon.addPixmap(normalPix, QIcon::Active, QIcon::On);
+            icon.addPixmap(normalPix, QIcon::Active, QIcon::Off);
+            icon.addPixmap(selectedPix, QIcon::Selected, QIcon::On);
+            icon.addPixmap(selectedPix, QIcon::Selected, QIcon::Off);
+            action->setIcon(icon);
         }
         else
         {
@@ -1363,9 +1379,11 @@ void MainWindow::updateSortButtonIcon(bool hovered)
     {
         return;
     }
-    const bool dark = property("darkTheme").toBool();
+    const bool dark = property("darkTheme").isValid()
+        ? property("darkTheme").toBool()
+        : (palette().color(QPalette::Window).lightness() < 128);
     const bool isHovered = hovered && sortButton->isEnabled();
-    const QColor normalColor = dark ? QColor("#8895ad") : QColor("#64748b");
+    const QColor normalColor = dark ? QColor("#8895ad") : QColor("#000000");
     const QColor hoverColor = dark ? QColor("#edf0fa") : QColor("#20263b");
     const QColor disabledColor = dark ? QColor("#526079") : QColor("#94a3b8");
 

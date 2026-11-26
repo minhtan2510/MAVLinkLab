@@ -844,7 +844,7 @@ void WorkbenchToast::showToast(const QString &text)
         m_animTimer->start(8);
     }
 
-    move(m_targetPos.x(), m_targetPos.y() + 20);
+    move(m_targetPos.x(), m_targetPos.y() + 8);
     show();
     raise();
     update();
@@ -1058,7 +1058,7 @@ void WorkbenchToast::onAnimStep()
     {
         const double ease = 1.0 - std::pow(1.0 - t, 2.0);
         m_animProgress = ease;
-        const int offsetY = int((1.0 - ease) * 20.0);
+        const int offsetY = int((1.0 - ease) * 8.0);
         move(m_targetPos.x(), m_targetPos.y() + offsetY);
         if (t >= 1.0)
         {
@@ -1071,7 +1071,7 @@ void WorkbenchToast::onAnimStep()
     {
         const double ease = t * t;
         m_animProgress = std::clamp(1.0 - ease, 0.0, 1.0);
-        const int offsetY = int(ease * 20.0);
+        const int offsetY = int(ease * 8.0);
         move(m_targetPos.x(), m_targetPos.y() + offsetY);
         if (t >= 1.0)
         {

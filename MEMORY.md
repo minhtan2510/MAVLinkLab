@@ -85,15 +85,19 @@
   * Rearranging cards manually via drag-and-drop or `Ctrl+Up`/`Ctrl+Down` automatically resets the active sort indicator back to custom.
   * Direct execution on the worker thread via `SerialWorker::sortEntries(criteria, ascending)` using `std::stable_sort`, preserving active transmission states without interruption, and persisting the updated sequence to `Workspace` settings immediately.
   * Disabled automatically when no TX cards exist (`rowCount == 0`).
-* **Unified UART Connection Button & Status Consolidation:**
+* **Unified UART Connection Button & Purposeful Motion:**
   * Consolidated serial connection status indicators directly into `connectButton` (`QPushButton#connect`, 148×32 px), removing the redundant standalone `connectionStatusPill` widget from the `uartRow` layout and reclaiming ~104 px of horizontal space with clean 8px spacing between controls.
   * `connectionStatusPill` is kept created and hidden (`hide()`) as an internal child of `MainWindow`, preserving 100% backward compatibility for test fixtures expecting `window.findChild<QWidget *>("connectionStatusPill")`.
-  * **Unified State Machine & Breathing Animation:**
-    1. **Disconnected:** Text `"Connect"`, `role="primary"` (Indigo `#4f46e5`, white text), tooltip `"Open serial connection"`, static styling.
-    2. **Connecting:** Text `"Connecting…"`, `role="connecting"` (Amber `#d97706` / `#fbbf24`), tooltip `"Opening serial connection to <port> (<baud> baud)..."`, disabled to prevent double clicks, active sinusoidal breathing pulse animation (~28 FPS).
-    3. **Connected:** Text `"Disconnect"`, `role="danger"` (Rose/Red `#dc2626` / `#ef4444`, white text), tooltip `"Close serial connection to <port> (<baud> baud)"`, static styling.
-    4. **Reconnecting:** Text `"Cancel (Reconnecting…)"`, `role="reconnecting"` (Orange `#ea580c` / `#f97316`), tooltip `"Click to cancel auto-reconnection loop"`, enabled allowing cancellation, active sinusoidal breathing pulse animation (~28 FPS).
-  * Breathing pulse animation (`startConnectPulse`, `stopConnectPulse`) uses `connectPulseTimer` (35 ms interval) interpolating between tonal bounds via $0.5 + 0.5 \sin(\text{phase})$, dynamically applying smooth background and border transitions without external dependencies, and cleanly reverting to global QSS on disconnect or connect.
+  * **Unified State Machine & Purposeful Motion (Unslop Standard):**
+    1. **Disconnected:** Text `"Connect"`, `role="primary"` (Cobalt Blue `#2563eb`, white text), tooltip `"Open serial connection"`, clean static styling.
+    2. **Connecting:** Text `"Connecting…"`, `role="connecting"` (Amber `#d97706`, white text, border `#f59e0b`), tooltip `"Opening serial connection to <port> (<baud> baud)..."`, disabled to prevent double clicks, quiet steady indicator without intrusive breathing pulse.
+    3. **Connected:** Text `"Disconnect"`, `role="danger"` (Rose/Red `#dc2626`, white text), tooltip `"Close serial connection to <port> (<baud> baud)"`, static styling.
+    4. **Reconnecting:** Text `"Cancel (Reconnecting…)"`, `role="reconnecting"` (Orange `#ea580c`, white text, border `#f97316`), tooltip `"Click to cancel auto-reconnection loop"`, enabled allowing cancellation, quiet steady indicator.
+  * Breathing pulse animation is intentionally disabled in favor of quiet, purposeful static indicators adhering to `/unslop` principles, preventing perpetual UI jitter while keeping `startConnectPulse`/`stopConnectPulse` methods clean and backwards-compatible.
+* **Industrial Hardware Lab / Swiss Engineering Design System (Unslop Refactoring):**
+  * **Neutral Graphite Ramp:** Dark theme built on pure neutral graphite (`#0e1117` base background, `#161b22` raised surface, `#272d3b` hairline border, `#1c212c` alternate table rows), eliminating former bluish/purple haze. Light theme built on crisp Slate/Paper ramp (`#f4f6fa` background, `#ffffff` surface, `#e2e8f0` border).
+  * **Precision Cobalt Accent:** Replaced generic SaaS indigo (`#4f46e5`) with hardware-grade Precision Cobalt Blue (`#2563eb`), hover (`#1d4ed8`), pressed (`#1e40af`), and focus rings (`#60a5fa`).
+  * **Telemetry Plotter Instrument Scope:** Canvas background matches graphite base (`#0e1117`), graticule grid lines rendered as subtle hairlines (`rgba(110, 125, 145, 0.24)`), and channel area gradient fill opacity reduced from 35–50% to a crisp 10–12% (`topAlpha = 30`), preventing muddy color stacking across overlapping timeseries curves.
 * **Serial Port Management & Auto-Reconnect Strategy:**
   * Auto-reconnect uses a 1000ms timer confined entirely to the worker thread.
   * Unexpected disconnects (e.g. `ResourceError`, write failure < 0) immediately stop TX and discard buffers, transitioning the link to `Reconnecting` if enabled.
@@ -163,6 +167,12 @@
   * **Copy-on-Write Parameter Snapshots (`SnapshotParams`):** Snapshot parameters are encapsulated in a copy-on-write wrapper (`SnapshotParams`) referencing a shared immutable map (`std::shared_ptr<const ParamMap>`). Parameter collections are version-tracked (`receiver.paramsVersion`) and only deep-copied when actual `PARAM_VALUE` frames arrive, eliminating continuous heap allocation churn (thousands of map nodes) during 200 ms snapshot broadcasts.
   * **Decoupled Card Height & Font Query Caching:** `updateTxHeights()` layout calculations are decoupled from the 200 ms snapshot loop, triggering strictly when card count or titles change (`titleChanged`), eliminating repetitive `QFontMetrics` wrapping calculations. Fixed-pitch fonts are cached via `cachedFixedFont()` to avoid continuous OS font database queries.
   * **In-Place Telemetry Plotter Channel Tag Updates:** `TelemetryPlotWidget` maintains persistent channel tag components (`tagWidgets_`) and updates numeric value text directly in-place (`updateChannelTagValues()`), entirely eliminating widget destruction and recreation overhead on every 200 ms snapshot.
+  * **O(1) RX Tree Item Lookup & Dirty-Checking (`MainWindow::applySnapshot`):** Replaced $O(N \cdot M)$ linear tree traversals on every 200 ms snapshot with constant-time hash lookup maps (`rxDeviceItems_` and `rxStreamItems_`). Enforced dirty-checking on dynamic rate (`hz`) and counter (`count`) text updates, eliminating redundant `QString` allocations and preventing Qt tree view internal redraws when stream metrics are unchanged. Static message names and payload lengths are set exactly once on creation.
+  * **Zero-Allocation Ingestion & Callback Parsing (`Parser::feed`):** Provided a zero-allocation template callback `Parser::feed(data, length, callback)` allowing direct frame dispatch into `Receiver::accept()` without allocating an intermediate `std::vector<mavlink_message_t>` on the heap or copying 280-byte structs. Serial worker reads chunks directly into a local stack buffer (`readBuffer[8192]`).
+  * **Contiguous Ring Queue for Frequency & Throughput (`RingQueue<T>`):** Replaced `std::deque` in `Rate` and `ByteRate` with a contiguous geometrically-expanding circular queue `RingQueue<T>`. Eliminates all per-packet heap node allocation/deallocation churn in steady-state streaming while preserving exact microsecond sliding window resolution.
+  * **Zero-Copy Serial Transmit Pumping (`WriteQueue::peek`):** `WriteQueue` provides a non-owning read view `peek()` (`std::pair<const uint8_t *, size_t>`), replacing value copies of `Bytes` vectors on every partial write in `SerialWorker::pump()`.
+  * **Monotonic Binary Search in `PlotBuffer::rangeSince`:** Converted $O(N)$ linear scans over 2,048 samples to an $O(\log N)$ binary search (`low + (high - low) / 2`) leveraging strictly non-decreasing monotonic timestamps, reducing search complexity from up to 2,048 checks to $\le 11$ comparisons.
+  * **Persistent Canvas Polygon Buffers (`PlotCanvasWidget`):** Added mutable persistent buffers `curvePoly_` and `fillPoly_`, eliminating heap reallocations of 2,048 `QPointF` vertices and duplicate polygon allocations on every canvas repaint.
 * **Telemetry Plotter Visual Upgrades & Interactive Visibility:**
   * Soft Area Gradient Fill: Each active channel renders a vertical linear gradient from curve down to baseline (`plotRect.bottom()`, 35–50% alpha down to 0%), giving modern dashboard depth while preserving a crisp 2.0px foreground polyline.
   * Interactive Channel Legend Pills: Clicking any channel tag pill toggles visibility (`channel.visible`). Hidden channels show a hollow dot `○`, 40% dimmed opacity and dashed border, their curves disappear, and auto-scale excludes them dynamically.
@@ -191,6 +201,27 @@
 * **Commit Message Conventions:**
   * Subject line must be as concise as possible (`<type>(<scope>): <summary>`, ≤ 50–72 characters).
   * All detailed analysis, context, rationale, and specific lists of changes must be written in the **body** of the commit (separated from the subject line by a blank line), never crammed into the subject line.
+* **Release Notes Standard Template:**
+  * Keep release notes concise, clean, and avoid over-explaining technical details.
+  * Title format must be strictly `## What's Changed in <version>` (do not append "compared to ...").
+  * All entries under `New`, `Changed`, and `Removed` must be compared strictly against the **previous official release tag**, never against internal staging/draft commits made during development of the current version.
+  * Strictly structure release notes into 3 concise categories:
+    * `🚀 New`: Features, tools, or major assets introduced since the previous release.
+    * `🔄 Changed`: Behavior, UI adjustments, or performance refinements compared to the previous release.
+    * `🗑️ Removed`: Features, UI elements, or options present in the previous release that are now removed.
+  * Always present in **raw markdown code blocks** for quick one-click copying to GitHub Releases, providing both standard **English** and **Vietnamese** versions:
+    ```markdown
+    ## What's Changed in <version>
+
+    ### 🚀 New
+    - ...
+
+    ### 🔄 Changed
+    - ...
+
+    ### 🗑️ Removed
+    - ...
+    ```
 * **Clarification & Approval Gate Workflow:**
   * Before making any code or project changes requested in user prompts: Must ensure complete and unambiguous understanding of all requirements. Assumptions are strictly forbidden; if any point is unclear or if there are questions/doubts, actively interview and clarify with the user using the `/grill-me` skill until 100% clarity is achieved.
   * Once requirements are understood, **do NOT jump straight into implementation**. Instead, summarize the understood requirements and outline the planned execution steps.

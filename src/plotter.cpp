@@ -174,12 +174,12 @@ void PlotCanvasWidget::paintEvent(QPaintEvent *event)
     }
 
     // 1. Canvas Background
-    const QColor bgColor = dark_ ? QColor("#0d1422") : QColor("#ffffff");
-    const QColor borderColor = dark_ ? QColor("#35445d") : QColor("#d1dbea");
-    const QColor gridColor = dark_ ? QColor(40, 53, 77, 120) : QColor(226, 232, 240, 200);
-    const QColor textColor = dark_ ? QColor("#aab4cd") : QColor("#626c84");
+    const QColor bgColor = dark_ ? QColor("#0e1117") : QColor("#ffffff");
+    const QColor borderColor = dark_ ? QColor("#272d3b") : QColor("#e2e8f0");
+    const QColor gridColor = dark_ ? QColor(110, 125, 145, 60) : QColor(203, 213, 225, 120);
+    const QColor textColor = dark_ ? QColor("#8b949e") : QColor("#57606a");
 
-    painter.fillRect(totalRect, dark_ ? QColor("#1b2333") : QColor("#f8fafc"));
+    painter.fillRect(totalRect, dark_ ? QColor("#161b22") : QColor("#f8fafc"));
     painter.setPen(QPen(borderColor, 1));
     painter.setBrush(bgColor);
     painter.drawRoundedRect(plotRect, 4, 4);
@@ -313,8 +313,11 @@ void PlotCanvasWidget::paintEvent(QPaintEvent *event)
         }
 
         const size_t sampleCount = channel.buffer.size();
-        QPolygonF poly;
-        poly.reserve(int(sampleCount));
+        curvePoly_.clear();
+        if (curvePoly_.capacity() < int(sampleCount))
+        {
+            curvePoly_.reserve(int(sampleCount));
+        }
 
         for (size_t i = 0; i < sampleCount; ++i)
         {
@@ -329,34 +332,34 @@ void PlotCanvasWidget::paintEvent(QPaintEvent *event)
             const double px = plotRect.left() + xNorm * plotRect.width();
             const double py = plotRect.bottom() - yNorm * plotRect.height();
 
-            poly.append(QPointF(px, py));
+            curvePoly_.append(QPointF(px, py));
         }
 
-        if (poly.size() >= 2)
+        if (curvePoly_.size() >= 2)
         {
             // Soft Area Gradient Fill under curve down to baseline
-            QPolygonF fillPoly = poly;
-            fillPoly.append(QPointF(poly.last().x(), plotRect.bottom()));
-            fillPoly.append(QPointF(poly.first().x(), plotRect.bottom()));
+            fillPoly_ = curvePoly_;
+            fillPoly_.append(QPointF(curvePoly_.last().x(), plotRect.bottom()));
+            fillPoly_.append(QPointF(curvePoly_.first().x(), plotRect.bottom()));
 
             QLinearGradient gradient(0, plotRect.top(), 0, plotRect.bottom());
-            const int topAlpha = dark_ ? 50 : 35;
+            const int topAlpha = dark_ ? 30 : 22;
             gradient.setColorAt(0.0, QColor(channel.color.red(), channel.color.green(), channel.color.blue(), topAlpha));
             gradient.setColorAt(1.0, QColor(channel.color.red(), channel.color.green(), channel.color.blue(), 0));
 
             painter.setPen(Qt::NoPen);
             painter.setBrush(gradient);
-            painter.drawPolygon(fillPoly);
+            painter.drawPolygon(fillPoly_);
 
             // Crisp line curve on top
             painter.setPen(QPen(channel.color, 2.0));
-            painter.drawPolyline(poly);
+            painter.drawPolyline(curvePoly_);
         }
-        else if (poly.size() == 1)
+        else if (curvePoly_.size() == 1)
         {
             painter.setPen(Qt::NoPen);
             painter.setBrush(channel.color);
-            painter.drawEllipse(poly.first(), 3.0, 3.0);
+            painter.drawEllipse(curvePoly_.first(), 3.0, 3.0);
         }
     }
 
@@ -823,7 +826,7 @@ void TelemetryPlotWidget::processSnapshot(const Snapshot &snapshot, int64_t nowU
                     {
                         for (unsigned i = 0; i < info->num_fields; ++i)
                         {
-                            if (channel.fieldName == QString::fromLatin1(info->fields[i].name))
+                            if (channel.fieldName == QLatin1String(info->fields[i].name))
                             {
                                 const auto valOpt = Mav::readFieldNumeric(msg, info->fields[i]);
                                 if (valOpt.has_value())

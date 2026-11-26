@@ -121,6 +121,11 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
     if (!paused)
     {
         const auto &fixedFont = cachedFixedFont();
+        if (rxTree->topLevelItemCount() == 0 && (!rxDeviceItems_.empty() || !rxStreamItems_.empty()))
+        {
+            rxDeviceItems_.clear();
+            rxStreamItems_.clear();
+        }
 
         for (const auto &entry : latest->rx)
         {
@@ -128,17 +133,10 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
             const uint32_t sysid = message.sysid;
             const uint8_t compid = message.compid;
 
-            QTreeWidgetItem *device = nullptr;
-            for (int i = 0; i < rxTree->topLevelItemCount(); ++i)
-            {
-                auto *candidate = rxTree->topLevelItem(i);
-                if (candidate->data(0, Qt::UserRole).toUInt() == sysid &&
-                    candidate->data(0, Qt::UserRole + 1).toUInt() == compid)
-                {
-                    device = candidate;
-                    break;
-                }
-            }
+            const uint64_t devKey = (uint64_t(sysid) << 8) | uint64_t(compid);
+            auto devIt = rxDeviceItems_.find(devKey);
+            QTreeWidgetItem *device = (devIt != rxDeviceItems_.end()) ? devIt->second : nullptr;
+
             if (!device)
             {
                 device = new QTreeWidgetItem(rxTree);
@@ -153,19 +151,14 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 device->setFont(0, groupFont);
 
                 device->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
+                device->setText(0, QString("System %1 · Component %2").arg(sysid).arg(compid));
+                rxDeviceItems_[devKey] = device;
             }
 
-            device->setText(0, QString("System %1 · Component %2").arg(sysid).arg(compid));
+            const uint64_t streamKey = (uint64_t(sysid) << 40) | (uint64_t(compid) << 32) | uint64_t(message.msgid);
+            auto streamIt = rxStreamItems_.find(streamKey);
+            QTreeWidgetItem *item = (streamIt != rxStreamItems_.end()) ? streamIt->second : nullptr;
 
-            QTreeWidgetItem *item = nullptr;
-            for (int i = 0; i < device->childCount(); ++i)
-            {
-                if (device->child(i)->data(0, Qt::UserRole).toUInt() == message.msgid)
-                {
-                    item = device->child(i);
-                    break;
-                }
-            }
             if (!item)
             {
                 item = new QTreeWidgetItem(device);
@@ -182,40 +175,56 @@ void MainWindow::applySnapshot(SnapshotPtr snapshot)
                 item->setTextAlignment(1, Qt::AlignCenter);
                 item->setTextAlignment(2, Qt::AlignCenter);
                 item->setTextAlignment(3, Qt::AlignCenter);
+
+                const auto *entryInfo = mavlink_get_msg_entry(message.msgid);
+                const int payloadLen = entryInfo ? int(entryInfo->max_msg_len) : int(message.len);
+
+                item->setText(0, QString("[%1] %2").arg(message.msgid).arg(messageName(message.msgid)));
+                item->setText(1, QString("%1 B").arg(payloadLen));
+                item->setData(1, Qt::UserRole, payloadLen);
+                rxStreamItems_[streamKey] = item;
             }
 
-            const auto *entryInfo = mavlink_get_msg_entry(message.msgid);
-            const int payloadLen = entryInfo ? int(entryInfo->max_msg_len) : int(message.len);
+            // Dirty-check Rate (Hz)
+            const double prevHz = item->data(2, Qt::UserRole).toDouble();
+            if (std::abs(entry.hz - prevHz) >= 0.05 || (prevHz == 0.0 && entry.hz > 0.0) || (entry.hz == 0.0 && prevHz > 0.0))
+            {
+                item->setText(2, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
+                item->setData(2, Qt::UserRole, entry.hz);
+            }
 
-            item->setText(0, QString("[%1] %2").arg(message.msgid).arg(messageName(message.msgid)));
-            item->setText(1, QString("%1 B").arg(payloadLen));
-            item->setData(1, Qt::UserRole, payloadLen);
-            item->setText(2, QString::number(entry.hz, 'f', (entry.hz > 0.0 && entry.hz < 10.0) ? 1 : 0));
-            item->setData(2, Qt::UserRole, entry.hz);
-            item->setText(3, QString::number(qulonglong(entry.count)));
-            item->setData(3, Qt::UserRole, qulonglong(entry.count));
+            // Dirty-check Count
+            const qulonglong prevCount = item->data(3, Qt::UserRole).toULongLong();
+            if (qulonglong(entry.count) != prevCount)
+            {
+                item->setText(3, QString::number(qulonglong(entry.count)));
+                item->setData(3, Qt::UserRole, qulonglong(entry.count));
+            }
+
             item->setData(0, Qt::UserRole + 2, entry.age);
+
+            const QString currentStatus = rxStatus(entry.age);
             if (message.msgid == 22 && latest && latest->params)
             {
-                const auto devKey = std::make_pair(sysid, compid);
-                const auto paramIt = latest->params->find(devKey);
+                const auto pDevKey = std::make_pair(sysid, compid);
+                const auto paramIt = latest->params->find(pDevKey);
                 if (paramIt != latest->params->end() && paramIt->second.totalCount > 0)
                 {
                     item->setToolTip(0, QString("Parameters: %1 / %2 loaded · %3")
                                             .arg(paramIt->second.byId.size())
                                             .arg(paramIt->second.totalCount)
-                                            .arg(rxStatus(entry.age)));
+                                            .arg(currentStatus));
                 }
                 else
                 {
-                    item->setToolTip(0, rxStatus(entry.age));
+                    item->setToolTip(0, currentStatus);
                 }
             }
             else
             {
-                item->setToolTip(0, rxStatus(entry.age));
+                item->setToolTip(0, currentStatus);
             }
-            item->setData(0, Qt::AccessibleTextRole, item->text(0) + ", " + rxStatus(entry.age));
+            item->setData(0, Qt::AccessibleTextRole, item->text(0) + ", " + currentStatus);
         }
         filterRx();
         updateInspector();

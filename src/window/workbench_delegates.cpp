@@ -25,7 +25,7 @@
 void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 {
     const bool dark = option.widget ? option.widget->property("darkTheme").toBool() : false;
-    const QColor panelBg(dark ? "#1b2333" : "#ffffff");
+    const QColor panelBg(dark ? "#161b22" : "#ffffff");
     const bool isDragging = option.widget ? option.widget->property("isDragging").toBool() : false;
     const int dragSource = option.widget ? option.widget->property("dragSourceRow").toInt() : -1;
     const int dragTarget = option.widget ? option.widget->property("dragTargetRow").toInt() : -1;
@@ -121,18 +121,83 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         }
     }
     const QRect card = MainWindow::txCardRect(option.rect, animDy);
+    const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
+
+    // Subtle 3D Floating Elevation Shadow (Ambient + Drop + Contact edge layers)
+    if (!isDeletingThis)
+    {
+        painter->setPen(Qt::NoPen);
+        const int shadowSpread = hovered ? 3 : 2;
+
+        // Ambient soft shadow
+        const QColor ambientShadow = dark ? QColor(0, 0, 0, hovered ? 38 : 30) :
+                                            QColor(15, 23, 42, hovered ? 14 : 10);
+        painter->setBrush(ambientShadow);
+        painter->drawRoundedRect(card.adjusted(0, 1, 0, shadowSpread + 1), 8, 8);
+
+        // Direct downward drop shadow
+        const QColor dropShadow = dark ? QColor(0, 0, 0, hovered ? 60 : 45) :
+                                         QColor(15, 23, 42, hovered ? 24 : 18);
+        painter->setBrush(dropShadow);
+        painter->drawRoundedRect(card.adjusted(0, 1, 0, shadowSpread), 8, 8);
+
+        // Contact edge shadow directly under bottom edge
+        const QColor contactShadow = dark ? QColor(0, 0, 0, hovered ? 85 : 65) :
+                                            QColor(15, 23, 42, hovered ? 34 : 26);
+        painter->setBrush(contactShadow);
+        painter->drawRoundedRect(card.adjusted(1, 1, -1, hovered ? 2 : 1), 8, 8);
+    }
+
     const QColor stateAccent = error ? QColor(dark ? "#ef8799" : "#bd405b") :
                                running ? QColor(dark ? "#57c99a" : "#249569") : QColor(dark ? "#3d506e" : "#b8c8dc");
-    QColor surface = panelBg;
-    if (hovered)
+
+    // Subtle 3D Surface Gradient (Soft top illumination to bottom depth)
+    QLinearGradient surfaceGrad(card.topLeft(), card.bottomLeft());
+    if (dark)
     {
-        surface = dark ? surface.lighter(112) : QColor("#f8fafc");
+        if (hovered)
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#29364e"));
+            surfaceGrad.setColorAt(1.0, QColor("#202a3c"));
+        }
+        else
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#242f44"));
+            surfaceGrad.setColorAt(1.0, QColor("#1c2435"));
+        }
     }
-    const bool isDeletingThis = (delRow >= 0 && index.row() == delRow);
-    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#818cf8") : QColor(dark ? "#3d506e" : "#c2d0e2");
+    else
+    {
+        if (hovered)
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#ffffff"));
+            surfaceGrad.setColorAt(1.0, QColor("#f1f5f9"));
+        }
+        else
+        {
+            surfaceGrad.setColorAt(0.0, QColor("#ffffff"));
+            surfaceGrad.setColorAt(1.0, QColor("#f8fafc"));
+        }
+    }
+
+    const QColor cardBorder = (selected && !isDeletingThis) ? QColor("#60a5fa") :
+                              (hovered ? QColor(dark ? "#3d4e6d" : "#cbd5e1") : QColor(dark ? "#2d3a52" : "#e2e8f0"));
     painter->setPen(QPen(cardBorder, (selected && !isDeletingThis) ? 1.5 : 1.2));
-    painter->setBrush(surface);
+    painter->setBrush(surfaceGrad);
     painter->drawRoundedRect(card, 8, 8);
+
+    // Top Rim Light (Soft specular inset highlight on the upper curved rim)
+    if (!selected && !isDeletingThis)
+    {
+        painter->save();
+        painter->setClipRect(QRect(card.left(), card.top(), card.width(), 8), Qt::IntersectClip);
+        const QColor rimColor = dark ? QColor(255, 255, 255, hovered ? 28 : 18) :
+                                       QColor(255, 255, 255, 120);
+        painter->setPen(QPen(rimColor, 1.0));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(card.adjusted(1, 1, -1, -1), 7, 7);
+        painter->restore();
+    }
 
     // Refined slim 3px state capsule pill inset along left edge
     const QRectF accentPill(card.left() + 8, card.top() + 10, 3, card.height() - 20);
@@ -187,29 +252,29 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         painter->drawText(badge.adjusted(12, 0, 0, 0), Qt::AlignCenter, "Stopped");
     }
 
-    // Line 1: Title -> Target Rate pill -> Payload badge -> [gap] -> Status badge
+    // Line 1: Target Rate pill -> Title -> [gap] -> Status badge
     const int textLeft = card.left() + 24;
 
-    // Calculate pill metrics
-    const uint32_t msgId = value(0).toUInt();
-    const auto *metadata = mavlink_get_msg_entry(msgId);
-    const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
-    const QString payloadText = QString("%1 B").arg(payloadLen);
-    QFont payloadFont = option.font;
-    payloadFont.setPixelSize(11);
-    payloadFont.setWeight(QFont::Medium);
-    const int payloadWidth = QFontMetrics(payloadFont).horizontalAdvance(payloadText) + 14;
-
+    // 1. Draw compact interactive Target Hz pill
     const QString rateText = value(3) + " Hz";
     QFont pillFont = option.font;
     pillFont.setPixelSize(11);
     pillFont.setWeight(QFont::Medium);
-    const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
+    const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
+    if (pillRect.isValid())
+    {
+        painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
+        painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
+        painter->drawRoundedRect(pillRect, 5, 5);
+        painter->setFont(pillFont);
+        painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
+        painter->drawText(pillRect, Qt::AlignCenter, rateText);
+    }
 
-    const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
-    const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);
+    // 2. Title text: strictly single line, elided if necessary
+    const int titleLeft = pillRect.isValid() ? (pillRect.right() + 8) : textLeft;
+    const int maxTitleWidth = std::max(20, badge.left() - 8 - titleLeft);
 
-    // Title text: strictly single line, elided if necessary
     QFont titleFont = option.font;
     titleFont.setPixelSize(13);
     titleFont.setWeight(QFont::Normal);
@@ -226,42 +291,10 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         displayTitle = QFontMetrics(titleFont).elidedText(title, Qt::ElideRight, maxTitleWidth);
         actualTitleAdvance = QFontMetrics(titleFont).horizontalAdvance(displayTitle);
     }
-    painter->drawText(QRect(textLeft, badge.top(), actualTitleAdvance, badge.height()),
+    painter->drawText(QRect(titleLeft, badge.top(), actualTitleAdvance, badge.height()),
                       Qt::AlignVCenter | Qt::AlignLeft, displayTitle);
 
-    // Draw compact interactive Target Hz pill with dropdown chevron (adjacent to title)
-    const QRect pillRect = txRatePillRect(card, value(0), value(1), value(3), option.font);
-    if (pillRect.isValid())
-    {
-        painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
-        painter->setBrush(QColor(dark ? "#233144" : "#e6effa"));
-        painter->drawRoundedRect(pillRect, 5, 5);
-        painter->setFont(pillFont);
-        painter->setPen(QColor(dark ? "#b0cbef" : "#2b5687"));
-        painter->drawText(pillRect.adjusted(7, 0, -12, 0), Qt::AlignVCenter | Qt::AlignLeft, rateText);
-
-        // Draw crisp vector down-chevron indicating dropdown switcher
-        painter->setPen(QPen(QColor(dark ? "#7a90b5" : "#5b7da8"), 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        const int cx = pillRect.right() - 8;
-        const int cy = pillRect.center().y();
-        painter->drawLine(QPoint(cx - 3, cy - 1), QPoint(cx, cy + 2));
-        painter->drawLine(QPoint(cx, cy + 2), QPoint(cx + 3, cy - 1));
-    }
-
-    // Draw schema payload wire length badge (adjacent to Target Rate pill)
-    const int payloadLeft = pillRect.isValid() ? (pillRect.right() + 8) : (textLeft + actualTitleAdvance + 8);
-    if (payloadLeft + payloadWidth <= badge.left() - 8)
-    {
-        const QRect payloadRect(payloadLeft, badge.top(), payloadWidth, 22);
-        painter->setPen(QPen(QColor(dark ? "#384a65" : "#cbd7e8"), 1));
-        painter->setBrush(QColor(dark ? "#1a2536" : "#f1f5f9"));
-        painter->drawRoundedRect(payloadRect, 5, 5);
-        painter->setFont(payloadFont);
-        painter->setPen(QColor(dark ? "#8ca0be" : "#475569"));
-        painter->drawText(payloadRect, Qt::AlignCenter, payloadText);
-    }
-
-    // Line 2: Compact metrics row (Sys · Comp · Actual · Frames)
+    // Line 2: Compact metrics row (Sys · Comp · Size · Actual · Frames)
     const int line2Y = card.top() + 36;
     const int line2Height = 18;
     int curX = textLeft;
@@ -283,14 +316,22 @@ void TxCardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
         }
     };
 
-    const QColor dotColor(dark ? "#4a5a74" : "#adbcd0");
-    const QString sysComp = QString("Sys %1 · Comp %2").arg(value(2).section('/', 0, 0).trimmed(),
+    const uint32_t msgId = value(0).toUInt();
+    const auto *metadata = mavlink_get_msg_entry(msgId);
+    const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
+    const QString payloadText = QString("%1 B").arg(payloadLen);
+
+    constexpr int groupSpacing = 16;
+    const QString sysComp = QString("Sys %1 / Comp %2").arg(value(2).section('/', 0, 0).trimmed(),
                                                             value(2).section('/', 1, 1).trimmed());
     drawPart(sysComp, muted, false);
-    drawPart("   ·   ", dotColor, false);
+    curX += groupSpacing;
+    drawPart("Size: ", muted, false);
+    drawPart(payloadText, foreground, true);
+    curX += groupSpacing;
     drawPart("Actual: ", muted, false);
     drawPart(value(4) + " Hz", running ? QColor(dark ? "#57c99a" : "#178255") : foreground, true);
-    drawPart("   ·   ", dotColor, false);
+    curX += groupSpacing;
     drawPart("Frames: ", muted, false);
     drawPart(value(5), foreground, true);
     painter->restore();
@@ -318,23 +359,9 @@ bool TxCardDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
         const int textLeft = card.left() + 24;
         const QRect badge(card.right() - 88, card.top() + 9, 80, 22);
 
-        const uint32_t msgId = idStr.toUInt();
-        const auto *metadata = mavlink_get_msg_entry(msgId);
-        const uint8_t payloadLen = metadata ? metadata->max_msg_len : 0;
-        const QString payloadText = QString("%1 B").arg(payloadLen);
-        QFont payloadFont = option.font;
-        payloadFont.setPixelSize(11);
-        payloadFont.setWeight(QFont::Medium);
-        const int payloadWidth = QFontMetrics(payloadFont).horizontalAdvance(payloadText) + 14;
-
-        const QString rateText = hzStr + " Hz";
-        QFont pillFont = option.font;
-        pillFont.setPixelSize(11);
-        pillFont.setWeight(QFont::Medium);
-        const int pillWidth = QFontMetrics(pillFont).horizontalAdvance(rateText) + 22;
-
-        const int requiredPillsWidth = 8 + pillWidth + 8 + payloadWidth;
-        const int maxTitleWidth = std::max(20, badge.left() - 8 - requiredPillsWidth - textLeft);
+        constexpr int pillWidth = 54;
+        const int titleLeft = textLeft + pillWidth + 8;
+        const int maxTitleWidth = std::max(20, badge.left() - 8 - titleLeft);
 
         QFont titleFont = option.font;
         titleFont.setPixelSize(13);
